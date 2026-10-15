@@ -69,6 +69,9 @@ const TOGGLES: &[&str] = &[
     "noEndnote",
 ];
 
+/// The namespace of `xml:space`.
+const XML_NS: &str = "http://www.w3.org/XML/1998/namespace";
+
 /// Run properties Word changes by itself (spell-checking language, proofing),
 /// which are not differences a person made.
 const IGNORED_RUN_PROPS: &[&str] = &[
@@ -365,7 +368,6 @@ impl<'t> Reader<'t> {
         let mut state = ParaState {
             field: None,
             carried: self.open_field,
-            carried_start: None,
         };
         for child in node.children() {
             if is_w(child, "pPr") {
@@ -377,7 +379,7 @@ impl<'t> Reader<'t> {
         }
         // A field still open at the end of the paragraph spans paragraphs.
         if let Some(field) = state.field.take() {
-            self.open_field = field.depth;
+            self.open_field = field.levels.len();
             para.lock = Some(Lock::SpanningField);
             let span = field.start..para.content.end;
             para.inlines.push(Inline::Atom(Atom {
@@ -394,21 +396,6 @@ impl<'t> Reader<'t> {
             }));
         } else {
             self.open_field = state.carried;
-            if let Some(start) = state.carried_start {
-                // The tail of a field that began earlier.
-                para.inlines.insert(
-                    0,
-                    Inline::Atom(Atom {
-                        kind: AtomKind::Field,
-                        key: fnv("field continues"),
-                        display: String::new(),
-                        span: start..start,
-                        run: None,
-                        container: None,
-                        rel_ids: Vec::new(),
-                    }),
-                );
-            }
         }
         if para.lock.is_none() && self.open_field > 0 {
             para.lock = Some(Lock::SpanningField);
@@ -657,12 +644,13 @@ impl<'t> Reader<'t> {
 
         for child in node.children().filter(Node::is_element) {
             if child.tag_name().namespace() != Some(ns::W) {
-                let kind = if xml::is(child, ns::MC, "AlternateContent") {
-                    AtomKind::Drawing
+                // Shapes and text boxes: their text is not part of the paragraph's.
+                let (kind, display) = if xml::is(child, ns::MC, "AlternateContent") {
+                    (AtomKind::Drawing, String::new())
                 } else {
-                    AtomKind::Other
+                    (AtomKind::Other, inner_text(child))
                 };
-                self.run_atom(para, state, ctx, index, child, kind, inner_text(child));
+                self.run_atom(para, state, ctx, index, child, kind, display);
                 continue;
             }
             match child.tag_name().name() {
@@ -673,30 +661,30 @@ impl<'t> Reader<'t> {
                 }
                 "instrText" | "delInstrText" => {
                     if let Some(field) = state.field.as_mut()
-                        && field.depth == 1
-                        && !field.separated
+                        && field.in_instruction()
                     {
                         field.instr.push_str(child.text().unwrap_or_default());
                     }
                 }
                 "t" | "delText" => {
-                    let text = child.text().unwrap_or_default();
+                    let mut text = child.text().unwrap_or_default();
                     if child.tag_name().name() == "delText" && !ctx.deleted {
                         continue;
                     }
+                    // Without xml:space="preserve", Word drops spaces at the ends.
+                    if child.attribute((XML_NS, "space")) != Some("preserve") {
+                        text = text.trim_matches(|c| matches!(c, ' ' | '\t' | '\r' | '\n'));
+                    }
                     if let Some(field) = state.field.as_mut() {
-                        if field.depth == 1 && field.separated {
+                        if field.in_result() {
                             field.result.push_str(text);
                         }
-                        continue;
-                    }
-                    if state.carried > 0 {
                         continue;
                     }
                     push_text(para, index, text);
                 }
                 "tab" | "ptab" => self.run_char(para, state, index, "\t"),
-                "cr" => self.run_char(para, state, index, "\n"),
+                "cr" => self.run_char(para, state, index, "\r"),
                 "br" => match w_attr(child, "type") {
                     Some("page") => self.run_atom(
                         para,
@@ -774,7 +762,13 @@ impl<'t> Reader<'t> {
         }
     }
 
-    fn run_char(&self, para: &mut Paragraph, state: &ParaState, run: usize, ch: &str) {
+    fn run_char(&self, para: &mut Paragraph, state: &mut ParaState, run: usize, ch: &str) {
+        if let Some(field) = state.field.as_mut() {
+            if field.in_result() {
+                field.result.push_str(ch);
+            }
+            return;
+        }
         if state.absorbing() {
             return;
         }
@@ -1105,8 +1099,8 @@ struct Ctx {
 
 struct FieldBuilder {
     start: usize,
-    depth: usize,
-    separated: bool,
+    /// One entry per nesting level: whether that field reached its result.
+    levels: Vec<bool>,
     instr: String,
     result: String,
     container: Option<usize>,
@@ -1114,49 +1108,52 @@ struct FieldBuilder {
 
 struct ParaState {
     field: Option<FieldBuilder>,
-    /// Depth of a field carried in from an earlier paragraph.
+    /// Depth of a field carried in from an earlier paragraph. Its result shows
+    /// here as ordinary text; only its end is tracked.
     carried: usize,
-    /// Where the carried field's content in this paragraph starts.
-    carried_start: Option<usize>,
+}
+
+impl FieldBuilder {
+    /// True inside the instruction of the outermost field.
+    fn in_instruction(&self) -> bool {
+        self.levels.len() == 1 && !self.levels[0]
+    }
+
+    /// True where text shows: in the result of every field level.
+    fn in_result(&self) -> bool {
+        self.levels.iter().all(|separated| *separated)
+    }
 }
 
 impl ParaState {
     fn absorbing(&self) -> bool {
-        self.field.is_some() || self.carried > 0
+        self.field.is_some()
     }
 
     fn field_char(&mut self, kind: &str, run: Node<'_, '_>, ctx: Ctx, para: &mut Paragraph) {
-        if self.carried > 0 {
-            if self.carried_start.is_none() {
-                self.carried_start = Some(run.range().start);
-            }
-            match kind {
-                "begin" => self.carried += 1,
-                "end" => self.carried -= 1,
-                _ => {}
-            }
+        if kind == "end" && self.field.is_none() && self.carried > 0 {
+            self.carried -= 1;
             return;
         }
         match (kind, self.field.as_mut()) {
             ("begin", None) => {
                 self.field = Some(FieldBuilder {
                     start: run.range().start,
-                    depth: 1,
-                    separated: false,
+                    levels: vec![false],
                     instr: String::new(),
                     result: String::new(),
                     container: ctx.container,
                 });
             }
-            ("begin", Some(field)) => field.depth += 1,
+            ("begin", Some(field)) => field.levels.push(false),
             ("separate", Some(field)) => {
-                if field.depth == 1 {
-                    field.separated = true;
+                if let Some(last) = field.levels.last_mut() {
+                    *last = true;
                 }
             }
             ("end", Some(field)) => {
-                field.depth -= 1;
-                if field.depth == 0 {
+                field.levels.pop();
+                if field.levels.is_empty() {
                     let field = self.field.take().expect("present");
                     if field.container != ctx.container {
                         para.lock = Some(Lock::SpanningField);

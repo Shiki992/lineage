@@ -424,7 +424,7 @@ fn special_characters_and_atoms() {
     assert_eq!(paras[1].text(), "Skills\tSQL, Python");
     assert_eq!(
         paras[2].text(),
-        "Line one\nLine two after a line break\nLine three after a carriage return"
+        "Line one\nLine two after a line break\rLine three after a carriage return"
     );
     assert!(
         paras[3]
@@ -459,7 +459,8 @@ fn empty_paragraphs() {
     let docx = open("empty-and-whitespace.docx");
     let paras = paragraphs(&docx.body().blocks);
     assert!(paras[1].is_empty() && paras[2].is_empty() && paras[3].is_empty());
-    assert_eq!(paras[4].text(), " no preserve attribute ");
+    // Without xml:space="preserve" Word drops the spaces at the ends, and so do we.
+    assert_eq!(paras[4].text(), "no preserve attribute");
     assert_eq!(paras[5].text(), "\t");
 }
 

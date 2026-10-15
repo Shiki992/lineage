@@ -21,8 +21,10 @@ param(
 )
 
 # Word's paragraph text, normalised to what the engine's model shows: paragraph
-# and cell marks removed, end-of-row marks skipped, manual line breaks as new lines, Word's own codes for
-# non-breaking and soft hyphens mapped to the Unicode characters, page breaks dropped.
+# and cell marks removed, end-of-row marks skipped, Word's own codes for
+# non-breaking and soft hyphens mapped to the Unicode characters, and page-break,
+# picture and note-reference placeholders dropped. Manual line breaks stay as
+# U+000B, which is how the tests write them too.
 function Get-Lines($doc) {
   $lines = @()
   foreach ($p in $doc.Paragraphs) {
@@ -31,8 +33,9 @@ function Get-Lines($doc) {
     if ($p.Range.Information(12) -and $p.Range.Cells.Count -eq 0) { continue }
     $text = [string]$p.Range.Text
     $text = $text.TrimEnd([char]13, [char]7)
-    $text = $text.Replace([string][char]11, "`n").Replace([string][char]30, [string][char]0x2011)
-    $text = $text.Replace([string][char]31, [string][char]0x00AD).Replace([string][char]12, "")
+    $text = $text.Replace([string][char]30, [string][char]0x2011).Replace([string][char]31, [string][char]0x00AD)
+    # 12: page break; 1: inline picture; 2: footnote or endnote reference mark.
+    $text = $text.Replace([string][char]12, "").Replace([string][char]1, "").Replace([string][char]2, "")
     $lines += $text
   }
   return ,$lines

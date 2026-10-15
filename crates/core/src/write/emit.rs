@@ -87,6 +87,7 @@ impl<'a> Writer<'a> {
             let special = match ch {
                 '\t' => Some("tab"),
                 '\n' => Some("br"),
+                '\r' => Some("cr"),
                 '\u{2011}' => Some("noBreakHyphen"),
                 '\u{00AD}' => Some("softHyphen"),
                 _ => None,

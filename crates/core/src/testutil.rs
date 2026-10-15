@@ -46,8 +46,26 @@ pub fn smoke(name: &str, bytes: &[u8]) {
     let dir = PathBuf::from(dir);
     std::fs::create_dir_all(&dir).expect("smoke folder");
     std::fs::write(dir.join(format!("{name}.docx")), bytes).expect("write output");
+    // Word updates DATE fields when it opens a file, shows maths in its own
+    // characters and pictures and symbols as placeholders, so those files are opened but
+    // not compared.
+    let docx = open(bytes);
+    let main = docx.part_text(&docx.main_part).unwrap_or_default();
+    if [" DATE ", "oMath", "<pic:pic", ":sym "]
+        .iter()
+        .any(|s| main.contains(s))
+    {
+        return;
+    }
     for (view, suffix) in [(View::Accepted, "accepted"), (View::Rejected, "rejected")] {
-        let lines = open_view(bytes, view).body_lines().join("\n");
+        // Line breaks inside a paragraph are written the way Word shows them
+        // (U+000B), so the file has exactly one line per paragraph.
+        let lines: Vec<String> = open_view(bytes, view)
+            .body_lines()
+            .into_iter()
+            .map(|line| line.replace('\n', "\u{b}"))
+            .collect();
+        let lines = lines.join("\n");
         std::fs::write(dir.join(format!("{name}.{suffix}.txt")), lines)
             .expect("write expected text");
     }

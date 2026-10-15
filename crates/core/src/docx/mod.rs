@@ -4,6 +4,7 @@
 //! Word documents: opening a .docx into the canonical model.
 
 pub mod model;
+pub mod props;
 mod read;
 
 use std::collections::BTreeMap;
@@ -255,7 +256,8 @@ impl Docx {
     }
 
     /// Every paragraph's text in the body, one per line, tables included (cells
-    /// in reading order). Used by tests and the Word smoke comparison.
+    /// in reading order, cells continuing a vertical merge left out, as Word
+    /// shows them). Used by tests and the Word smoke comparison.
     #[must_use]
     pub fn body_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
@@ -270,7 +272,8 @@ fn collect_lines(blocks: &[Block], out: &mut Vec<String>) {
             Block::Paragraph(p) => out.push(p.text()),
             Block::Table(t) => {
                 for row in &t.rows {
-                    for cell in &row.cells {
+                    // A cell that continues a vertical merge shows nothing of its own.
+                    for cell in row.cells.iter().filter(|c| c.vmerge != Some(false)) {
                         collect_lines(&cell.blocks, out);
                     }
                 }
