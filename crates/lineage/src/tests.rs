@@ -15,16 +15,16 @@ use crate::ids::{Id, SequentialIds, Timestamp};
 use crate::state::FamilyState;
 
 /// A host that keeps everything in memory, the way the harness does on disk.
-struct Host {
-    ids: SequentialIds,
-    now: Timestamp,
-    blobs: MemoryBlobs,
+pub(crate) struct Host {
+    pub(crate) ids: SequentialIds,
+    pub(crate) now: Timestamp,
+    pub(crate) blobs: MemoryBlobs,
     ledger: Vec<event::Record>,
     state: Option<FamilyState>,
 }
 
 impl Host {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             ids: SequentialIds::new(1),
             now: Timestamp(1_792_056_600_000),
@@ -34,15 +34,15 @@ impl Host {
         }
     }
 
-    fn tick(&mut self) {
+    pub(crate) fn tick(&mut self) {
         self.now = Timestamp(self.now.0 + 60_000);
     }
 
-    fn state(&self) -> &FamilyState {
+    pub(crate) fn state(&self) -> &FamilyState {
         self.state.as_ref().expect("tracking")
     }
 
-    fn take(&mut self, outcome: Outcome) -> Outcome {
+    pub(crate) fn take(&mut self, outcome: Outcome) -> Outcome {
         for blob in &outcome.blobs {
             self.blobs.add(blob.clone());
         }
@@ -56,7 +56,7 @@ impl Host {
         outcome
     }
 
-    fn start(&mut self, bytes: &[u8]) -> Vec<u8> {
+    pub(crate) fn start(&mut self, bytes: &[u8]) -> Vec<u8> {
         let mut ctx = Context {
             now: self.now,
             ids: &mut self.ids,
@@ -68,11 +68,11 @@ impl Host {
         self.take(outcome).file.expect("file with ids")
     }
 
-    fn master(&self) -> Id {
+    pub(crate) fn master(&self) -> Id {
         self.state().master().expect("master").id.clone()
     }
 
-    fn make_version(&mut self, name: &str) -> (Id, Vec<u8>) {
+    pub(crate) fn make_version(&mut self, name: &str) -> (Id, Vec<u8>) {
         let state = self.state().clone();
         let mut ctx = Context {
             now: self.now,
@@ -88,7 +88,7 @@ impl Host {
         )
     }
 
-    fn save(&mut self, node: &Id, bytes: &[u8], note: &str) -> Vec<u8> {
+    pub(crate) fn save(&mut self, node: &Id, bytes: &[u8], note: &str) -> Vec<u8> {
         let state = self.state().clone();
         let mut ctx = Context {
             now: self.now,
@@ -100,7 +100,7 @@ impl Host {
         self.take(outcome).file.unwrap_or_else(|| bytes.to_vec())
     }
 
-    fn offer(&mut self, versions: &[Id]) {
+    pub(crate) fn offer(&mut self, versions: &[Id]) {
         let state = self.state().clone();
         let mut ctx = Context {
             now: self.now,
@@ -112,7 +112,12 @@ impl Host {
         self.take(outcome);
     }
 
-    fn decide(&mut self, node: &Id, bytes: &[u8], decisions: &[(Id, String, Decision)]) -> Vec<u8> {
+    pub(crate) fn decide(
+        &mut self,
+        node: &Id,
+        bytes: &[u8],
+        decisions: &[(Id, String, Decision)],
+    ) -> Vec<u8> {
         let state = self.state().clone();
         let mut ctx = Context {
             now: self.now,
@@ -125,7 +130,7 @@ impl Host {
     }
 
     /// Every offered change for a version, as (checkpoint, change id).
-    fn offered(&self, node: &Id) -> Vec<(Id, String)> {
+    pub(crate) fn offered(&self, node: &Id) -> Vec<(Id, String)> {
         variant_status(self.state(), node, &self.blobs)
             .expect("status")
             .offerable
@@ -138,7 +143,7 @@ impl Host {
 
 /// "The person edits the file in Word": the body is replaced by a fixture's,
 /// made independently by the generator, and the file keeps its own properties.
-fn edit(file: &[u8], lines: &[Line]) -> Vec<u8> {
+pub(crate) fn edit(file: &[u8], lines: &[Line]) -> Vec<u8> {
     let source = Package::read(&resume::package("t", lines).to_bytes()).expect("reads");
     let mut package = Package::read(file).expect("reads");
     package.set_part(
@@ -148,7 +153,7 @@ fn edit(file: &[u8], lines: &[Line]) -> Vec<u8> {
     package.to_bytes().expect("bytes")
 }
 
-fn lines(bytes: &[u8]) -> Vec<String> {
+pub(crate) fn lines(bytes: &[u8]) -> Vec<String> {
     lineage_core::Docx::open(bytes).expect("opens").body_lines()
 }
 

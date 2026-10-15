@@ -56,6 +56,18 @@ pub enum How {
     Detected,
 }
 
+/// How a returned file was matched to what left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchedBy {
+    /// By the Lineage ids inside it.
+    Ids,
+    /// By its content, sure enough to need no question.
+    Content,
+    /// The person chose it from the copies it could be.
+    Person,
+}
+
 /// What cleaning removed from a sent copy, kept with the record.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -136,25 +148,33 @@ pub enum Event {
         id_embedded: bool,
         cleaned: CleanSummary,
     },
-    /// A sent copy came back (Phase 3).
+    /// A file came back: a sent copy, or a copy of a checkpoint that was not
+    /// recorded as sent (decision 0012).
     FileReturned {
         returned_id: Id,
         sent_copy_id: Option<Id>,
         from_checkpoint_id: Id,
+        /// The file's name when it came back.
         display_name: String,
+        /// The exact bytes that came back.
         file: BlobHash,
-        /// How it was recognised: by the ids inside, or by its content.
-        matched_by: String,
+        matched_by: MatchedBy,
+        /// How much of the text matches what left, 0 to 100 (100 by ids).
         confidence: u8,
+        /// Their changes to the words, and their formatting-only changes.
         change_count: usize,
+        formatting_count: usize,
     },
-    /// The person decided the changes in a returned file (Phase 3).
+    /// The person kept or skipped changes in a returned file. A file can be
+    /// reviewed in more than one sitting.
     ReturnReviewed {
         returned_id: Id,
         into_node_id: Id,
         result_checkpoint_id: Option<Id>,
         kept: Vec<String>,
         skipped: Vec<String>,
+        /// True when nothing was left to decide.
+        finished: bool,
     },
     NodeArchived {
         node_id: Id,

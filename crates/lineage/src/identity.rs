@@ -1,22 +1,22 @@
 // Copyright 2026 Hrishikesh Vedantam
 // SPDX-License-Identifier: Apache-2.0
 
-//! Recognising a file: first by the two ids in its custom properties, then by
-//! a content fingerprint when the ids were stripped (BLUEPRINT §4, Identity).
+//! Measuring how alike two files are, for recognising a file whose ids were
+//! stripped (BLUEPRINT §4, Identity). [`crate::returned`] decides what the
+//! measures mean (decision 0013).
 //!
-//! The fingerprint is a bottom-k sketch (k = 128) of the hashes of every
-//! five-word run of the body text, plus the sequence of paragraph styles. Two
-//! sketches estimate how much text two files share, as a whole percentage. The
-//! threshold for "this is the same file" is decided in Phase 3 (BLUEPRINT open
-//! decision 3); this module only measures.
+//! - The fingerprint, stored with every checkpoint, is a bottom-k sketch
+//!   (k = 128) of the hashes of every five-word run of the body text, plus the
+//!   sequence of paragraph styles. Two sketches estimate how much text two files
+//!   share, as a whole percentage, with no blobs fetched.
+//! - [`content_match`] compares two whole documents word by word, through the
+//!   engine's "what changed", to tell near-identical candidates apart.
 
 use lineage_core::Docx;
-use lineage_core::docx::Block;
-use lineage_core::docx::props::{LineageIds, read_ids};
+use lineage_core::diff::{SegmentKind, diff};
+use lineage_core::docx::{Block, StoryKey};
 use lineage_core::hash::{Fnv, fnv};
 use serde::{Deserialize, Serialize};
-
-use crate::error::Result;
 
 /// Size of the sketch.
 pub const SKETCH: usize = 128;
@@ -35,6 +35,12 @@ pub struct Fingerprint {
     pub words: u32,
 }
 
+/// Words as the fingerprint counts them: runs of letters and digits.
+fn split_words(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+}
+
 fn words_of(docx: &Docx) -> (Vec<String>, u64) {
     let mut words = Vec::new();
     let mut structure = Fnv::new();
@@ -43,12 +49,7 @@ fn words_of(docx: &Docx) -> (Vec<String>, u64) {
             match block {
                 Block::Paragraph(p) => {
                     structure.str(p.props.style.as_deref().unwrap_or(""));
-                    words.extend(
-                        p.text()
-                            .split(|c: char| !c.is_alphanumeric())
-                            .filter(|w| !w.is_empty())
-                            .map(str::to_lowercase),
-                    );
+                    words.extend(split_words(&p.text()).map(str::to_lowercase));
                 }
                 Block::Table(t) => {
                     structure.str("table");
@@ -119,43 +120,49 @@ pub fn similarity(a: &Fingerprint, b: &Fingerprint) -> u8 {
     u8::try_from(100 * both / union.len().max(1)).unwrap_or(100)
 }
 
-/// How a file was recognised.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Recognised {
-    /// By the ids inside it.
-    ByIds(LineageIds),
-    /// By content, with the best match and how sure.
-    ByContent {
-        checkpoint: crate::Id,
-        confidence: u8,
-    },
-    Unknown,
+/// How alike two documents' body text is, word by word.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Match {
+    /// `100 × 2 × common / (words in a + words in b)`, 0 to 100.
+    pub percent: u8,
+    /// Words removed plus words added from `a` to `b`.
+    pub changed: usize,
 }
 
-/// Recognises a file against stored checkpoints: the ids if present, else the
-/// most similar fingerprint.
-///
-/// # Errors
-/// When the file is not a readable Word document.
-pub fn recognise<'a>(
-    bytes: &[u8],
-    checkpoints: impl Iterator<Item = (&'a crate::Id, &'a Fingerprint)>,
-) -> Result<Recognised> {
-    let docx = Docx::open(bytes)?;
-    if let Some(ids) = read_ids(&docx.package)? {
-        return Ok(Recognised::ByIds(ids));
+/// How alike two documents' body text is. The common words are those the
+/// engine's "what changed" from `a` to `b` leaves untouched, so a reworded
+/// sentence costs only its changed words and a moved paragraph costs nothing.
+/// Formatting is ignored.
+#[must_use]
+pub fn content_match(a: &Docx, b: &Docx) -> Match {
+    let count = |text: &str| split_words(text).count();
+    let total = |d: &Docx| d.body_lines().iter().map(|l| count(l)).sum::<usize>();
+    let (wa, wb) = (total(a), total(b));
+    if wa + wb == 0 {
+        return Match {
+            percent: 100,
+            changed: 0,
+        };
     }
-    let print = fingerprint(&docx);
-    let best = checkpoints
-        .map(|(id, other)| (similarity(&print, other), id))
-        .max_by_key(|(sim, id)| (*sim, std::cmp::Reverse((*id).clone())));
-    Ok(match best {
-        Some((confidence, checkpoint)) if confidence > 0 => Recognised::ByContent {
-            checkpoint: checkpoint.clone(),
-            confidence,
-        },
-        _ => Recognised::Unknown,
-    })
+    let (mut removed, mut added) = (0, 0);
+    for change in diff(a, b)
+        .changes
+        .iter()
+        .filter(|c| c.story == StoryKey::Body)
+    {
+        for segment in &change.segments {
+            match segment.kind {
+                SegmentKind::Removed => removed += count(&segment.text),
+                SegmentKind::Added => added += count(&segment.text),
+                SegmentKind::Same | SegmentKind::Reformatted => {}
+            }
+        }
+    }
+    let common = wa.saturating_sub(removed).min(wb.saturating_sub(added));
+    Match {
+        percent: u8::try_from(200 * common / (wa + wb)).unwrap_or(100),
+        changed: removed + added,
+    }
 }
 
 #[cfg(test)]
@@ -197,38 +204,49 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ids_win_over_content() {
-        let mut package = lineage_core::Package::read(
-            &resume::package("t", &resume::master_v1_lines()).to_bytes(),
-        )
-        .expect("reads");
-        let ids = LineageIds {
-            family: "1".repeat(32),
-            checkpoint: "2".repeat(32),
-        };
-        lineage_core::docx::props::write_ids(&mut package, &ids).expect("writes");
-        let bytes = package.to_bytes().expect("bytes");
-        assert_eq!(
-            recognise(&bytes, std::iter::empty()).expect("reads"),
-            Recognised::ByIds(ids)
-        );
+    fn open(lines: &[resume::Line]) -> Docx {
+        Docx::open(&resume::package("t", lines).to_bytes()).expect("opens")
     }
 
     #[test]
-    fn content_finds_the_closest_checkpoint() {
-        let a = crate::Id::parse(&"a".repeat(32)).expect("id");
-        let b = crate::Id::parse(&"b".repeat(32)).expect("id");
-        let v1 = print(&resume::master_v1_lines());
-        let v3 = print(&resume::master_v3_lines());
-        let returned = resume::package("t", &resume::master_v3_lines()).to_bytes();
-        let found = recognise(&returned, [(&a, &v1), (&b, &v3)].into_iter()).expect("reads");
+    fn content_match_counts_words_left_untouched() {
+        let v1 = open(&resume::master_v1_lines());
         assert_eq!(
-            found,
-            Recognised::ByContent {
-                checkpoint: b,
-                confidence: 100
+            content_match(&v1, &v1),
+            Match {
+                percent: 100,
+                changed: 0
             }
         );
+        let v2 = open(&resume::master_v2_lines());
+        let close = content_match(&v1, &v2);
+        assert!((80..100).contains(&close.percent), "{close:?}");
+        assert!(close.changed > 10, "the new job's words: {close:?}");
+        // A moved section costs nothing.
+        assert_eq!(
+            content_match(&v1, &open(&resume::reordered_lines())).changed,
+            0
+        );
+        // Formatting doesn't count: v3 also makes the name bold, and adds "Lead".
+        let v3 = open(&resume::master_v3_lines());
+        let lead = content_match(&v2, &v3);
+        assert!((1..=3).contains(&lead.changed), "{lead:?}");
+        let pitch = Docx::open(&fixtures::all()[2].1.to_bytes()).expect("opens");
+        let far = content_match(&v1, &pitch);
+        assert!(far.percent <= 10, "{far:?}");
+    }
+
+    #[test]
+    fn content_match_tells_neighbouring_checkpoints_apart() {
+        // A copy of v2 with one word changed is closer to v2 than to v3, which
+        // changed a different paragraph.
+        let v2 = open(&resume::master_v2_lines());
+        let v3 = open(&resume::master_v3_lines());
+        let mut edited = resume::master_v2_lines();
+        edited[3] = resume::Line::Plain(
+            "Data engineer with seven years of experience building reliable pipelines for retail and logistics teams.".to_owned(),
+        );
+        let edited = open(&edited);
+        assert!(content_match(&v2, &edited).changed < content_match(&v3, &edited).changed);
     }
 }
