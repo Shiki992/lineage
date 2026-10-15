@@ -330,6 +330,26 @@ mod tests {
     }
 
     #[test]
+    fn a_change_brought_in_by_hand_can_still_be_declined() {
+        // Found in Phase 2: by-hand cards had no buttons, so a person who
+        // didn't want the change could never stop it being offered.
+        let base = open_lines(&resume::master_v1_lines());
+        let mut lines = resume::master_v1_lines();
+        lines.push(resume::Line::Raw(lineage_testkit::docx::para(
+            "<w:sectPr/>",
+            &lineage_testkit::docx::run("References are available on request."),
+        )));
+        let theirs = open_lines(&lines);
+        let view = from_plan(&merge::plan(&base, &base, &theirs));
+        assert!(!view.by_hand.is_empty());
+        for card in &view.by_hand {
+            let labels: Vec<&str> = card.choices.iter().map(|c| c.label.as_str()).collect();
+            assert_eq!(labels, ["Decline"], "{}", card.summary);
+            assert!(card.by_hand.is_some());
+        }
+    }
+
+    #[test]
     fn already_there_changes_are_not_offered() {
         let base = open_lines(&resume::master_v1_lines());
         let ours = open_lines(&resume::tailored_copied_job_lines());

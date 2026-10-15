@@ -177,6 +177,13 @@ pub fn summarize(change: &Change, styles: &StyleNames, after_doc: Option<&Docx>)
         (ChangeKind::Delete, Unit::Row) => format!("Removed a row: {}", quote(&row_text(&before))),
         (ChangeKind::Insert, Unit::Table) => format!("Added a table{}", under(change)),
         (ChangeKind::Delete, Unit::Table) => format!("Removed a table{}", under(change)),
+        (ChangeKind::Insert, Unit::SectionBreak) => {
+            format!("Added a section break{}", under(change))
+        }
+        (ChangeKind::Delete, Unit::SectionBreak) => {
+            format!("Removed a section break{}", under(change))
+        }
+        (_, Unit::SectionBreak) => format!("Page layout changed{}", under(change)),
         (ChangeKind::Insert, _) if after.is_empty() => {
             format!("Added a blank line{}", under(change))
         }
@@ -276,6 +283,29 @@ mod tests {
                 "'Avery Quinn' made bold",
                 "'Data engineer, Corvia Freight, 2020 to 2023' changed to 'Lead data engineer, Corvia Freight, 2020 to 2023'",
             ]
+        );
+    }
+
+    #[test]
+    fn a_new_section_is_called_a_section_break() {
+        // Found in Phase 2: a paragraph that ends a section was summarised as
+        // "Added a blank line", because the break itself has no text.
+        let mut with_section = resume::master_v1_lines();
+        with_section.push(resume::Line::Raw(lineage_testkit::docx::para(
+            "<w:sectPr/>",
+            &lineage_testkit::docx::run("References are available on request."),
+        )));
+        let got = summaries(&resume::master_v1_lines(), &with_section);
+        assert!(
+            got.iter().any(|s| s.starts_with("Added a section break")),
+            "{got:?}"
+        );
+        assert!(!got.iter().any(|s| s.contains("blank line")), "{got:?}");
+        let back = summaries(&with_section, &resume::master_v1_lines());
+        assert!(
+            back.iter()
+                .any(|s| s.starts_with("Removed a section break")),
+            "{back:?}"
         );
     }
 

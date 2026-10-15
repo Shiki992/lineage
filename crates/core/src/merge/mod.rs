@@ -104,7 +104,10 @@ impl Item {
                 Decision::UseMasters,
             ],
             Status::Overlap(_) => vec![Decision::KeepMine, Decision::UseMasters],
-            Status::AlreadyThere { .. } | Status::ByHand(_) => Vec::new(),
+            // Lineage can't write it, but the person can still say no, so it
+            // stops being offered. Copied in by hand, it is detected as merged.
+            Status::ByHand(_) => vec![Decision::Decline],
+            Status::AlreadyThere { .. } => Vec::new(),
         }
     }
 }
