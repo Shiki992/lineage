@@ -1,5 +1,7 @@
 [workspace]
 resolver = "3"
+# The fuzz targets are their own workspace (they need nightly).
+exclude = ["fuzz"]
 members = [
     "crates/core",
     "crates/lineage",
