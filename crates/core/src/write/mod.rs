@@ -8,6 +8,9 @@
 //! and tables a change touches are rewritten; everything else is copied through
 //! byte for byte. [`Check`] says in advance whether a change can be written, so
 //! the panel never offers a button that would fail.
+//!
+//! [`Bring::WordsOnly`] writes only the words of a change, in this file's own
+//! formatting: for files that came back saved by another app (decision 0014).
 
 pub mod context;
 pub mod emit;
@@ -17,16 +20,36 @@ use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
 use context::{DocInfo, prefixes_compatible, rel_target};
-use emit::{cannot, deletable};
+use emit::{Like, Look, cannot, deletable};
 
 use crate::diff::inline::{Step, diff_paragraphs};
 use crate::diff::{ByHand, Change, ChangeKind, DocDiff, Path, Unit};
 use crate::docx::{Block, Docx, Inline, Paragraph, StoryKey, Table};
 use crate::error::{Error, Result};
-use crate::merge::locate::{InsertPoint, Mapped, block_at, insert_point, map_path, sequence_at};
+use crate::merge::locate::{
+    InsertPoint, Mapped, block_at, insert_point, map_path, sequence_at, source_of,
+};
 use crate::merge::{Decision, Item, OverlapKind, Plan, Status};
 use crate::package::rels_part_for;
 use crate::xml::{self, Edits, escape_attr, ns};
+
+/// What a change brought in brings with it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Bring {
+    /// The words and their formatting, as theirs has them.
+    #[default]
+    Everything,
+    /// The words only, in this file's formatting (decision 0014):
+    /// - an edited paragraph keeps its formatting, and added words take a
+    ///   neighbouring run's;
+    /// - a new paragraph takes the formatting of the nearest paragraph of theirs
+    ///   formatted alike, as this file has it (theirs' own if there is none);
+    /// - a moved paragraph keeps its formatting.
+    ///
+    /// Formatting-only changes are still written whole: keeping one asks for
+    /// that formatting.
+    WordsOnly,
+}
 
 /// Who made a tracked change, and when (an ISO 8601 UTC time, such as
 /// `2026-10-15T09:30:00Z`). The host supplies the time: the engine has no clock.
@@ -490,6 +513,7 @@ pub(crate) struct Writer<'a> {
     pub ours: &'a Docx,
     pub theirs: &'a Docx,
     rev: Revision,
+    bring: Bring,
     /// Ours' prefix for WordprocessingML.
     pub w: String,
     next_id: Cell<u64>,
@@ -506,8 +530,8 @@ pub(crate) struct Writer<'a> {
     last_deleted: RefCell<Vec<ends::LastDeleted>>,
     /// Paragraphs inserted from theirs (see `ends.rs`).
     inserted: RefCell<Vec<ends::Inserted>>,
-    /// Paragraphs of ours rewritten into theirs: (part, ours start, theirs part, theirs paragraph).
-    rewrites: RefCell<Vec<(String, usize, String, Paragraph)>>,
+    /// Paragraphs of ours rewritten into theirs.
+    rewrites: RefCell<Vec<ends::Rewrite>>,
     /// Paragraph marks of ours to mark inserted or deleted: (part, paragraph, kind).
     marks: RefCell<Vec<(String, Paragraph, &'static str)>>,
 }
@@ -553,7 +577,12 @@ fn max_annotation_id(docx: &Docx) -> u64 {
 }
 
 impl<'a> Writer<'a> {
-    pub(crate) fn new(ours: &'a Docx, theirs: &'a Docx, rev: &Revision) -> Result<Self> {
+    pub(crate) fn new(
+        ours: &'a Docx,
+        theirs: &'a Docx,
+        rev: &Revision,
+        bring: Bring,
+    ) -> Result<Self> {
         rev.validate()?;
         let info_o = DocInfo::new(ours);
         let w = info_o
@@ -565,6 +594,7 @@ impl<'a> Writer<'a> {
             ours,
             theirs,
             rev: rev.clone(),
+            bring,
             w,
             next_id: Cell::new(max_annotation_id(ours) + 1),
             docs_o: parse_stories(ours)?,
@@ -757,19 +787,123 @@ impl<'a> Writer<'a> {
     }
 
     /// The XML for a block copied from theirs as a tracked insertion.
-    fn inserted_block(&self, story: &StoryKey, after: &Path) -> Result<String> {
+    fn inserted_block(
+        &self,
+        story: &StoryKey,
+        after: &Path,
+        like: Option<&Like>,
+    ) -> Result<String> {
         let part_t = self.part_t(story)?;
         let part_o = self.part_o(story)?;
         match block_at(self.theirs, story, after).ok_or_else(|| cannot("block not found"))? {
-            Block::Paragraph(p) => self.inserted_paragraph(part_t, p, part_o),
+            Block::Paragraph(p) => self.inserted_paragraph(part_t, p, part_o, like),
             Block::Table(t) => self.inserted_table(part_t, t, part_o),
             _ => Err(cannot("this block cannot be inserted")),
         }
     }
 
-    fn insert(&self, story: &StoryKey, point: &InsertPoint, after_t: &Path) -> Result<()> {
+    /// Words only: the paragraph of ours whose formatting a paragraph new from
+    /// theirs takes. That is the nearest paragraph of theirs with text that is
+    /// formatted alike (the same paragraph formatting, else the same style and
+    /// list or not) and came from the base and is still in ours. `None` (theirs'
+    /// own formatting) in [`Bring::Everything`], for tables, or when none fits.
+    fn like_for_insert(
+        &self,
+        plan: &Plan<'_>,
+        story: &StoryKey,
+        after_t: &Path,
+    ) -> Result<Option<Like>> {
+        if self.bring != Bring::WordsOnly {
+            return Ok(None);
+        }
+        let (Some(Block::Paragraph(pt)), Some(blocks)) = (
+            block_at(self.theirs, story, after_t),
+            sequence_at(self.theirs, story, after_t),
+        ) else {
+            return Ok(None);
+        };
+        let index = after_t
+            .cells
+            .last()
+            .and_then(|s| s.block)
+            .unwrap_or(after_t.block);
+        let path_to = |k: usize| {
+            let mut path = after_t.clone();
+            match path.cells.last_mut() {
+                Some(last) => last.block = Some(k),
+                None => path.block = k,
+            }
+            path
+        };
+        let same_props = |q: &Paragraph| q.props == pt.props;
+        let same_kind = |q: &Paragraph| {
+            q.props.style == pt.props.style
+                && q.props.numbering.is_some() == pt.props.numbering.is_some()
+        };
+        let tiers: [&dyn Fn(&Paragraph) -> bool; 2] = [&same_props, &same_kind];
+        for alike in tiers {
+            for distance in 1..blocks.len() {
+                for k in [index.checked_sub(distance), index.checked_add(distance)]
+                    .into_iter()
+                    .flatten()
+                {
+                    let Some(Block::Paragraph(q)) = blocks.get(k) else {
+                        continue;
+                    };
+                    if q.text().trim().is_empty() || !alike(q) {
+                        continue;
+                    }
+                    let Some(base) = source_of(plan.theirs_diff.story(story), &path_to(k)) else {
+                        continue;
+                    };
+                    let mapped = map_path(plan.ours_diff.story(story), &base);
+                    let Some(Block::Paragraph(po)) =
+                        mapped.path().and_then(|p| block_at(self.ours, story, p))
+                    else {
+                        continue;
+                    };
+                    if po.text().trim().is_empty() {
+                        continue;
+                    }
+                    return self
+                        .like(self.part_o(story)?, po, self.part_t(story)?, q)
+                        .map(Some);
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Words only: a moved paragraph keeps its own formatting in ours.
+    fn like_for_move(
+        &self,
+        story: &StoryKey,
+        ours_path: &Path,
+        after_t: &Path,
+    ) -> Result<Option<Like>> {
+        if self.bring != Bring::WordsOnly {
+            return Ok(None);
+        }
+        match (
+            block_at(self.ours, story, ours_path),
+            block_at(self.theirs, story, after_t),
+        ) {
+            (Some(Block::Paragraph(po)), Some(Block::Paragraph(pt))) => self
+                .like(self.part_o(story)?, po, self.part_t(story)?, pt)
+                .map(Some),
+            _ => Ok(None),
+        }
+    }
+
+    fn insert(
+        &self,
+        story: &StoryKey,
+        point: &InsertPoint,
+        after_t: &Path,
+        like: Option<Like>,
+    ) -> Result<()> {
         let at = self.offset(story, point)?;
-        let xml = self.inserted_block(story, after_t)?;
+        let xml = self.inserted_block(story, after_t, like.as_ref())?;
         let part = self.part_o(story)?;
         let edit = self.edit(part, at..at, xml);
         if let Some(Block::Paragraph(pt)) = block_at(self.theirs, story, after_t) {
@@ -791,6 +925,7 @@ impl<'a> Writer<'a> {
                 edit,
                 para: pt.clone(),
                 anchor,
+                like,
             });
         }
         Ok(())
@@ -846,7 +981,15 @@ impl<'a> Writer<'a> {
         Ok(())
     }
 
-    fn rewrite(&self, story: &StoryKey, ours_path: &Path, theirs_path: &Path) -> Result<()> {
+    /// Rewrites ours' paragraph into theirs. `words` keeps ours' formatting
+    /// (in [`Bring::WordsOnly`]; a formatting-only change passes `false`).
+    fn rewrite(
+        &self,
+        story: &StoryKey,
+        ours_path: &Path,
+        theirs_path: &Path,
+        words: bool,
+    ) -> Result<()> {
         let (part_o, part_t) = (self.part_o(story)?, self.part_t(story)?);
         let (Some(Block::Paragraph(po)), Some(Block::Paragraph(pt))) = (
             block_at(self.ours, story, ours_path),
@@ -854,14 +997,15 @@ impl<'a> Writer<'a> {
         ) else {
             return Err(cannot("only paragraphs can be rewritten"));
         };
-        let xml = self.modified_paragraph(part_o, po, part_t, pt)?;
+        let words = words && self.bring == Bring::WordsOnly;
+        let look = if words { Look::Ours } else { Look::Theirs };
+        let xml = self.modified_paragraph(part_o, po, part_t, pt, look)?;
         self.edit(part_o, po.span.clone(), xml);
-        self.rewrites.borrow_mut().push((
-            part_o.to_owned(),
-            po.span.start,
-            part_t.to_owned(),
-            pt.clone(),
-        ));
+        self.rewrites.borrow_mut().push(ends::Rewrite {
+            part: part_o.to_owned(),
+            start: po.span.start,
+            formatting: (!words).then(|| (part_t.to_owned(), pt.clone())),
+        });
         Ok(())
     }
 
@@ -947,17 +1091,24 @@ impl<'a> Writer<'a> {
                 story,
                 &Self::point(plan, change, change.gap.as_ref())?,
                 after()?,
+                self.like_for_insert(plan, story, after()?)?,
             ),
             ChangeKind::Delete => self.delete(story, &Self::mapped_same(plan, change)?),
-            ChangeKind::Modify | ChangeKind::Format => {
-                self.rewrite(story, &Self::mapped_same(plan, change)?, after()?)
+            ChangeKind::Modify => {
+                self.rewrite(story, &Self::mapped_same(plan, change)?, after()?, true)
+            }
+            ChangeKind::Format => {
+                self.rewrite(story, &Self::mapped_same(plan, change)?, after()?, false)
             }
             ChangeKind::Move => {
-                self.delete(story, &Self::mapped_same(plan, change)?)?;
+                let ours_path = Self::mapped_same(plan, change)?;
+                let like = self.like_for_move(story, &ours_path, after()?)?;
+                self.delete(story, &ours_path)?;
                 self.insert(
                     story,
                     &Self::point(plan, change, change.gap.as_ref())?,
                     after()?,
+                    like,
                 )
             }
         }
@@ -976,15 +1127,25 @@ impl<'a> Writer<'a> {
             return Err(cannot("not an overlap"));
         };
         let after = || change.after.as_ref().ok_or_else(|| cannot("no content"));
+        // Their side is the words unless they changed only the formatting.
+        let words = change.kind != ChangeKind::Format;
+        let like = || -> Result<Option<Like>> {
+            if words {
+                self.like_for_insert(plan, story, after()?)
+            } else {
+                Ok(None)
+            }
+        };
         match kind {
             OverlapKind::BothEdited | OverlapKind::FormattingVsText => {
-                self.rewrite(story, &Self::mapped_any(plan, change)?, after()?)
+                self.rewrite(story, &Self::mapped_any(plan, change)?, after()?, words)
             }
             OverlapKind::DeletedVsEdited => self.delete(story, &Self::mapped_any(plan, change)?),
             OverlapKind::EditedVsDeleted => self.insert(
                 story,
                 &Self::point(plan, change, change.before.as_ref())?,
                 after()?,
+                like()?,
             ),
             OverlapKind::BothAdded => {
                 // This version's own additions in the same place.
@@ -1005,7 +1166,7 @@ impl<'a> Writer<'a> {
                             .filter_map(|o| o.after.clone())
                             .max()
                             .ok_or_else(|| cannot("no addition of mine"))?;
-                        self.insert(story, &InsertPoint::After(last), after()?)
+                        self.insert(story, &InsertPoint::After(last), after()?, like()?)
                     }
                     Decision::KeepBoth {
                         masters_first: true,
@@ -1013,6 +1174,7 @@ impl<'a> Writer<'a> {
                         story,
                         &Self::point(plan, change, change.gap.as_ref())?,
                         after()?,
+                        like()?,
                     ),
                     _ => {
                         for o in &mine {
@@ -1024,6 +1186,7 @@ impl<'a> Writer<'a> {
                             story,
                             &Self::point(plan, change, change.gap.as_ref())?,
                             after()?,
+                            like()?,
                         )
                     }
                 }
@@ -1086,7 +1249,8 @@ fn add_relationships(
     Ok(())
 }
 
-/// Writes the decided items of a plan into ours as tracked changes.
+/// Writes the decided items of a plan into ours as tracked changes, words and
+/// formatting ([`Bring::Everything`]).
 ///
 /// Items not mentioned in `decisions` are left out. Items that are already there
 /// or must be brought in by hand are never written.
@@ -1096,7 +1260,20 @@ fn add_relationships(
 /// overlap without choosing a side, or something to be brought in by hand), or
 /// the result could not be written safely. Nothing is written in that case.
 pub fn apply(plan: &Plan<'_>, decisions: &[(String, Decision)], rev: &Revision) -> Result<Vec<u8>> {
-    let writer = Writer::new(plan.ours, plan.theirs, rev)?;
+    apply_with(plan, decisions, rev, Bring::Everything)
+}
+
+/// [`apply`], bringing in what `bring` says: everything, or only the words.
+///
+/// # Errors
+/// As [`apply`].
+pub fn apply_with(
+    plan: &Plan<'_>,
+    decisions: &[(String, Decision)],
+    rev: &Revision,
+    bring: Bring,
+) -> Result<Vec<u8>> {
+    let writer = Writer::new(plan.ours, plan.theirs, rev, bring)?;
     let mut wrote = false;
     for item in &plan.items {
         let Some((_, decision)) = decisions.iter().find(|(id, _)| *id == item.change.id) else {

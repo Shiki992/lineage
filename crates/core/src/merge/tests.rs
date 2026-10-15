@@ -270,3 +270,43 @@ fn table_cells_are_units() {
     assert_eq!(statuses(&plan_c), [(ChangeKind::Insert, Status::Clean)]);
     assert_eq!(plan_c.items[0].change.unit, Unit::Row);
 }
+
+#[test]
+fn a_later_block_is_traced_back_to_where_it_came_from() {
+    use crate::diff::{CellStep, Path};
+    use locate::{map_path, source_of};
+    let base = open_lines(&resume::master_v1_lines());
+    let theirs = open_lines(&resume::master_v2_lines());
+    let d = crate::diff::diff(&base, &theirs);
+    let story = d.story(&StoryKey::Body);
+    // Every block that came from the base maps back to where it is now.
+    let mut traced = 0;
+    for j in 0..theirs.body().blocks.len() {
+        if let Some(from) = source_of(story, &Path::top(j)) {
+            assert_eq!(map_path(story, &from).path(), Some(&Path::top(j)));
+            traced += 1;
+        }
+    }
+    assert_eq!(traced, theirs.body().blocks.len() - 2, "two new paragraphs");
+
+    // Inside a table: a cell of a new row has no source; a changed cell does.
+    let before = table_doc(&[["Quarter", "Revenue", "Customers"], ["Q3", "$26k", "17"]]);
+    let after = table_doc(&[
+        ["Quarter", "Revenue", "Customers"],
+        ["Q4", "$34k", "23"],
+        ["Q3", "$31k", "17"],
+    ]);
+    let d = crate::diff::diff(&before, &after);
+    let story = d.story(&StoryKey::Body);
+    let cell = |row: usize, column: usize| Path {
+        block: 1,
+        cells: vec![CellStep {
+            row,
+            column: Some(column),
+            block: Some(0),
+        }],
+    };
+    assert_eq!(source_of(story, &cell(1, 1)), None);
+    assert_eq!(source_of(story, &cell(2, 1)), Some(cell(1, 1)));
+    assert_eq!(source_of(story, &cell(0, 2)), Some(cell(0, 2)));
+}
