@@ -154,9 +154,7 @@ pub fn from_diff(diff: &DocDiff, after: &Docx) -> WhatChanged {
     let mut view = WhatChanged::default();
     for change in &diff.changes {
         let card = card(change, after, Vec::new());
-        if change.by_hand.is_some() && change.formatting_only {
-            view.formatting.push(card);
-        } else if change.formatting_only {
+        if change.formatting_only {
             view.formatting.push(card);
         } else {
             view.changes.push(card);
