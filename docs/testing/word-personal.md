@@ -42,12 +42,30 @@ cargo test -p lineage-harness --test dev_folder -- --ignored --nocapture
 | 10  | **What I've sent** › **Open** on that row.                                                                                                        | A new, unsaved document opens with exactly what was sent: the new job as plain text (no tracked changes), no comments. (Word may show you as its author, because it is a new document; the file in Sent copies has none.) |
 | 11  | (Optional) Development link at the bottom of the pane: **Diagnostics › Check OneDrive's conditional writes**.                                     | "refused a stale write when the upload was opened: yes". Note the second answer ("when its bytes arrived after a change") for decision 0009.                                                                              |
 
+## Files that come back (Phase 3)
+
+Continue in the master's window from the run above, or any tracked file.
+
+| #   | Do                                                                                                                                             | Expect                                                                                                                                                                                                |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 12  | **Send a copy** of the master to "Mentor" with the Lineage ID on, and another to "Northgate Analytics" with it off.                            | Two files in **Sent copies**.                                                                                                                                                                         |
+| 13  | Change the master in Word and **Save checkpoint**.                                                                                             | v3 (or the next number).                                                                                                                                                                              |
+| 14  | Copy the Mentor file somewhere else under a new name, open it in Word (**Enable Editing** if Word shows Protected View), and open **Lineage**. | "This came back from Mentor", recognised by its Lineage ID, instead of the master's panel.                                                                                                            |
+| 15  | Edit that copy (Track Changes on or off), save it, then **Review their changes**.                                                              | "Lineage kept the file" and **Open "<master>"**.                                                                                                                                                      |
+| 16  | In the master's window: the call-out "Mentor sent back your copy from …" › **Review**.                                                         | Only the mentor's changes, one at a time, with **Keep** / **Skip**; where both of you changed a paragraph, both sides with **Keep mine** / **Use theirs**.                                            |
+| 17  | Decide each one, then **Apply**.                                                                                                               | Kept changes are tracked changes by **Lineage** (Review › Track Changes), skipped ones aren't written, and the latest checkpoint is "Kept N changes from Mentor". **What I've sent** says "Reviewed". |
+| 18  | Edit the Northgate copy (no ids) and save it. In the master: **A file came back** › **Choose file**, or drop the file on the pane.             | Without ids, Lineage finds it by its content: "This came back from Northgate Analytics", or "Which copy is this?" if more than one copy fits. Nothing is kept until you pick.                         |
+| 19  | (Optional) Open the Northgate copy itself in Word with Lineage.                                                                                | The Start tracking screen first says "This looks like a copy that came back".                                                                                                                         |
+
+Afterwards, `cargo test -p lineage-harness --test dev_folder -- --ignored --nocapture` (dev folder only) also checks every returned file and review.
+
 ## Word on the web
 
 1. Open your OneDrive in a browser, then the tracked master in Word on the web.
 2. **Home › Add-ins › More Add-ins › My Add-ins › Upload My Add-in**, and choose `apps/office-addin/manifest.xml`. The pane loads from `https://localhost:3000`, so the dev server must be running on this computer.
 3. **Lineage** should show the master panel from step 2 above, without asking you to start tracking again.
 4. Repeat steps 4 to 10 on the web, using a new change in step 4. In step 6 the version opens in a new tab. Note anything that differs from Windows: `insertFileFromBase64` options behave differently on the web.
+5. Repeat steps 16 to 18. On the web, **Choose file** opens the browser's file picker; check that dropping a file on the pane works too.
 
 ## Afterwards
 

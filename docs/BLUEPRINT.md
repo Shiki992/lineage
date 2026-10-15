@@ -58,8 +58,8 @@ The same paths. The add-on is installed from the Workspace Marketplace, sign-in 
 
 ### Identity
 
-- docx/pptx/xlsx: custom document properties `LineageFamilyId` and `LineageCheckpointId`, nothing else.
-- Fallback when IDs are stripped: a content fingerprint (normalised text shingles plus structure), matched against stored checkpoints, with a confidence score shown to the user.
+- docx/pptx/xlsx: custom document properties `LineageFamilyId` and `LineageCheckpointId`, nothing else. In a sent copy, `LineageCheckpointId` holds the sent copy's own id, which the ledger maps to its checkpoint, so a returned file names whose copy it is (decision 0012).
+- Fallback when IDs are stripped: a content fingerprint (normalised text shingles plus structure), matched against stored checkpoints, then compared word by word with what actually left, with a confidence score shown to the user. Only a clear match is taken without asking (decision 0013).
 - PDF sent copies: no ID inside by default. The sent record is enough to "open what they got".
 
 ### Change states (decided 2026-10-15, see docs/decisions/0002-change-states.md)
@@ -137,7 +137,7 @@ Sheets sidebars for the master and working copy, and a Docs sidebar for variant 
 
 1. ~~**Personal OneDrive layout.**~~ Decided 2026-10-15 in docs/decisions/0009-onedrive-layout.md: the app folder (`Files.ReadWrite.AppFolder`), with "next to the master" kept as a development prototype. To be confirmed by the maintainer's OneDrive run.
 2. ~~**PDF export.**~~ Decided 2026-10-15 in docs/decisions/0008-word-addin-platform.md: skipped in v0. Word exports PDF only from the open document, which still has comments, tracked changes and properties.
-3. **Fingerprint threshold.** The match threshold for returned files, and how to show uncertain matches.
+3. ~~**Fingerprint threshold.**~~ Decided 2026-10-15 in docs/decisions/0013-fingerprint-threshold.md: automatic only for a sent copy matching at least 80% with at least 5 fewer changed words than any other copy; otherwise "Which copy is this?" with the candidates and "None of these". Measured: 100% precision, 80% automatic recall where copies differ, 100% found.
 4. ~~**Wasm budgets.**~~ Set 2026-10-15 in docs/decisions/0010-wasm-boundary-and-budgets.md: wasm at most 1.5 MB raw and 420 KB gzipped, JavaScript at most 250 KB gzipped (enforced in CI); start-up and command times measured and recorded.
 5. **Start from files made by hand.** Many people already have a master and dozens of tailored copies made by hand (the maintainer's own resume folder is this shape). Lineage should match each file to the master by content and propose the family tree for the person to confirm, using the same detection as "Change states". Decide which phase.
 6. ~~**How accepted changes land in the file.**~~ Decided 2026-10-15 in docs/decisions/0003-accepted-changes.md: once the owner approves a change in the panel, it is written into the file as a tracked change, and Lineage then saves a checkpoint in the version history.
