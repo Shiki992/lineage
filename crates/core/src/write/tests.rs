@@ -36,15 +36,10 @@ fn bring_in_all(name: &str, base: &Docx, ours: &Docx, theirs: &Docx) -> Vec<u8> 
 /// Lineage with unique ids, and element order follows the schema.
 fn check_output(name: &str, ours: &Docx, bytes: &[u8]) {
     smoke(name, bytes);
-    let mut rejected = open_view(bytes, View::Rejected).body_lines();
-    let ours_lines = ours.body_lines();
-    // A paragraph added after the last one leaves its (empty) paragraph behind
-    // when rejected: Word cannot remove the document's last paragraph mark.
-    if rejected.len() == ours_lines.len() + 1 && rejected.last().is_some_and(String::is_empty) {
-        rejected.pop();
-    }
+    let rejected = open_view(bytes, View::Rejected).body_lines();
     assert_eq!(
-        rejected, ours_lines,
+        rejected,
+        ours.body_lines(),
         "{name}: rejecting gives this version back"
     );
     let docx = open(bytes);
@@ -217,10 +212,82 @@ fn bringing_in_deletions_including_the_last_paragraph() {
     theirs_lines.pop(); // the last paragraph
     let theirs = open_lines(&theirs_lines);
     let bytes = bring_in_all("deletions", &base, &ours, &theirs);
-    let mut expected = lines_of(&theirs_lines);
-    // Word cannot delete the last paragraph mark: an empty paragraph stays.
-    expected.push(String::new());
-    assert_eq!(open(&bytes).body_lines(), expected);
+    // No empty paragraph is left where the last one was.
+    assert_eq!(open(&bytes).body_lines(), lines_of(&theirs_lines));
+}
+
+/// Every way the end of the document can change, each checked both ways:
+/// accepting gives the master's version and rejecting gives this version back,
+/// with no empty paragraph left over.
+#[test]
+fn the_end_of_the_document_changes_without_leftover_paragraphs() {
+    let base_lines = resume::master_v1_lines();
+    let n = base_lines.len();
+    let mut cases: Vec<(&str, Vec<Line>)> = Vec::new();
+    // Two paragraphs added after the last one.
+    let mut added = base_lines.clone();
+    added.push(Line::H1("References".into()));
+    added.push(Line::Plain("Available on request.".into()));
+    cases.push(("end-added", added));
+    // The last paragraph replaced by two others.
+    let mut replaced = base_lines.clone();
+    replaced.pop();
+    replaced.push(Line::Plain(
+        "BSc Mathematics, Lakeside University, 2018".into(),
+    ));
+    replaced.push(Line::Plain("Data science certificate, 2021".into()));
+    cases.push(("end-replaced", replaced));
+    // The last paragraph edited, and one added after it.
+    let mut edited = base_lines.clone();
+    edited[n - 1] =
+        Line::Plain("BSc Computer Science (honours), Northbridge University, 2018".into());
+    edited.push(Line::Plain("Dean's list, three years.".into()));
+    cases.push(("end-edited-and-added", edited));
+    // The last two paragraphs deleted.
+    let mut cut = base_lines.clone();
+    cut.truncate(n - 2);
+    cases.push(("end-cut", cut));
+    // A heading made the last paragraph by deleting what followed it, then restyled.
+    let mut restyled = base_lines.clone();
+    restyled.truncate(n - 1);
+    restyled[n - 2] = Line::H2("Education".into());
+    cases.push(("end-restyled", restyled));
+    for (name, theirs_lines) in cases {
+        let base = open_lines(&base_lines);
+        let theirs = open_lines(&theirs_lines);
+        let bytes = bring_in_all(name, &base, &base, &theirs);
+        assert_eq!(
+            open(&bytes).body_lines(),
+            theirs.body_lines(),
+            "{name}: accepting gives the master's"
+        );
+    }
+}
+
+#[test]
+fn the_end_of_a_table_cell_changes_without_leftover_paragraphs() {
+    let cell = |paras: &[&str]| -> String {
+        let body: String = paras.iter().map(|t| plain(t)).collect();
+        format!(r#"<w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/></w:tcPr>{body}</w:tc>"#)
+    };
+    let doc = |a: &[&str], b: &[&str]| {
+        let table = format!(
+            r#"<w:tbl><w:tblPr><w:tblW w:w="9000" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="4500"/><w:gridCol w:w="4500"/></w:tblGrid><w:tr>{}{}</w:tr></w:tbl>"#,
+            cell(a),
+            cell(b)
+        );
+        open(
+            &Package::new(
+                "t",
+                [styled("Title", "Skills"), table, plain("After.")].concat(),
+            )
+            .to_bytes(),
+        )
+    };
+    let base = doc(&["SQL", "Python"], &["dbt", "Airflow"]);
+    let theirs = doc(&["SQL"], &["dbt", "Airflow", "Spark"]);
+    let bytes = bring_in_all("cell-ends", &base, &base, &theirs);
+    assert_eq!(open(&bytes).body_lines(), theirs.body_lines());
 }
 
 #[test]
@@ -229,10 +296,10 @@ fn bringing_in_a_move() {
     let ours = open_lines(&resume::master_v1_lines());
     let theirs = open_lines(&resume::reordered_lines());
     let bytes = bring_in_all("moves", &base, &ours, &theirs);
-    let mut expected = lines_of(&resume::reordered_lines());
-    // Education was the last paragraph; its mark stays where it was.
-    expected.push(String::new());
-    assert_eq!(open(&bytes).body_lines(), expected);
+    assert_eq!(
+        open(&bytes).body_lines(),
+        lines_of(&resume::reordered_lines())
+    );
 }
 
 #[test]

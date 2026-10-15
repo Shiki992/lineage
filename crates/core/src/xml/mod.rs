@@ -139,6 +139,39 @@ impl Edits {
         self.replace(range, String::new());
     }
 
+    /// The index of the most recently added edit.
+    #[must_use]
+    pub fn last_index(&self) -> Option<usize> {
+        self.list.len().checked_sub(1)
+    }
+
+    /// The edit at `index`, to change its range or text before applying.
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Edit> {
+        self.list.get_mut(index)
+    }
+
+    /// The replacement text of the edit at `index`.
+    #[must_use]
+    pub fn list_text(&self, index: usize) -> Option<String> {
+        self.list.get(index).map(|e| e.text.clone())
+    }
+
+    /// True when an insertion (with text) falls within `range`.
+    #[must_use]
+    pub fn inserts_within(&self, range: &std::ops::RangeInclusive<usize>) -> bool {
+        self.list
+            .iter()
+            .any(|e| e.range.is_empty() && !e.text.is_empty() && range.contains(&e.range.start))
+    }
+
+    /// The index of the replacement whose range is exactly `range` (never an insertion).
+    #[must_use]
+    pub fn find_replacement(&self, range: &Range<usize>) -> Option<usize> {
+        self.list
+            .iter()
+            .position(|e| !e.range.is_empty() && e.range == *range)
+    }
+
     /// Applies every edit to `source`.
     ///
     /// # Errors

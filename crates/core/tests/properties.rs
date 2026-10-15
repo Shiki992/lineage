@@ -16,7 +16,7 @@ use lineage_core::merge::{self, Decision, Status};
 use lineage_core::write::{Revision, apply};
 use lineage_core::xml::Edits;
 use lineage_core::{Package, diff::diff};
-use lineage_testkit::docx::{Package as Builder, list_item, para, plain, run, run_with, styled};
+use lineage_testkit::docx::{Package as Builder, list_item, para, run, run_with, styled};
 use proptest::prelude::*;
 
 const WORDS: &[&str] = &[
@@ -84,12 +84,12 @@ impl Para {
     }
 }
 
-/// A document: a title, the paragraphs, and a fixed last paragraph (Word
-/// cannot delete a document's last paragraph mark, a case tested on its own).
+/// A document: a title, then the paragraphs. The last paragraph is edited,
+/// deleted and moved like any other, which exercises how the end of the
+/// document changes (`write/ends.rs`).
 fn build(paras: &[Para]) -> Vec<u8> {
     let body: String = std::iter::once(styled("Title", "Avery Quinn"))
         .chain(paras.iter().map(Para::xml))
-        .chain(std::iter::once(plain("End of document.")))
         .collect();
     let mut builder = Builder::new("Property test", body);
     builder.numbering = true;

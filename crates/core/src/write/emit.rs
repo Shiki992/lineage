@@ -14,7 +14,7 @@ use super::Writer;
 use crate::diff::inline::{Step, diff_paragraphs};
 use crate::docx::{Atom, AtomKind, Block, Inline, Paragraph, Row, Table};
 use crate::error::{Error, Result};
-use crate::xml::{self, escape_text, ns};
+use crate::xml::{self, Edits, escape_text, ns};
 
 /// Which document a piece of content comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -426,6 +426,153 @@ impl<'a> Writer<'a> {
         let content = self.content_xml(&pieces, part_o, Some(po), part_o, None)?;
         let start = &src[po.start_tag.clone()];
         Ok(format!("{start}{ppr}{content}</{}>", qname_of(start)))
+    }
+
+    /// `w:pPr` with `new`'s properties, keeping `old`'s in `w:pPrChange` (and the
+    /// mark's run properties in `w:rPrChange`), so rejecting the change gives
+    /// `old`'s formatting back. Used where the last paragraph mark of a sequence
+    /// changes hands (see `ends.rs`). Section breaks are never copied.
+    fn swapped_ppr(
+        &self,
+        new: (From, &str, &Paragraph),
+        old: (From, &str, &Paragraph),
+    ) -> Result<String> {
+        let (new_from, new_part, new_p) = new;
+        let (old_from, old_part, old_p) = old;
+        let except = ["rPr", "sectPr", "pPrChange"];
+        let new_rest = self
+            .ppr_children(new_from, new_part, new_p, &except)?
+            .concat();
+        let old_rest = self
+            .ppr_children(old_from, old_part, old_p, &except)?
+            .concat();
+        let new_mark = self.mark_rpr_inner(new_from, new_part, new_p)?;
+        let old_mark = self.mark_rpr_inner(old_from, old_part, old_p)?;
+        let (ppr, rpr) = (self.tag("pPr"), self.tag("rPr"));
+        let mut out = format!("<{ppr}>{new_rest}");
+        if !new_mark.is_empty() || new_mark != old_mark {
+            out.push_str(&format!("<{rpr}>{new_mark}"));
+            if new_mark != old_mark {
+                out.push_str(&format!(
+                    "<{c} {rev}><{rpr}>{old_mark}</{rpr}></{c}>",
+                    c = self.tag("rPrChange"),
+                    rev = self.rev_attrs()
+                ));
+            }
+            out.push_str(&format!("</{rpr}>"));
+        }
+        if new_p.props != old_p.props {
+            out.push_str(&format!(
+                "<{c} {rev}><{ppr}>{old_rest}</{ppr}></{c}>",
+                c = self.tag("pPrChange"),
+                rev = self.rev_attrs()
+            ));
+        }
+        out.push_str(&format!("</{ppr}>"));
+        Ok(out)
+    }
+
+    /// The last of the paragraphs added after a sequence's last paragraph
+    /// (`anchor`). It takes over the sequence's final paragraph mark: its mark is
+    /// not marked inserted (the anchor's is, see `ends.rs`), and its properties
+    /// record the anchor's as the old ones. Accepting gives both paragraphs;
+    /// rejecting gives the anchor back exactly, with no empty paragraph left.
+    pub(crate) fn final_inserted_paragraph(
+        &self,
+        part_t: &str,
+        pt: &Paragraph,
+        part_o: &str,
+        anchor: &Paragraph,
+    ) -> Result<String> {
+        let ppr = self.swapped_ppr((From::Theirs, part_t, pt), (From::Ours, part_o, anchor))?;
+        let pieces = Self::whole(pt, From::Theirs, Op::Added);
+        let content = self.content_xml(&pieces, part_o, None, part_t, Some(pt))?;
+        let p = self.tag("p");
+        Ok(format!("<{p}>{ppr}{content}</{p}>"))
+    }
+
+    /// A sequence's last paragraph, deleted. Its text is deleted and it takes
+    /// `partner`'s properties (its new ones, if it is being rewritten), while
+    /// `partner` (the paragraph before it) gets its mark deleted (see `ends.rs`). Accepting joins `partner`'s text onto
+    /// this mark with `partner`'s formatting, so no empty paragraph is left;
+    /// rejecting gives both back.
+    pub(crate) fn deleted_last_paragraph(
+        &self,
+        part_o: &str,
+        po: &Paragraph,
+        partner: (From, &str, &Paragraph),
+    ) -> Result<String> {
+        let src = self.src(From::Ours, part_o)?;
+        let ppr = self.swapped_ppr(partner, (From::Ours, part_o, po))?;
+        let pieces = Self::whole(po, From::Ours, Op::Removed);
+        let content = self.content_xml(&pieces, part_o, Some(po), part_o, None)?;
+        let start = &src[po.start_tag.clone()];
+        Ok(format!("{start}{ppr}{content}</{}>", qname_of(start)))
+    }
+
+    /// Marks a paragraph's mark as inserted or deleted, in raw paragraph XML
+    /// (ours as it is, or a paragraph this writer already rewrote). The marker
+    /// goes first in the mark's `w:rPr`, as the schema requires. A mark that is
+    /// already a tracked insertion or deletion is left alone.
+    pub(crate) fn add_mark(&self, part_o: &str, paragraph: &str, kind: &str) -> Result<String> {
+        let info = self
+            .info_o
+            .part(part_o)
+            .ok_or_else(|| cannot("unknown part"))?;
+        let mut decls = String::new();
+        for (prefix, uri) in &info.namespaces {
+            let uri = xml::escape_attr(uri);
+            if prefix.is_empty() {
+                decls.push_str(&format!(r#" xmlns="{uri}""#));
+            } else {
+                decls.push_str(&format!(r#" xmlns:{prefix}="{uri}""#));
+            }
+        }
+        let head = format!("<lineage-wrap{decls}>");
+        let wrapped = format!("{head}{paragraph}</lineage-wrap>");
+        let doc = xml::parse("paragraph", &wrapped)?;
+        let p = doc
+            .root_element()
+            .first_element_child()
+            .filter(|n| xml::is(*n, ns::W, "p"))
+            .ok_or_else(|| cannot("not a paragraph"))?;
+        let marker = format!("<{} {}/>", self.tag(kind), self.rev_attrs());
+        let mut edits = Edits::new();
+        match xml::child(p, ns::W, "pPr") {
+            Some(ppr) => match xml::child(ppr, ns::W, "rPr") {
+                Some(rpr) => {
+                    let marked = rpr.children().any(|c| {
+                        ["ins", "del", "moveFrom", "moveTo"]
+                            .iter()
+                            .any(|m| xml::is(c, ns::W, m))
+                    });
+                    if marked {
+                        return Ok(paragraph.to_owned());
+                    }
+                    xml::prepend_child(&mut edits, &wrapped, rpr, &marker);
+                }
+                None => {
+                    let rpr = format!("<{r}>{marker}</{r}>", r = self.tag("rPr"));
+                    let before = ppr
+                        .children()
+                        .find(|c| xml::is(*c, ns::W, "sectPr") || xml::is(*c, ns::W, "pPrChange"));
+                    match before {
+                        Some(node) => edits.insert(node.range().start, rpr),
+                        None => xml::append_child(&mut edits, &wrapped, ppr, &rpr),
+                    }
+                }
+            },
+            None => {
+                let ppr = format!(
+                    "<{p_}><{r}>{marker}</{r}></{p_}>",
+                    p_ = self.tag("pPr"),
+                    r = self.tag("rPr")
+                );
+                edits.insert(xml::start_tag_end(&wrapped, p), ppr);
+            }
+        }
+        let out = edits.apply(&wrapped)?;
+        Ok(out[head.len()..out.len() - "</lineage-wrap>".len()].to_owned())
     }
 
     /// One of ours' paragraphs rewritten into theirs, with every difference

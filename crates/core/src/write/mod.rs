@@ -11,6 +11,7 @@
 
 pub mod context;
 pub mod emit;
+mod ends;
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -494,6 +495,16 @@ pub(crate) struct Writer<'a> {
     edits: RefCell<BTreeMap<String, Edits>>,
     /// External hyperlinks to add, per ours part: (new id, target).
     new_rels: RefCell<BTreeMap<String, Vec<(String, String)>>>,
+    /// Deleted paragraphs of ours, as (part, start of span).
+    deleted: RefCell<Vec<(String, usize)>>,
+    /// Deleted paragraphs that end their sequence (see `ends.rs`).
+    last_deleted: RefCell<Vec<ends::LastDeleted>>,
+    /// Paragraphs inserted from theirs (see `ends.rs`).
+    inserted: RefCell<Vec<ends::Inserted>>,
+    /// Paragraphs of ours rewritten into theirs: (part, ours start, theirs part, theirs paragraph).
+    rewrites: RefCell<Vec<(String, usize, String, Paragraph)>>,
+    /// Paragraph marks of ours to mark inserted or deleted: (part, paragraph, kind).
+    marks: RefCell<Vec<(String, Paragraph, &'static str)>>,
 }
 
 fn parse_stories(docx: &Docx) -> Result<BTreeMap<String, roxmltree::Document<'_>>> {
@@ -557,6 +568,11 @@ impl<'a> Writer<'a> {
             info_t: DocInfo::new(theirs),
             edits: RefCell::new(BTreeMap::new()),
             new_rels: RefCell::new(BTreeMap::new()),
+            deleted: RefCell::new(Vec::new()),
+            last_deleted: RefCell::new(Vec::new()),
+            inserted: RefCell::new(Vec::new()),
+            rewrites: RefCell::new(Vec::new()),
+            marks: RefCell::new(Vec::new()),
         })
     }
 
@@ -580,12 +596,12 @@ impl<'a> Writer<'a> {
         )
     }
 
-    fn edit(&self, part: &str, range: std::ops::Range<usize>, text: String) {
-        self.edits
-            .borrow_mut()
-            .entry(part.to_owned())
-            .or_default()
-            .replace(range, text);
+    /// Adds an edit to a part and returns its index there.
+    fn edit(&self, part: &str, range: std::ops::Range<usize>, text: String) -> usize {
+        let mut edits = self.edits.borrow_mut();
+        let part_edits = edits.entry(part.to_owned()).or_default();
+        part_edits.replace(range, text);
+        part_edits.last_index().unwrap_or(0)
     }
 
     /// Rewrites `r:id` values in a start tag copied from theirs so they point at
@@ -749,7 +765,29 @@ impl<'a> Writer<'a> {
     fn insert(&self, story: &StoryKey, point: &InsertPoint, after_t: &Path) -> Result<()> {
         let at = self.offset(story, point)?;
         let xml = self.inserted_block(story, after_t)?;
-        self.edit(self.part_o(story)?, at..at, xml);
+        let part = self.part_o(story)?;
+        let edit = self.edit(part, at..at, xml);
+        if let Some(Block::Paragraph(pt)) = block_at(self.theirs, story, after_t) {
+            let anchor = match point {
+                InsertPoint::After(path) if self.ends_sequence(story, path) => {
+                    match block_at(self.ours, story, path) {
+                        Some(Block::Paragraph(p)) if !p.has_revisions && p.lock.is_none() => {
+                            Some(p.clone())
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            self.inserted.borrow_mut().push(ends::Inserted {
+                part: part.to_owned(),
+                theirs_part: self.part_t(story)?.to_owned(),
+                at,
+                edit,
+                para: pt.clone(),
+                anchor,
+            });
+        }
         Ok(())
     }
 
@@ -771,14 +809,30 @@ impl<'a> Writer<'a> {
         let part = self.part_o(story)?;
         let block =
             block_at(self.ours, story, ours_path).ok_or_else(|| cannot("block not found"))?;
-        let xml = match block {
+        match block {
             Block::Paragraph(p) => {
-                self.deleted_paragraph(part, p, self.keeps_mark(story, ours_path))?
+                let keep = self.keeps_mark(story, ours_path);
+                let xml = self.deleted_paragraph(part, p, keep)?;
+                let edit = self.edit(part, block.span(), xml);
+                self.deleted
+                    .borrow_mut()
+                    .push((part.to_owned(), p.span.start));
+                if keep && self.ends_sequence(story, ours_path) {
+                    self.last_deleted.borrow_mut().push(ends::LastDeleted {
+                        part: part.to_owned(),
+                        story: story.clone(),
+                        path: ours_path.clone(),
+                        para: p.clone(),
+                        edit,
+                    });
+                }
             }
-            Block::Table(t) => self.deleted_table(part, t)?,
+            Block::Table(t) => {
+                let xml = self.deleted_table(part, t)?;
+                self.edit(part, block.span(), xml);
+            }
             _ => return Err(cannot("this block cannot be deleted")),
-        };
-        self.edit(part, block.span(), xml);
+        }
         Ok(())
     }
 
@@ -792,6 +846,12 @@ impl<'a> Writer<'a> {
         };
         let xml = self.modified_paragraph(part_o, po, part_t, pt)?;
         self.edit(part_o, po.span.clone(), xml);
+        self.rewrites.borrow_mut().push((
+            part_o.to_owned(),
+            po.span.start,
+            part_t.to_owned(),
+            pt.clone(),
+        ));
         Ok(())
     }
 
@@ -963,6 +1023,7 @@ impl<'a> Writer<'a> {
 
     /// Applies every edit and returns the new package bytes.
     pub(crate) fn finish(self) -> Result<Vec<u8>> {
+        self.settle_sequence_ends()?;
         let mut package = self.ours.package.clone();
         for (part, edits) in self.edits.into_inner() {
             let text = self.ours.part_text(&part)?;
