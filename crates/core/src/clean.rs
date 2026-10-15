@@ -188,6 +188,22 @@ impl Pass<'_> {
     }
 }
 
+/// True when a paragraph holds nothing but its properties and zero-width marks.
+fn is_empty_paragraph(p: Node<'_, '_>) -> bool {
+    p.children().filter(Node::is_element).all(|c| {
+        [
+            "pPr",
+            "bookmarkStart",
+            "bookmarkEnd",
+            "proofErr",
+            "permStart",
+            "permEnd",
+        ]
+        .iter()
+        .any(|n| is_w(c, n))
+    })
+}
+
 /// Joins paragraphs whose mark is a tracked deletion with the next paragraph,
 /// as accepting the deletion does. One join per pass, repeated until none are left.
 fn join_deleted_marks(part: &str, mut text: String, report: &mut CleanReport) -> Result<String> {
@@ -220,6 +236,10 @@ fn join_deleted_marks(part: &str, mut text: String, report: &mut CleanReport) ->
                 let q_head = text[q.range().start..q_content_start].to_owned();
                 edits.replace(p.range().start..p_content_start, q_head);
                 edits.delete(p_content_end..q_content_start);
+            }
+            None if next.is_some_and(|n| is_w(n, "tbl")) && is_empty_paragraph(p) => {
+                // Before a table, Word removes the empty paragraph altogether.
+                edits.delete(p.range());
             }
             None => {
                 // Nothing to join with: the deletion of the mark cannot be accepted

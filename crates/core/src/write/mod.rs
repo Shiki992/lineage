@@ -791,8 +791,8 @@ impl<'a> Writer<'a> {
         Ok(())
     }
 
-    /// True when the block is the last paragraph of its sequence, whose mark
-    /// Word cannot delete.
+    /// True when the paragraph's mark must stay: it ends its sequence (Word
+    /// cannot delete that mark) or carries a section break.
     fn keeps_mark(&self, story: &StoryKey, path: &Path) -> bool {
         let Some(blocks) = sequence_at(self.ours, story, path) else {
             return true;
@@ -802,7 +802,12 @@ impl<'a> Writer<'a> {
             .last()
             .and_then(|s| s.block)
             .unwrap_or(path.block);
-        !matches!(blocks.get(index + 1), Some(Block::Paragraph(_)))
+        // Word removes a deleted paragraph that a table follows; only the last
+        // paragraph of a sequence (or one ending a section) keeps its mark.
+        !matches!(
+            blocks.get(index + 1),
+            Some(Block::Paragraph(_) | Block::Table(_))
+        )
     }
 
     fn delete(&self, story: &StoryKey, ours_path: &Path) -> Result<()> {
@@ -1028,6 +1033,10 @@ impl<'a> Writer<'a> {
         for (part, edits) in self.edits.into_inner() {
             let text = self.ours.part_text(&part)?;
             let new = edits.apply(text)?;
+            // The last line of defence: never hand back a part that is not
+            // well-formed XML. Nothing is written in that case.
+            xml::parse(&part, &new)
+                .map_err(|_| cannot("the result would not be a valid document"))?;
             package.set_part(&part, new.into_bytes());
         }
         for (part, rels) in self.new_rels.into_inner() {

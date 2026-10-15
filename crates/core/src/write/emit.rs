@@ -425,7 +425,7 @@ impl<'a> Writer<'a> {
         let pieces = Self::whole(po, From::Ours, Op::Removed);
         let content = self.content_xml(&pieces, part_o, Some(po), part_o, None)?;
         let start = &src[po.start_tag.clone()];
-        Ok(format!("{start}{ppr}{content}</{}>", qname_of(start)))
+        Ok(element(start, &format!("{ppr}{content}")))
     }
 
     /// `w:pPr` with `new`'s properties, keeping `old`'s in `w:pPrChange` (and the
@@ -507,7 +507,7 @@ impl<'a> Writer<'a> {
         let pieces = Self::whole(po, From::Ours, Op::Removed);
         let content = self.content_xml(&pieces, part_o, Some(po), part_o, None)?;
         let start = &src[po.start_tag.clone()];
-        Ok(format!("{start}{ppr}{content}</{}>", qname_of(start)))
+        Ok(element(start, &format!("{ppr}{content}")))
     }
 
     /// Marks a paragraph's mark as inserted or deleted, in raw paragraph XML
@@ -568,7 +568,8 @@ impl<'a> Writer<'a> {
                     p_ = self.tag("pPr"),
                     r = self.tag("rPr")
                 );
-                edits.insert(xml::start_tag_end(&wrapped, p), ppr);
+                // Opens `<w:p/>` if needed.
+                xml::prepend_child(&mut edits, &wrapped, p, &ppr);
             }
         }
         let out = edits.apply(&wrapped)?;
@@ -715,7 +716,7 @@ impl<'a> Writer<'a> {
         flush_markers(po.inlines.len(), &mut pieces, &mut marker_cursor);
         let content = self.content_xml(&pieces, part_o, Some(po), part_t, Some(pt))?;
         let start = &src_o[po.start_tag.clone()];
-        Ok(format!("{start}{ppr}{content}</{}>", qname_of(start)))
+        Ok(element(start, &format!("{ppr}{content}")))
     }
 
     /// `w:trPr` (raw children) plus an `w:ins` or `w:del` marker.
@@ -807,12 +808,9 @@ impl<'a> Writer<'a> {
                     _ => return Err(cannot("unexpected content in a cell")),
                 }
             }
-            cells.push_str(&format!("{tc_start}{tcpr}{inner}</{}>", qname_of(tc_start)));
+            cells.push_str(&element(tc_start, &format!("{tcpr}{inner}")));
         }
-        Ok(format!(
-            "{start}{prefix}{trpr}{cells}</{}>",
-            qname_of(start)
-        ))
+        Ok(element(start, &format!("{prefix}{trpr}{cells}")))
     }
 
     fn table_head(&self, from: From, part: &str, table: &Table) -> Result<(String, String)> {
@@ -856,7 +854,7 @@ impl<'a> Writer<'a> {
         for row in &table.rows {
             rows.push_str(&self.deleted_row(part_o, row)?);
         }
-        Ok(format!("{start}{head}{rows}</{}>", qname_of(&start)))
+        Ok(element(&start, &format!("{head}{rows}")))
     }
 }
 
@@ -897,6 +895,17 @@ pub(crate) fn rebuild_without(src: &str, node: Node<'_, '_>, except: &[&str]) ->
     }
     let inner = children_except(src, node, except).concat();
     format!("{start}{inner}</{}>", xml::qname(src, node))
+}
+
+/// An element from a start tag copied from the source and new content. A
+/// self-closing start tag (`<w:p w14:paraId="1"/>`, as Word writes empty
+/// paragraphs) is opened first, so the element is never closed twice.
+pub(crate) fn element(start_tag: &str, inner: &str) -> String {
+    let open = match start_tag.strip_suffix("/>") {
+        Some(head) => format!("{}>", head.trim_end()),
+        None => start_tag.to_owned(),
+    };
+    format!("{open}{inner}</{}>", qname_of(start_tag))
 }
 
 /// The qualified name in a start tag such as `<w:p w14:paraId="1">`.

@@ -1043,6 +1043,14 @@ fn join_paragraph_marks(blocks: &mut Vec<Block>, view: View) {
     };
     let mut index = 0;
     while index + 1 < blocks.len() {
+        // Word removes an empty paragraph whose mark goes when a table follows
+        // it (checked in Word: accepting a deleted one, rejecting an inserted one).
+        let vanishes = matches!(&blocks[index], Block::Paragraph(p) if joins(p) && p.is_empty())
+            && matches!(&blocks[index + 1], Block::Table(_));
+        if vanishes {
+            blocks.remove(index);
+            continue;
+        }
         let should_join = matches!(&blocks[index], Block::Paragraph(p) if joins(p))
             && matches!(&blocks[index + 1], Block::Paragraph(_));
         if !should_join {

@@ -290,6 +290,63 @@ fn the_end_of_a_table_cell_changes_without_leftover_paragraphs() {
     assert_eq!(open(&bytes).body_lines(), theirs.body_lines());
 }
 
+/// Found on real documents: Word writes an empty paragraph as `<w:p .../>`,
+/// and rewriting it must open the tag rather than close it twice.
+#[test]
+fn self_closing_paragraphs_are_rewritten_safely() {
+    let table = r#"<w:tbl><w:tblPr><w:tblW w:w="4000" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="4000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"#;
+    let base_body = [
+        styled("Title", "Avery Quinn"),
+        table.to_owned(),
+        r#"<w:p w:rsidR="00A1B2C3"/>"#.to_owned(),
+    ]
+    .concat();
+    let added = [base_body.clone(), plain("Added after the empty paragraph.")].concat();
+    let replaced = [
+        styled("Title", "Avery Quinn"),
+        table.to_owned(),
+        plain("Now with text."),
+    ]
+    .concat();
+    let base = open(&Package::new("t", base_body).to_bytes());
+    for (name, body) in [
+        ("self-closing-append", added),
+        ("self-closing-rewrite", replaced),
+    ] {
+        let theirs = open(&Package::new("t", body).to_bytes());
+        let bytes = bring_in_all(name, &base, &base, &theirs);
+        assert_eq!(open(&bytes).body_lines(), theirs.body_lines(), "{name}");
+    }
+}
+
+/// Checked in Word: a deleted paragraph right before a table goes entirely when
+/// accepted, and an inserted one goes entirely when rejected.
+#[test]
+fn paragraphs_before_tables_come_and_go_cleanly() {
+    let table = r#"<w:tbl><w:tblPr><w:tblW w:w="4000" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="4000" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"#;
+    let doc = |middle: &str| {
+        open(
+            &Package::new(
+                "t",
+                [
+                    plain("First"),
+                    middle.to_owned(),
+                    table.to_owned(),
+                    plain("Last"),
+                ]
+                .concat(),
+            )
+            .to_bytes(),
+        )
+    };
+    let without = doc("");
+    let with = doc(&plain("Just before the table"));
+    let added = bring_in_all("before-table-added", &without, &without, &with);
+    assert_eq!(open(&added).body_lines(), with.body_lines());
+    let removed = bring_in_all("before-table-removed", &with, &with, &without);
+    assert_eq!(open(&removed).body_lines(), without.body_lines());
+}
+
 #[test]
 fn bringing_in_a_move() {
     let base = open_lines(&resume::master_v1_lines());
