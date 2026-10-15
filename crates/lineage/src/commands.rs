@@ -610,6 +610,33 @@ pub fn decide(
     Ok(builder.finish())
 }
 
+/// The buttons pressed on update cards: each card id with its decision. Finds
+/// the master checkpoint each card belongs to, then runs [`decide`].
+///
+/// # Errors
+/// [`Error::NotAllowed`] when a card is not on the version's updates panel;
+/// otherwise as [`decide`].
+pub fn decide_cards(
+    ctx: &mut Context<'_>,
+    state: &FamilyState,
+    version: &Id,
+    bytes: &[u8],
+    cards: &[(String, Decision)],
+    blobs: &dyn BlobSource,
+) -> Result<Outcome> {
+    let panel = updates(state, version, bytes, blobs)?;
+    let mut resolved = Vec::with_capacity(cards.len());
+    for (card, decision) in cards {
+        let group = panel
+            .groups
+            .iter()
+            .find(|g| g.view.ids().contains(&card.as_str()))
+            .ok_or_else(|| Error::NotAllowed(format!("no update card {card}")))?;
+        resolved.push((group.checkpoint.clone(), card.clone(), *decision));
+    }
+    decide(ctx, state, version, bytes, &resolved, blobs)
+}
+
 /// "Save copy and record it": saves a checkpoint if the file has unsaved
 /// changes, makes a clean copy, and records it as sent. The copy carries the
 /// two Lineage ids unless `embed_id` is false.

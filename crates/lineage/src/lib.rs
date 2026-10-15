@@ -28,7 +28,7 @@ pub mod state;
 pub mod views;
 
 pub use error::{Error, Result};
-pub use ids::{Id, IdSource, SequentialIds, Timestamp};
+pub use ids::{Id, IdSource, SeededIds, SequentialIds, Timestamp};
 pub use lineage_core::{ENGINE_VERSION, SPEC_VERSION};
 
 #[cfg(test)]

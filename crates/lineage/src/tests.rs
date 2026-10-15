@@ -184,6 +184,85 @@ fn a_declined_change_is_not_offered_again() {
 }
 
 #[test]
+fn cards_are_decided_by_their_ids_alone() {
+    let mut host = Host::new();
+    let master_file = host.start(&resume::package("t", &resume::master_v1_lines()).to_bytes());
+    let master = host.master();
+    let (version, version_file) = host.make_version("Resume – data roles.docx");
+    host.save(
+        &master,
+        &edit(&master_file, &resume::master_v2_lines()),
+        "New job",
+    );
+    host.offer(std::slice::from_ref(&version));
+    let cards: Vec<(String, Decision)> = host
+        .offered(&version)
+        .into_iter()
+        .map(|(_, id)| (id, Decision::BringIn))
+        .collect();
+    let state = host.state().clone();
+    let mut ctx = Context {
+        now: host.now,
+        ids: &mut host.ids,
+        author: None,
+    };
+    let outcome = commands::decide_cards(
+        &mut ctx,
+        &state,
+        &version,
+        &version_file,
+        &cards,
+        &host.blobs,
+    )
+    .expect("decides");
+    let after = host.take(outcome).file.expect("written");
+    assert_eq!(
+        lines(&after),
+        lines(&resume::package("t", &resume::master_v2_lines()).to_bytes()),
+        "accepting gives the master's text"
+    );
+
+    let state = host.state().clone();
+    let mut ctx = Context {
+        now: host.now,
+        ids: &mut host.ids,
+        author: None,
+    };
+    let unknown = vec![("not-a-card".to_owned(), Decision::BringIn)];
+    let refused = commands::decide_cards(&mut ctx, &state, &version, &after, &unknown, &host.blobs);
+    assert!(matches!(refused, Err(crate::Error::NotAllowed(_))));
+}
+
+#[test]
+fn referenced_blobs_are_the_manifests_and_change_lists() {
+    let mut host = Host::new();
+    let master_file = host.start(&resume::package("t", &resume::master_v1_lines()).to_bytes());
+    let master = host.master();
+    host.make_version("Resume – data roles.docx");
+    host.save(
+        &master,
+        &edit(&master_file, &resume::master_v2_lines()),
+        "New job",
+    );
+    let state = host.state();
+    let referenced = crate::blob::referenced(state);
+    let expected: usize = state
+        .checkpoints
+        .iter()
+        .map(|c| 1 + usize::from(c.changes.is_some()))
+        .sum();
+    assert_eq!(referenced.len(), expected, "no repeats here");
+    for hash in &referenced {
+        assert!(host.blobs.0.contains_key(hash), "stored");
+    }
+    let changes = state.checkpoints.iter().filter_map(|c| c.changes.as_ref());
+    for hash in changes {
+        assert!(referenced.contains(hash));
+        assert!(crate::blob::manifest_parts(&host.blobs.0[hash]).is_none());
+    }
+}
+
+#[test]
 fn a_change_copied_in_by_hand_is_detected_as_merged() {
     let mut host = Host::new();
     let master_file = host.start(&resume::package("t", &resume::master_v1_lines()).to_bytes());
