@@ -1,0 +1,50 @@
+{
+  "specVersion": "0",
+  "format": "docx",
+  "changes": [
+    {
+      "id": "del-1",
+      "kind": "delete",
+      "location": { "format": "docx", "part": "word/document.xml", "blockIndex": 12 },
+      "before": "Volunteer, Riverside Library, 2019",
+      "after": null,
+      "formattingOnly": false,
+      "confidence": 100
+    },
+    {
+      "id": "fmt-1",
+      "kind": "format",
+      "location": {
+        "format": "docx",
+        "part": "word/document.xml",
+        "blockIndex": 0,
+        "charRange": { "start": 0, "end": 11 }
+      },
+      "before": "Avery Quinn",
+      "after": "Avery Quinn",
+      "formattingOnly": true,
+      "confidence": 100,
+      "summary": "Name made bold"
+    },
+    {
+      "id": "mov-1",
+      "kind": "move",
+      "location": { "format": "docx", "part": "word/document.xml", "blockIndex": 4 },
+      "fromLocation": { "format": "docx", "part": "word/document.xml", "blockIndex": 9 },
+      "before": "Skills: SQL, Python, dbt",
+      "after": "Skills: SQL, Python, dbt",
+      "formattingOnly": false,
+      "confidence": 88,
+      "summary": "Skills moved above Experience"
+    },
+    {
+      "id": "fn-1",
+      "kind": "modify",
+      "location": { "format": "docx", "part": "word/footnotes.xml", "blockIndex": 2 },
+      "before": "References on request.",
+      "after": "References available on request.",
+      "formattingOnly": false,
+      "confidence": 92
+    }
+  ]
+}

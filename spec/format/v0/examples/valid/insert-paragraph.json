@@ -1,0 +1,16 @@
+{
+  "specVersion": "0",
+  "format": "docx",
+  "changes": [
+    {
+      "id": "c1",
+      "kind": "insert",
+      "location": { "format": "docx", "part": "word/document.xml", "blockIndex": 7 },
+      "before": null,
+      "after": "Data engineer, Halden Robotics, 2025 to now",
+      "formattingOnly": false,
+      "confidence": 100,
+      "summary": "New job added: Data engineer, Halden Robotics"
+    }
+  ]
+}
