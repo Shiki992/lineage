@@ -1,0 +1,16 @@
+[package]
+name = "lineage"
+description = "Lineage family logic: ledger events, checkpoints, variants, offers, change states, sent copies and identity. Pure, no I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+lineage-core.workspace = true

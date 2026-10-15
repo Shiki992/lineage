@@ -1,0 +1,17 @@
+[package]
+name = "lineage-core"
+description = "Lineage document engine: package reading, canonical models, diff, three-way merge and writers. Pure, no I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+boon.workspace = true
+serde_json.workspace = true

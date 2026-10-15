@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Shiki992/lineage/spec/format/v0/change-list.schema.json",
+  "title": "Lineage change list, format v0",
+  "description": "What changed between two states of one document. Produced by the Lineage engine and consumed by any tool. Public API: see spec/format/README.md for versioning rules.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["specVersion", "format", "changes"],
+  "properties": {
+    "specVersion": {
+      "description": "Version of this format. Always \"0\" in v0.",
+      "const": "0"
+    },
+    "format": { "$ref": "#/$defs/format" },
+    "changes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/change" }
+    }
+  },
+  "$defs": {
+    "format": {
+      "description": "Document format the change list describes. v0 covers Word only.",
+      "enum": ["docx"]
+    },
+    "changeId": {
+      "description": "Stable identifier for one change within its change list.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+    },
+    "text": {
+      "description": "Text content, or null where the side does not exist (nothing before an insert, nothing after a delete).",
+      "type": ["string", "null"]
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "location", "before", "after", "formattingOnly", "confidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/changeId" },
+        "kind": {
+          "description": "insert, delete and modify change content; move relocates content unchanged; format changes only formatting.",
+          "enum": ["insert", "delete", "modify", "move", "format"]
+        },
+        "location": { "$ref": "#/$defs/location" },
+        "fromLocation": {
+          "description": "Where moved content came from. Required for, and only allowed on, move.",
+          "$ref": "#/$defs/location"
+        },
+        "before": { "$ref": "#/$defs/text" },
+        "after": { "$ref": "#/$defs/text" },
+        "formattingOnly": {
+          "description": "True when the change touches formatting but not content. Shown separately from content changes.",
+          "type": "boolean"
+        },
+        "confidence": {
+          "description": "How sure the engine is that this change is mapped correctly, as a whole percentage. Integer on purpose: no floats in the format.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "summary": {
+          "description": "Plain-English summary for people, for example \"'Data engineer' changed to 'Senior data engineer'\".",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "insert" } } },
+          "then": { "properties": { "before": { "type": "null" }, "after": { "type": "string" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "delete" } } },
+          "then": { "properties": { "before": { "type": "string" }, "after": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "enum": ["modify", "move", "format"] } } },
+          "then": {
+            "properties": { "before": { "type": "string" }, "after": { "type": "string" } }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "move" } } },
+          "then": { "required": ["fromLocation"] },
+          "else": { "not": { "required": ["fromLocation"] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "format" } } },
+          "then": { "properties": { "formattingOnly": { "const": true } } }
+        }
+      ]
+    },
+    "location": {
+      "description": "Where a change is, keyed by format. Each format adds its own shape in later versions.",
+      "oneOf": [{ "$ref": "#/$defs/docxLocation" }]
+    },
+    "docxLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "part", "blockIndex"],
+      "properties": {
+        "format": { "const": "docx" },
+        "part": {
+          "description": "Package part holding the content, for example word/document.xml or word/footnotes.xml.",
+          "type": "string",
+          "pattern": "^word/[A-Za-z0-9_./-]+\\.xml$"
+        },
+        "blockIndex": {
+          "description": "Zero-based index of the block (paragraph, table or section break) in the part.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "blockAnchor": {
+          "description": "Optional stable anchor for the block, such as a paragraph ID, that survives moves.",
+          "type": "string",
+          "minLength": 1
+        },
+        "charRange": { "$ref": "#/$defs/charRange" }
+      }
+    },
+    "charRange": {
+      "description": "Half-open range of characters within the block's text, counted in Unicode scalar values.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

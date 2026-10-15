@@ -1,0 +1,34 @@
+# cargo-deny configuration. Run locally with `cargo deny check`.
+# Docs: https://embarkstudios.github.io/cargo-deny/checks/cfg.html
+
+[graph]
+all-features = true
+
+[advisories]
+# Every RustSec advisory (vulnerable, unmaintained, unsound, yanked) fails the check
+# unless it is listed here with a reason.
+ignore = []
+
+[licenses]
+# Only the licences our dependency tree uses today. Adding one (for example
+# BSD-3-Clause, ISC or Zlib) needs a line in the decision note for the crate that
+# brings it in.
+allow = ["Apache-2.0", "MIT", "Unicode-3.0"]
+confidence-threshold = 0.9
+
+[licenses.private]
+# Workspace crates are not published; they carry the workspace licence.
+ignore = true
+
+[bans]
+# Duplicate versions of a crate are an error. Add a `skip` entry with a reason
+# only when a duplicate is unavoidable.
+multiple-versions = "deny"
+wildcards = "deny"
+allow-wildcard-paths = true
+skip = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

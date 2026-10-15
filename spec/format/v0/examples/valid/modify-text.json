@@ -1,0 +1,22 @@
+{
+  "specVersion": "0",
+  "format": "docx",
+  "changes": [
+    {
+      "id": "c1",
+      "kind": "modify",
+      "location": {
+        "format": "docx",
+        "part": "word/document.xml",
+        "blockIndex": 3,
+        "blockAnchor": "4F2A1C07",
+        "charRange": { "start": 0, "end": 13 }
+      },
+      "before": "Data engineer",
+      "after": "Senior data engineer",
+      "formattingOnly": false,
+      "confidence": 96,
+      "summary": "'Data engineer' changed to 'Senior data engineer'"
+    }
+  ]
+}

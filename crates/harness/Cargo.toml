@@ -1,0 +1,16 @@
+[package]
+name = "lineage-harness"
+description = "Test-only harness: local-folder and in-memory storage that drives end-to-end scenarios. Never shipped."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+lineage.workspace = true
