@@ -13,6 +13,7 @@ The document engine. Pure: no file, network or clock access. Callers pass bytes 
 | `clean`   | Clean copies for sending: revisions accepted; comments, rsids, hidden text, metadata and extra properties removed.                                                                       |
 | `summary` | Plain-English summaries ("'Data engineer' changed to 'Lead data engineer'").                                                                                                             |
 | `view`    | The "what changed" view model the panel draws: content, formatting, overlaps with both sides, by-hand reasons.                                                                           |
+| `check`   | Did a write land as written? Compares the text of every story in both views, and Lineage's revisions, between what was meant and what Word holds (decision 0008).                        |
 | `hash`    | FNV-1a for in-memory keys, SHA-256 for anything stored.                                                                                                                                  |
 
 ## Tests
@@ -24,6 +25,7 @@ cargo test -p lineage-core
 - Unit tests next to each module, using fixtures built in memory by `lineage-testkit`.
 - `tests/properties.rs`: property tests (merge and write invariants, splices, zip, damaged input). `PROPTEST_CASES=3000` for a long run.
 - `tests/spec_examples.rs`: the v0 schema against its examples.
-- `tests/local_fidelity.rs`: ignored; runs over the maintainer's own documents with `LINEAGE_LOCAL_DOCS=test` and prints counts only.
+- `tests/local_fidelity.rs`: ignored; runs over the maintainer's own documents with `LINEAGE_LOCAL_DOCS=test` and prints counts only. Since Phase 2 it also writes and rereads the Lineage ids in every document.
+- `tests/word_readback.rs`: ignored; after the add-in's diagnostics write check, prints how each file Word read back differs from what was written (synthetic fixtures only).
 - Word: `LINEAGE_SMOKE_DIR=target/smoke cargo test -p lineage-core`, then `powershell -NoProfile -File scripts/word-smoke.ps1 target/smoke -Compare` checks every output in Microsoft Word (accept all and reject all must match the engine).
 - Fuzzing: `fuzz/` (see its README).

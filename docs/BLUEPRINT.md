@@ -135,9 +135,9 @@ Sheets sidebars for the master and working copy, and a Docs sidebar for variant 
 
 ## 8. Open decisions (decide in the relevant phase, record in docs/decisions)
 
-1. **Personal OneDrive layout.** Where variants live: next to the master (broader file permission) or inside the app folder (least privilege, less visible). Prototype both and recommend one.
-2. **PDF export.** Whether PDF export for sent copies comes from Word itself through Office.js, or is skipped in v0.
+1. ~~**Personal OneDrive layout.**~~ Decided 2026-10-15 in docs/decisions/0009-onedrive-layout.md: the app folder (`Files.ReadWrite.AppFolder`), with "next to the master" kept as a development prototype. To be confirmed by the maintainer's OneDrive run.
+2. ~~**PDF export.**~~ Decided 2026-10-15 in docs/decisions/0008-word-addin-platform.md: skipped in v0. Word exports PDF only from the open document, which still has comments, tracked changes and properties.
 3. **Fingerprint threshold.** The match threshold for returned files, and how to show uncertain matches.
-4. **Wasm budgets.** Bundle size and start-up time budgets for the engine in the task pane, set in Phase 2 from real measurements. The engine is Rust; TypeScript is limited to UI and platform calls.
+4. ~~**Wasm budgets.**~~ Set 2026-10-15 in docs/decisions/0010-wasm-boundary-and-budgets.md: wasm at most 1.5 MB raw and 420 KB gzipped, JavaScript at most 250 KB gzipped (enforced in CI); start-up and command times measured and recorded.
 5. **Start from files made by hand.** Many people already have a master and dozens of tailored copies made by hand (the maintainer's own resume folder is this shape). Lineage should match each file to the master by content and propose the family tree for the person to confirm, using the same detection as "Change states". Decide which phase.
 6. ~~**How accepted changes land in the file.**~~ Decided 2026-10-15 in docs/decisions/0003-accepted-changes.md: once the owner approves a change in the panel, it is written into the file as a tracked change, and Lineage then saves a checkpoint in the version history.
