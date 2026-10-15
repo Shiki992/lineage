@@ -116,7 +116,13 @@ fn with_ids(bytes: &[u8], ids: &LineageIds) -> Result<Vec<u8>> {
     Ok(package.to_bytes()?)
 }
 
-/// True when two files have the same content apart from Lineage's ids.
+/// True when two files have the same content apart from Lineage's ids: every
+/// part is the same, or the engine finds no change in any story, with every
+/// revision accepted and with every revision rejected. Word re-saves a file in
+/// its own way (revision ids, dates, settings) even when nothing was edited, so
+/// bytes alone would make a checkpoint every time a file went through Word.
+/// Edits that live only outside the stories, such as a style's definition,
+/// are picked up with the next change to the text.
 fn same_content(a: &[u8], b: &[u8]) -> Result<bool> {
     let (pa, pb) = (Package::read(a)?, Package::read(b)?);
     let strip = |p: &Package| -> Vec<(String, Vec<u8>)> {
@@ -126,7 +132,16 @@ fn same_content(a: &[u8], b: &[u8]) -> Result<bool> {
             .filter(|(name, _)| Some(name) != custom.as_ref())
             .collect()
     };
-    Ok(strip(&pa) == strip(&pb))
+    if strip(&pa) == strip(&pb) {
+        return Ok(true);
+    }
+    for view in [lineage_core::View::Accepted, lineage_core::View::Rejected] {
+        let (da, db) = (Docx::open_view(a, view)?, Docx::open_view(b, view)?);
+        if !diff(&da, &db).changes.is_empty() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Checks the file is a checkpoint of `node` in this family.
