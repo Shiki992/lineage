@@ -104,7 +104,10 @@ export class DevFolderStorage implements Storage {
     if (!response.ok) {
       throw failed("readLedger", response);
     }
-    return { bytes: await bytes(response), version: response.headers.get("X-Ledger-Version") ?? "0" };
+    return {
+      bytes: await bytes(response),
+      version: response.headers.get("X-Ledger-Version") ?? "0",
+    };
   }
 
   async appendLedger(

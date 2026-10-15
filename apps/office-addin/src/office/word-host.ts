@@ -140,7 +140,8 @@ export class WordHost implements DocumentHost {
         `${String(bytes.length)} bytes`,
       );
     }
-    const supports = (version: string) => Office.context.requirements.isSetSupported("WordApi", version);
+    const supports = (version: string) =>
+      Office.context.requirements.isSetSupported("WordApi", version);
     const options: Word.InsertFileOptions = {
       importTheme: true,
       importStyles: true,
@@ -207,7 +208,10 @@ export class WordHost implements DocumentHost {
     } else if ("webUrl" in location) {
       Office.context.ui.openBrowserWindow(location.webUrl);
     } else {
-      throw new LineageError("Open that file from the folder it's in.", "openDocument is not supported");
+      throw new LineageError(
+        "Open that file from the folder it's in.",
+        "openDocument is not supported",
+      );
     }
   }
 

@@ -54,7 +54,11 @@ function contentSecurityPolicy(dev: boolean): Plugin {
   return {
     name: "lineage-csp",
     transformIndexHtml: () => [
-      { tag: "meta", attrs: { "http-equiv": "Content-Security-Policy", content: policy }, injectTo: "head-prepend" },
+      {
+        tag: "meta",
+        attrs: { "http-equiv": "Content-Security-Policy", content: policy },
+        injectTo: "head-prepend",
+      },
     ],
   };
 }

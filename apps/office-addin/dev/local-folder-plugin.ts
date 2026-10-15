@@ -71,7 +71,11 @@ function inside(root: string, rel: string): string | undefined {
 /** A ref written by this storage: "<folder>/<name>" or a plain name in the root. */
 function refPath(root: string, ref: string): string | undefined {
   const parts = ref.split("/");
-  if (parts.length === 2 && Object.values(FOLDERS).includes(parts[0] ?? "") && fileName(parts[1] ?? "")) {
+  if (
+    parts.length === 2 &&
+    Object.values(FOLDERS).includes(parts[0] ?? "") &&
+    fileName(parts[1] ?? "")
+  ) {
     return inside(root, ref);
   }
   if (parts.length === 1 && fileName(ref)) {
@@ -82,7 +86,10 @@ function refPath(root: string, ref: string): string | undefined {
 
 async function handle(root: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "https://localhost");
-  const [route = "", a = "", b = ""] = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  const [route = "", a = "", b = ""] = url.pathname
+    .split("/")
+    .filter(Boolean)
+    .map(decodeURIComponent);
   const method = req.method ?? "GET";
   const history = path.join(root, "Lineage");
 
@@ -135,7 +142,12 @@ async function handle(root: string, req: IncomingMessage, res: ServerResponse): 
     }
   }
   if (route === "families" && method === "GET") {
-    const names = fs.existsSync(history) ? fs.readdirSync(history).filter((n) => ID.test(n)).sort() : [];
+    const names = fs.existsSync(history)
+      ? fs
+          .readdirSync(history)
+          .filter((n) => ID.test(n))
+          .sort()
+      : [];
     send(res, 200, names);
     return;
   }
@@ -143,7 +155,12 @@ async function handle(root: string, req: IncomingMessage, res: ServerResponse): 
   if (route === "files" && folder !== undefined) {
     const dir = path.join(root, folder);
     if (method === "GET" && b === "") {
-      const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => /\.docx$/i.test(n)).sort() : [];
+      const names = fs.existsSync(dir)
+        ? fs
+            .readdirSync(dir)
+            .filter((n) => /\.docx$/i.test(n))
+            .sort()
+        : [];
       send(res, 200, names);
       return;
     }
@@ -188,7 +205,12 @@ async function handle(root: string, req: IncomingMessage, res: ServerResponse): 
   if (route === "spike" && method === "GET") {
     const dir = path.join(root, "spike");
     if (a === "") {
-      const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.endsWith(".docx")).sort() : [];
+      const names = fs.existsSync(dir)
+        ? fs
+            .readdirSync(dir)
+            .filter((n) => n.endsWith(".docx"))
+            .sort()
+        : [];
       send(res, 200, names);
       return;
     }

@@ -26,7 +26,13 @@ export class FakeHost implements DocumentHost {
     private readonly info: { name: string; url: string | null },
   ) {
     this.content = bytes;
-    this.ids = engine.readIds(bytes);
+    // Word keeps the ids as document properties, so a file it can't read as
+    // .docx here simply has none.
+    try {
+      this.ids = engine.readIds(bytes);
+    } catch {
+      this.ids = null;
+    }
   }
 
   /** The person edits the document: its body becomes `bytes`' body. */

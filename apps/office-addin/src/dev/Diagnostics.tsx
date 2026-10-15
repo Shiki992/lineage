@@ -33,7 +33,9 @@ export function Diagnostics({ engine, host }: { engine: Engine; host: DocumentHo
       const read = engine.readIds(await host.readBytes());
       await host.writeIds(before);
       const ok = read?.family === ids.family && read.checkpoint === ids.checkpoint;
-      setStatus(ok ? "Ids written by Word are read by the engine." : `Ids differ: ${JSON.stringify(read)}`);
+      setStatus(
+        ok ? "Ids written by Word are read by the engine." : `Ids differ: ${JSON.stringify(read)}`,
+      );
       devLog({ name: "spike.ids", kind: ok ? "ok" : "differ" });
     } catch (error) {
       setStatus(String(error));
@@ -51,11 +53,17 @@ export function Diagnostics({ engine, host }: { engine: Engine; host: DocumentHo
       for (const name of names) {
         const started = performance.now();
         try {
-          const bytes = new Uint8Array(await (await fetch(`/__lineage-dev/spike/${encodeURIComponent(name)}`)).arrayBuffer());
+          const bytes = new Uint8Array(
+            await (await fetch(`/__lineage-dev/spike/${encodeURIComponent(name)}`)).arrayBuffer(),
+          );
           await host.replaceContents(bytes);
           const written = engine.checkWritten(bytes, await host.readBytes());
           done.push({ name, written, ms: performance.now() - started });
-          devLog({ name: `spike.write.${written.ok ? "ok" : "failed"}`, ms: performance.now() - started, kind: name.slice(0, 40) });
+          devLog({
+            name: `spike.write.${written.ok ? "ok" : "failed"}`,
+            ms: performance.now() - started,
+            kind: name.slice(0, 40),
+          });
         } catch (error) {
           done.push({ name, error: String(error), ms: performance.now() - started });
           devLog({ name: "spike.write.error", kind: name.slice(0, 40) });
