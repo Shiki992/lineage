@@ -154,10 +154,22 @@ fn dp<K: Eq + Copy>(a: &[K], b: &[K], a_off: usize, b_off: usize, out: &mut Vec<
             out.push((a_off + i, b_off + j));
             i += 1;
             j += 1;
-        } else if table[(i + 1) * width + j] >= table[i * width + j + 1] {
+        } else if table[(i + 1) * width + j + 1] == table[i * width + j] {
+            // Treat the two as one changed line when that loses no matches.
+            // With repeated lines, this keeps each paired with its counterpart
+            // in the same place, in both directions, rather than shifting every
+            // pairing by one.
             i += 1;
-        } else {
             j += 1;
+        } else {
+            let skip_a = table[(i + 1) * width + j];
+            let skip_b = table[i * width + j + 1];
+            // On a remaining tie, stay near the diagonal.
+            if skip_a > skip_b || (skip_a == skip_b && n - i > m - j) {
+                i += 1;
+            } else {
+                j += 1;
+            }
         }
     }
 }
@@ -197,6 +209,23 @@ mod tests {
         let b = [1, 3, 4, 5, 2];
         let pairs = lcs(&a, &b);
         assert_eq!(pairs, [(0, 0), (2, 1), (3, 2), (4, 3)]);
+    }
+
+    /// Found by the property tests: with repeated lines, ties must keep lines
+    /// paired with their counterparts in the same place.
+    #[test]
+    fn ties_stay_on_the_diagonal() {
+        // a: data, data, nightly, nightly
+        // b: data, "data data", nightly, "nightly data"
+        let a = [1, 1, 2, 2];
+        let b = [1, 3, 2, 4];
+        assert_eq!(lcs(&a, &b), [(0, 0), (2, 2)]);
+        // An edit to the first of two equal lines, in both directions.
+        let edited = [5, 9, 9, 7];
+        let plain = [6, 9, 9, 7];
+        assert_eq!(lcs(&[9, 9, 7], &[8, 9, 7]), [(1, 1), (2, 2)]);
+        assert_eq!(lcs(&[8, 9, 7], &[9, 9, 7]), [(1, 1), (2, 2)]);
+        assert_eq!(lcs(&edited, &plain), [(1, 1), (2, 2), (3, 3)]);
     }
 
     #[test]
