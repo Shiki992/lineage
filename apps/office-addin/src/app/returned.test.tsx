@@ -135,9 +135,12 @@ describe("reviewing a file that came back", () => {
     fireEvent.click(screen.getByRole("button", { name: "Keep" }));
     expect(screen.getByText("1 change to keep, 0 to skip.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
-    expect(onApply).toHaveBeenCalledWith([
-      { card: review.view.changes[0]?.id, decision: "bringIn" },
-    ]);
+    expect(onApply).toHaveBeenCalledWith(
+      [{ card: review.view.changes[0]?.id, decision: "bringIn" }],
+      false,
+    );
+    // Saved by Word: nothing about formatting to choose.
+    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
   it("can leave a change for later, and offers the file it came from", () => {
@@ -194,10 +197,94 @@ describe("reviewing a file that came back", () => {
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip all formatting" }));
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
-    expect(onApply).toHaveBeenCalledWith([
-      { card: "cf1", decision: "decline" },
-      { card: "cf2", decision: "decline" },
-    ]);
+    expect(onApply).toHaveBeenCalledWith(
+      [
+        { card: "cf1", decision: "decline" },
+        { card: "cf2", decision: "decline" },
+      ],
+      false,
+    );
+  });
+
+  it("for a file another app saved, keeps only their words unless asked", () => {
+    const review = golden("returned-review-words-only") as ReturnReview;
+    const note = review.formatting.note ?? "";
+    expect(note).toMatch(/^This file was saved in LibreOffice/);
+    const onApply = vi.fn();
+    render(
+      <ReviewReturned
+        review={review}
+        isSource
+        busy={false}
+        onApply={onApply}
+        onOpenSource={vi.fn()}
+        onOpenReturned={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(note)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep mine" }));
+    const box = screen.getByRole<HTMLInputElement>("checkbox", {
+      name: "Bring in their formatting too",
+    });
+    expect(box.checked).toBe(false);
+    expect(screen.getByText(/in your formatting, as tracked changes by Lineage/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    const card = review.view.overlaps[0]?.id;
+    expect(onApply).toHaveBeenLastCalledWith([{ card, decision: "keepMine" }], true);
+
+    // Asked for their formatting: the note changes, and Apply says so.
+    fireEvent.click(box);
+    expect(screen.queryByText(note)).toBeNull();
+    expect(
+      screen.getByText("Their formatting will come with their words, as you chose."),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenLastCalledWith([{ card, decision: "keepMine" }], false);
+  });
+
+  it("draws their reformatting plainly when only their words come in", () => {
+    const base = golden("returned-review-words-only") as ReturnReview;
+    const overlap = base.view.overlaps[0];
+    if (!overlap) {
+      throw new Error("no overlap");
+    }
+    const change = {
+      id: "c1",
+      summary: "'Built the shipment' changed",
+      place: null,
+      text: [
+        { kind: "reformatted" as const, text: "Built " },
+        { kind: "added" as const, text: "and ran " },
+        { kind: "reformatted" as const, text: "the shipment" },
+      ],
+      choices: [
+        { decision: "bringIn" as const, label: "Keep" },
+        { decision: "decline" as const, label: "Skip" },
+      ],
+      byHand: null,
+    };
+    const formatting = [{ ...change, id: "cf1", summary: "'Summary': font changed", text: [] }];
+    const review: ReturnReview = {
+      ...base,
+      view: { ...base.view, changes: [change], overlaps: [], formatting },
+    };
+    const { container } = render(
+      <ReviewReturned
+        review={review}
+        isSource
+        busy={false}
+        onApply={vi.fn()}
+        onOpenSource={vi.fn()}
+        onOpenReturned={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+    expect(container.querySelector(".reformatted")).toBeNull();
+    expect(container.querySelector("ins")?.textContent).toBe("added: and ran ");
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(screen.getByRole("heading", { name: "The formatting changed in 1 place" })).toBeTruthy();
+    expect(screen.getByText(/^LibreOffice changes formatting when it saves a file/)).toBeTruthy();
   });
 });
 

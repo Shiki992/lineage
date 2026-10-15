@@ -5,6 +5,8 @@
 // the file, see which copy it is (or choose, when Lineage isn't sure), then go
 // through their changes one at a time, keeping or skipping each. Nothing is
 // written until Apply, and kept changes land as tracked changes by Lineage.
+// For a file saved by another app, kept changes bring only their words, in the
+// file's own formatting, unless the person asks for theirs (decision 0014).
 
 import type {
   Candidate,
@@ -16,6 +18,7 @@ import type {
   Recognition,
   ReturnReview,
   ReturnedRow,
+  Segment,
 } from "@lineage/shell";
 import { useId, useRef, useState } from "react";
 import { Back, Button, LinkButton, Segments } from "./parts";
@@ -326,6 +329,11 @@ function count(n: number, one: string, many: string): string {
   return `${String(n)} ${n === 1 ? one : many}`;
 }
 
+/** True when a side changes words (not only formatting). */
+function changesWords(segments: readonly Segment[]): boolean {
+  return segments.some((s) => s.kind === "added" || s.kind === "removed");
+}
+
 /** The review of a returned file, one change at a time. */
 export function ReviewReturned({
   review,
@@ -340,7 +348,8 @@ export function ReviewReturned({
   /** True when the open file is the one the copy was made from. */
   isSource: boolean;
   busy: boolean;
-  onApply: (cards: CardDecision[]) => void;
+  /** `wordsOnly`: kept changes bring their words in this file's formatting. */
+  onApply: (cards: CardDecision[], wordsOnly: boolean) => void;
   onOpenSource: () => void;
   onOpenReturned: () => void;
   onBack: () => void;
@@ -356,6 +365,12 @@ export function ReviewReturned({
   const singles = steps.filter((s) => s.kind === "change" || s.kind === "overlap").length;
   const [at, setAt] = useState(0);
   const [chosen, setChosen] = useState<ReadonlyMap<string, Decision>>(new Map());
+  // Lineage suggests words only for a file another app saved; the person can
+  // ask for their formatting too.
+  const suggested = review.formatting.wordsOnly;
+  const [theirFormatting, setTheirFormatting] = useState(false);
+  const wordsOnly = suggested && !theirFormatting;
+  const formattingBox = useId();
   const step = steps[Math.min(at, steps.length - 1)] ?? { kind: "summary" as const };
 
   const decide = (card: string, decision: Decision, advance = true) => {
@@ -380,6 +395,14 @@ export function ReviewReturned({
           {note}
         </p>
       ))}
+      {wordsOnly && review.formatting.note && (
+        <p className="callout small">{review.formatting.note}</p>
+      )}
+      {suggested && !wordsOnly && (
+        <p className="secondary small">
+          Their formatting will come with their words, as you chose.
+        </p>
+      )}
       <div className="row" style={{ flexWrap: "wrap" }}>
         {!isSource && (
           <LinkButton disabled={busy} onClick={onOpenSource}>
@@ -450,7 +473,7 @@ export function ReviewReturned({
       <section className="card stack" style={{ gap: 6 }} aria-labelledby="this-change">
         <h2 id="this-change">{card.summary}</h2>
         {card.place && <p className="secondary small">{card.place}</p>}
-        {card.text.length > 0 && <Segments segments={card.text} />}
+        {card.text.length > 0 && <Segments segments={card.text} wordsOnly={wordsOnly} />}
         {card.byHand && <p className="warning small">{card.byHand}</p>}
         {choiceButtons(card.id, card.choices)}
       </section>
@@ -468,7 +491,7 @@ export function ReviewReturned({
           </div>
           <div className="side side--masters">
             <p className="small secondary">{review.theirs}</p>
-            <Segments segments={card.masters} />
+            <Segments segments={card.masters} wordsOnly={wordsOnly && changesWords(card.masters)} />
           </div>
         </div>
         {choiceButtons(card.id, card.choices)}
@@ -479,11 +502,13 @@ export function ReviewReturned({
     body = (
       <section className="card stack" style={{ gap: 8 }} aria-labelledby="formatting">
         <h2 id="formatting">
-          They also changed formatting in {count(cards.length, "place", "places")}
+          {suggested ? "The formatting changed" : "They also changed formatting"} in{" "}
+          {count(cards.length, "place", "places")}
         </h2>
         <p className="small">
-          Fonts, sizes and spacing often change when a file is opened in another app, such as Google
-          Docs. You can skip them all, or go through them below.
+          {review.formatting.formattingNote ??
+            "Fonts, sizes and spacing often change when a file is opened in another app, such as Google Docs."}{" "}
+          You can skip them all, or go through them below.
         </p>
         <Button
           primary
@@ -539,16 +564,30 @@ export function ReviewReturned({
                   : ""
               }`}
         </p>
+        {suggested && (
+          <label className="row" htmlFor={formattingBox} style={{ minHeight: "var(--target)" }}>
+            <input
+              id={formattingBox}
+              type="checkbox"
+              checked={theirFormatting}
+              onChange={(e) => {
+                setTheirFormatting(e.target.checked);
+              }}
+            />
+            <span>Bring in their formatting too</span>
+          </label>
+        )}
         <p className="secondary small">
-          Kept changes appear in your file as tracked changes by Lineage, so you can review them in
-          Word.
+          {wordsOnly
+            ? "Kept changes appear in your file in your formatting, as tracked changes by Lineage, so you can review them in Word."
+            : "Kept changes appear in your file as tracked changes by Lineage, so you can review them in Word."}
         </p>
         <Button
           primary
           wide
           disabled={busy || decided.length === 0}
           onClick={() => {
-            onApply(decided);
+            onApply(decided, wordsOnly);
           }}
         >
           Apply
