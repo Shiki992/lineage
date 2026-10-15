@@ -118,12 +118,14 @@ export interface Engine {
     file: Uint8Array,
     returned: string,
   ): s.ReturnReview;
+  /** `wordsOnly` brings their words in this file's formatting (decision 0014). */
   decideReturned(
     ledger: Uint8Array,
     node: string,
     file: Uint8Array,
     returned: string,
     cards: readonly s.CardDecision[],
+    wordsOnly: boolean,
     nowMs: number,
   ): CommandResult;
   openReturned(ledger: Uint8Array, returned: string): Uint8Array;
@@ -359,7 +361,7 @@ function wrap(seed: Uint8Array): Engine {
       ),
     returnedReview: (ledger, node, file, returned) =>
       view("returnedReview", s.ReturnReview, (e) => e.returnedReview(ledger, node, file, returned)),
-    decideReturned: (ledger, node, file, returned, cards, nowMs) =>
+    decideReturned: (ledger, node, file, returned, cards, wordsOnly, nowMs) =>
       command("decideReturned", (e) =>
         e.decideReturned(
           ledger,
@@ -367,6 +369,7 @@ function wrap(seed: Uint8Array): Engine {
           file,
           returned,
           json(checked(v.array(s.CardDecision), cards, "decideReturned")),
+          checked(v.boolean(), wordsOnly, "decideReturned"),
           nowMs,
         ),
       ),

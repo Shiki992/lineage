@@ -219,6 +219,14 @@ export const Recognition = v.strictObject({
 export type Recognition = v.InferOutput<typeof Recognition>;
 
 /** The review of a file that came back. */
+/** Whether kept changes bring only their words, and why (decision 0014). */
+export const KeepFormatting = v.strictObject({
+  wordsOnly: v.boolean(),
+  note: v.nullable(Text),
+  formattingNote: v.nullable(Text),
+});
+export type KeepFormatting = v.InferOutput<typeof KeepFormatting>;
+
 export const ReturnReview = v.strictObject({
   returned: Id,
   headline: Text,
@@ -228,6 +236,7 @@ export const ReturnReview = v.strictObject({
   fromNode: Id,
   fromName: Text,
   view: WhatChanged,
+  formatting: KeepFormatting,
 });
 export type ReturnReview = v.InferOutput<typeof ReturnReview>;
 
@@ -325,5 +334,6 @@ export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "version-panel-returned": VersionPanel,
   "sent-list-returned": SentList,
   "returned-review": ReturnReview,
+  "returned-review-words-only": ReturnReview,
   "decide-returned": Outcome,
 };

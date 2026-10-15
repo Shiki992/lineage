@@ -24,6 +24,7 @@ use lineage::views::{self, MasterPanel, SentList, VersionPanel};
 use lineage::{Id, SequentialIds, Timestamp};
 use lineage_core::merge::Decision;
 use lineage_core::view::WhatChanged;
+pub use lineage_core::write::Bring;
 
 pub use storage::{LocalFolderStorage, MemoryStorage, Storage, StorageError};
 
@@ -470,7 +471,8 @@ impl<S: Storage> Panel<S> {
     }
 
     /// "Apply" on a review: `decisions` are (card id, decision). Kept changes
-    /// go into `into` as tracked changes by Lineage.
+    /// go into `into` as tracked changes by Lineage, words only when the review
+    /// says so (the panel's "Bring in their formatting too" left unticked).
     ///
     /// # Errors
     /// When a card isn't waiting for a decision, or a change can't be written safely.
@@ -480,6 +482,25 @@ impl<S: Storage> Panel<S> {
         returned: &Id,
         decisions: &[(&str, Decision)],
     ) -> Result<Outcome> {
+        let bring = if self.returned_review(into, returned)?.formatting.words_only {
+            Bring::WordsOnly
+        } else {
+            Bring::Everything
+        };
+        self.keep_and_skip_with(into, returned, decisions, bring)
+    }
+
+    /// [`Panel::keep_and_skip`], with "Bring in their formatting too" set by `bring`.
+    ///
+    /// # Errors
+    /// As [`Panel::keep_and_skip`].
+    pub fn keep_and_skip_with(
+        &mut self,
+        into: &str,
+        returned: &Id,
+        decisions: &[(&str, Decision)],
+        bring: Bring,
+    ) -> Result<Outcome> {
         let cards: Vec<(String, Decision)> = decisions
             .iter()
             .map(|(card, decision)| ((*card).to_owned(), *decision))
@@ -488,7 +509,7 @@ impl<S: Storage> Panel<S> {
         let state = self.state()?;
         let node = Self::node_of(&state, into)?;
         let outcome = self.press(|ctx, state, blobs| {
-            returned::decide(ctx, state, returned, &node, &bytes, &cards, blobs)
+            returned::decide(ctx, state, returned, &node, &bytes, &cards, bring, blobs)
         })?;
         self.write_outcome(into, &outcome)?;
         Ok(outcome)

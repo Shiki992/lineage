@@ -513,15 +513,29 @@ export class Lineage {
    * tracked changes by Lineage, read back and checked, then a checkpoint is
    * saved; skipped ones are recorded. As with `decide`, if Word didn't take the
    * changes exactly, the original goes back and nothing is recorded.
+   * `wordsOnly` brings only their words, in this file's formatting: the
+   * review's `formatting.wordsOnly` says when Lineage suggests it.
    */
-  decideReturned(returned: string, cards: readonly s.CardDecision[]): Promise<{ wrote: boolean }> {
+  decideReturned(
+    returned: string,
+    cards: readonly s.CardDecision[],
+    { wordsOnly }: { wordsOnly: boolean },
+  ): Promise<{ wrote: boolean }> {
     return this.serial("decideReturned", async () => {
       const file = this.requireFile();
       const original = await this.host.readBytes();
       const result = await this.press(
         file.familyId,
         (ledger) =>
-          this.engine.decideReturned(ledger, file.nodeId, original, returned, cards, this.now()),
+          this.engine.decideReturned(
+            ledger,
+            file.nodeId,
+            original,
+            returned,
+            cards,
+            wordsOnly,
+            this.now(),
+          ),
         (made) => this.writeAndSave(made, original),
       );
       return { wrote: result.file !== undefined };

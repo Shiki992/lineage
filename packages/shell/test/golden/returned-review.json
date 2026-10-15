@@ -1,6 +1,11 @@
 {
   "ok": true,
   "value": {
+    "formatting": {
+      "formattingNote": null,
+      "note": null,
+      "wordsOnly": false
+    },
     "from": "You sent this to Northgate Analytics on 15 Oct, from Resume – data roles v3.",
     "fromName": "Resume – data roles",
     "fromNode": "5c81cc14a997e2ba9928492bcc208f37",

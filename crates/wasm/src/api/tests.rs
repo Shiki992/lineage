@@ -520,6 +520,7 @@ fn a_file_that_comes_back_crosses_the_boundary() {
         &master_file,
         &returned,
         &serde_json::to_string(&cards).expect("json"),
+        false,
         host.now,
     );
     let (outcome, file, _) = host.take(reply);

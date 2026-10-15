@@ -17,6 +17,7 @@ export type {
   Decision,
   Family,
   Ids,
+  KeepFormatting,
   MasterPanel,
   MatchedBy,
   Node,

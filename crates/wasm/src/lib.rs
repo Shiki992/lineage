@@ -261,6 +261,7 @@ impl Engine {
     }
 
     #[wasm_bindgen(js_name = decideReturned)]
+    #[allow(clippy::too_many_arguments)]
     pub fn decide_returned(
         &mut self,
         ledger: &[u8],
@@ -268,11 +269,12 @@ impl Engine {
         file: &[u8],
         returned: &str,
         cards: &str,
+        words_only: bool,
         now_ms: f64,
     ) -> Reply {
         Reply(
             self.0
-                .decide_returned(ledger, node, file, returned, cards, now_ms),
+                .decide_returned(ledger, node, file, returned, cards, words_only, now_ms),
         )
     }
 
