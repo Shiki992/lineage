@@ -192,6 +192,8 @@ pub struct Package {
     pub body_sect: Option<String>,
     /// Whether `docProps/app.xml` is written (some exporters leave it out).
     pub app_props: bool,
+    /// The `Application` in `docProps/app.xml`, if not the generator's own name.
+    pub app_name: Option<String>,
     /// Replaces the whole of `word/styles.xml`, as another app would write it.
     pub styles_xml: Option<String>,
     pub zip: Zip,
@@ -220,6 +222,7 @@ impl Package {
             settings_tail: String::new(),
             body_sect: None,
             app_props: true,
+            app_name: None,
             styles_xml: None,
             zip: Zip::Stored,
         }
@@ -363,7 +366,15 @@ impl Package {
             ),
         ];
         if self.app_props {
-            parts.push(("docProps/app.xml".to_owned(), app_xml().into_bytes()));
+            parts.push((
+                "docProps/app.xml".to_owned(),
+                app_xml(
+                    self.app_name
+                        .as_deref()
+                        .unwrap_or("Lineage fixture generator"),
+                )
+                .into_bytes(),
+            ));
         }
         parts.extend([
             (
@@ -517,9 +528,10 @@ fn core_xml(title: &str) -> String {
     )
 }
 
-fn app_xml() -> String {
+fn app_xml(application: &str) -> String {
     format!(
-        r#"{DECL}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Lineage fixture generator</Application></Properties>"#
+        r#"{DECL}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>{}</Application></Properties>"#,
+        esc(application)
     )
 }
 
