@@ -24,6 +24,7 @@ Branch `phase-0-foundations`. Decisions: [0004-stack](decisions/0004-stack.md).
   - wasm build and TypeScript lint, typecheck, tests and format.
   - DCO check on pull requests.
 - **Local results:** cargo fmt, clippy (`-D warnings`), `cargo test --workspace` (20 tests), `cargo deny check`, both xtask checks, and `pnpm lint`, `typecheck`, `test` (16 tests) and `format:check` all pass.
+- **Clean clone** of the pushed branch (Windows): `cargo test --workspace --locked`, both xtask checks, and `pnpm install --frozen-lockfile`, `lint`, `typecheck`, `test` and `format:check` all pass.
 
 **Wasm baseline** (release, `opt-level = "s"`, LTO, before wasm-opt):
 
@@ -40,6 +41,7 @@ Task-pane budgets are set in Phase 2.
 - LibreOffice is not installed, so the headless smoke test is replaced locally by `scripts/word-smoke.ps1` (Windows with Word). CI has neither.
 - GitHub private vulnerability reporting must be turned on in the repository settings (Security → Private vulnerability reporting) for SECURITY.md to work.
 - The fixture set is 10 files; Phase 1 grows it to 30 or more.
+- **Windows long paths.** pnpm 12's recursive runner writes a state file under `node_modules/.pnpm-task-run-state-v1/` with a long hashed name. In a deeply nested clone (folder path over about 120 characters), `pnpm test` fails with "The system cannot find the path specified". Fix: clone to a shorter path, or turn on Windows long-path support. The README says so.
 
 ## Session 0: orientation (2026-10-14 to 15). Done.
 

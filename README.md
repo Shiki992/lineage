@@ -57,6 +57,8 @@ pnpm test
 
 `pnpm test`, `pnpm lint` and `pnpm typecheck` build the wasm module first. More checks are listed in [CONTRIBUTING.md](CONTRIBUTING.md).
 
+On Windows, keep the clone in a short path (such as `C:\src\lineage`) or turn on long-path support. pnpm's task runner writes files with long names under `node_modules`, and deep folders hit the 260-character path limit.
+
 ## Licence
 
 [Apache-2.0](LICENSE). Contributions are accepted under the [Developer Certificate of Origin](CONTRIBUTING.md#sign-off-dco).
