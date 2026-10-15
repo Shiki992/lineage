@@ -17,7 +17,8 @@ use std::fmt;
 
 use lineage::blob::{BlobHash, BlobSource};
 use lineage::commands::{self, Context, Outcome, Updates};
-use lineage::event::{self};
+use lineage::event::{self, MatchedBy};
+use lineage::returned::{self, Candidate, Family, Recognition, RecognitionView, ReturnReview};
 use lineage::state::FamilyState;
 use lineage::views::{self, MasterPanel, SentList, VersionPanel};
 use lineage::{Id, SequentialIds, Timestamp};
@@ -390,6 +391,121 @@ impl<S: Storage> Panel<S> {
     /// When the history cannot be read.
     pub fn what_ive_sent(&self, search: Option<&str>) -> Result<SentList> {
         Ok(views::sent_list(&self.state()?, search))
+    }
+
+    /// "A file came back": which copy `file` is, looking in every family in
+    /// storage. The panel draws the view; nothing is stored yet.
+    ///
+    /// # Errors
+    /// When the file can't be read or a history is damaged.
+    pub fn a_file_came_back(&self, file: &str) -> Result<(Recognition, RecognitionView)> {
+        let bytes = self.storage.read_file(file)?;
+        let mut states = Vec::new();
+        for family in self.storage.families()? {
+            let (ledger, _) = self.storage.read_ledger(&family)?;
+            states.push(FamilyState::from_records(&event::decode(&ledger)?)?);
+        }
+        let sources: Vec<StoredBlobs<'_, S>> = states
+            .iter()
+            .map(|s| StoredBlobs {
+                storage: &self.storage,
+                family: &s.family_id,
+            })
+            .collect();
+        let families: Vec<Family<'_>> = states
+            .iter()
+            .zip(&sources)
+            .map(|(state, blobs)| Family { state, blobs })
+            .collect();
+        let found = returned::recognise(&bytes, &families)?;
+        let refs: Vec<&FamilyState> = states.iter().collect();
+        let view = returned::describe(&found, &refs);
+        Ok((found, view))
+    }
+
+    /// "Review the changes" on the copy the panel recognised, or the one the
+    /// person chose: keeps `file` exactly as it came back. Opens that family.
+    ///
+    /// # Errors
+    /// When the copy is unknown, or `how` is ids but the file's ids don't name it.
+    pub fn record_returned(
+        &mut self,
+        file: &str,
+        candidate: &Candidate,
+        how: MatchedBy,
+    ) -> Result<Id> {
+        let bytes = self.storage.read_file(file)?;
+        self.family = Some(candidate.family.clone());
+        let outcome = self.press(|ctx, state, blobs| {
+            returned::record(
+                ctx,
+                state,
+                &bytes,
+                file,
+                &candidate.checkpoint,
+                candidate.sent.as_ref(),
+                how,
+                blobs,
+            )
+        })?;
+        outcome
+            .created
+            .ok_or_else(|| HarnessError::Panel("nothing recorded".to_owned()))
+    }
+
+    /// The review of a returned file, in `into` (the file open in Word).
+    ///
+    /// # Errors
+    /// When `into` is not a file of this family, or blobs are missing.
+    pub fn returned_review(&self, into: &str, returned: &Id) -> Result<ReturnReview> {
+        let bytes = self.storage.read_file(into)?;
+        let state = self.state()?;
+        let node = Self::node_of(&state, into)?;
+        let family = self.family()?;
+        let blobs = StoredBlobs {
+            storage: &self.storage,
+            family,
+        };
+        Ok(returned::review(&state, returned, &node, &bytes, &blobs)?)
+    }
+
+    /// "Apply" on a review: `decisions` are (card id, decision). Kept changes
+    /// go into `into` as tracked changes by Lineage.
+    ///
+    /// # Errors
+    /// When a card isn't waiting for a decision, or a change can't be written safely.
+    pub fn keep_and_skip(
+        &mut self,
+        into: &str,
+        returned: &Id,
+        decisions: &[(&str, Decision)],
+    ) -> Result<Outcome> {
+        let cards: Vec<(String, Decision)> = decisions
+            .iter()
+            .map(|(card, decision)| ((*card).to_owned(), *decision))
+            .collect();
+        let bytes = self.storage.read_file(into)?;
+        let state = self.state()?;
+        let node = Self::node_of(&state, into)?;
+        let outcome = self.press(|ctx, state, blobs| {
+            returned::decide(ctx, state, returned, &node, &bytes, &cards, blobs)
+        })?;
+        self.write_outcome(into, &outcome)?;
+        Ok(outcome)
+    }
+
+    /// "Open what came back": the exact bytes of a returned file.
+    ///
+    /// # Errors
+    /// When the returned file is unknown or its stored bytes are missing.
+    pub fn open_what_came_back(&self, returned: &Id) -> Result<Vec<u8>> {
+        let state = self.state()?;
+        let family = self.family()?;
+        let blobs = StoredBlobs {
+            storage: &self.storage,
+            family,
+        };
+        Ok(returned::open(&state, returned, &blobs)?)
     }
 
     /// "Open" on a sent copy: the exact bytes they received.

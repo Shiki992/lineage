@@ -5,8 +5,10 @@
 //! (`apps/office-addin/.dev-storage`, same layout as LocalFolderStorage), with
 //! the Rust engine and none of the TypeScript: every ledger folds, every blob
 //! matches its hash, every snapshot restores to a readable file, every tailored
-//! version on disk is a checkpoint of its node, and every sent copy on disk is
-//! byte for byte one that was recorded.
+//! version on disk is a checkpoint of its node, every sent copy on disk is
+//! byte for byte one that was recorded, every file that came back is kept
+//! exactly, and every review's checkpoint is of the file it went into (and,
+//! with `LINEAGE_SMOKE_DIR`, written out for `word-smoke.ps1 -Compare`).
 //!
 //! Run after trying the panel in Word (ignored otherwise):
 //!   cargo test -p lineage-harness --test dev_folder -- --ignored --nocapture
@@ -66,6 +68,7 @@ fn the_task_pane_wrote_a_sound_history() {
     let families = storage.families().expect("families");
     assert!(!families.is_empty(), "no families in {}", root.display());
     let (mut checkpoints, mut blobs, mut versions, mut sent_files) = (0, 0, 0, 0);
+    let (mut returned, mut reviews) = (0, 0);
     for family in &families {
         let (ledger, _) = storage.read_ledger(family).expect("ledger");
         let state = FamilyState::from_records(&event::decode(&ledger).expect("decodes"))
@@ -87,6 +90,28 @@ fn the_task_pane_wrote_a_sound_history() {
         for copy in &state.sent {
             let bytes = source.blob(&copy.file).expect("sent copy is stored");
             assert_eq!(BlobHash::of(&bytes), copy.file);
+        }
+        for back in &state.returned {
+            let bytes = source.blob(&back.file).expect("a returned file is stored");
+            assert_eq!(BlobHash::of(&bytes), back.file, "kept exactly as it came");
+            Docx::open(&bytes).expect("a returned file is a readable .docx");
+            if let Some(sent) = &back.sent {
+                assert_eq!(
+                    state.sent_copy(sent).expect("its sent copy").from,
+                    back.from,
+                    "it came back from the checkpoint its copy left from"
+                );
+            }
+            returned += 1;
+            for review in &back.reviews {
+                if let Some(result) = &review.result_checkpoint {
+                    let saved = state.checkpoint(result).expect("the review's checkpoint");
+                    assert_eq!(saved.node, review.into);
+                    let bytes = restore(&saved.snapshot, &source).expect("restores");
+                    smoke(&format!("kept-{reviews}"), &bytes);
+                }
+                reviews += 1;
+            }
         }
         for node in state.variants() {
             let path = root.join(&node.storage_ref);
@@ -119,7 +144,8 @@ fn the_task_pane_wrote_a_sound_history() {
     }
     println!(
         "{} families, {checkpoints} checkpoints restored, {blobs} blobs checked, \
-         {versions} tailored versions on disk, {sent_files} sent copies on disk match the record",
+         {versions} tailored versions on disk, {sent_files} sent copies on disk match the record, \
+         {returned} files came back, {reviews} reviews",
         families.len()
     );
 }
