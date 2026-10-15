@@ -6,6 +6,7 @@
 // asks for. PNGs written by hand (zlib from Node), so no image tooling is needed.
 // Run: node scripts/make-icons.mjs
 
+import { Buffer } from "node:buffer";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";

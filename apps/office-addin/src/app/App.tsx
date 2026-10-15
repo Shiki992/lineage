@@ -175,7 +175,7 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
     body = (
       <div className="stack">
         <LinkButton onClick={home}>← Back</LinkButton>
-        <Diagnostics engine={engine} host={host} />
+        <Diagnostics engine={engine} host={host} storage={storage} />
       </div>
     );
   } else if (!opened) {

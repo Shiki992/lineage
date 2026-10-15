@@ -187,6 +187,17 @@ describe("OneDriveStorage", () => {
     expect("webUrl" in location && location.webUrl.startsWith("https://")).toBe(true);
   });
 
+  it("reports whether stale writes are refused (the fake checks only when a session opens)", async () => {
+    const { fake, storage } = setup();
+    expect(await storage.checkConditionalWrites()).toEqual({
+      refusedWhenOpened: true,
+      refusedWhenSent: false,
+    });
+    expect(read(fake.read("me", "Apps/Lineage/diagnostics/conditional-write-check.txt"))).toBe(
+      "late",
+    );
+  });
+
   it("says plainly when the network is down", async () => {
     const graph = new Graph({
       token: () => Promise.resolve("t"),

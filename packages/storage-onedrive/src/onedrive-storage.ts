@@ -145,6 +145,11 @@ export class OneDriveStorage implements Storage {
     bytes: Uint8Array,
     condition: { ifMatch: string } | "create",
   ): Promise<DriveItem> {
+    return this.send(await this.session(rel, condition), bytes);
+  }
+
+  /** Opens an upload session; a stale If-Match is refused here (412). */
+  private async session(rel: string, condition: { ifMatch: string } | "create"): Promise<string> {
     const session = await this.graph.json<{ uploadUrl?: string }>(
       "POST",
       await this.sub(rel, "createUploadSession"),
@@ -166,12 +171,50 @@ export class OneDriveStorage implements Storage {
         "no upload URL",
       );
     }
+    return session.uploadUrl;
+  }
+
+  /** Sends the bytes to an upload session, in one range. */
+  private async send(uploadUrl: string, bytes: Uint8Array): Promise<DriveItem> {
     // One range is enough: the ledger stays far below the 60 MiB per-request limit.
-    const response = await this.graph.plain("PUT", session.uploadUrl, {
+    const response = await this.graph.plain("PUT", uploadUrl, {
       headers: { "Content-Range": `bytes 0-${String(bytes.length - 1)}/${String(bytes.length)}` },
       body: bytes as Uint8Array<ArrayBuffer>,
     });
     return (await response.json()) as DriveItem;
+  }
+
+  /**
+   * Development check (decision 0009): does OneDrive refuse a write based on an
+   * old eTag, both when the upload session is opened and when its bytes arrive
+   * after the file changed? Uses a scratch file under `diagnostics/`.
+   */
+  async checkConditionalWrites(): Promise<{
+    refusedWhenOpened: boolean;
+    refusedWhenSent: boolean;
+  }> {
+    const rel = join(this.layout.history, "diagnostics", "conditional-write-check.txt");
+    const text = (s: string) => new TextEncoder().encode(s);
+    const first = await this.put(rel, text("first"));
+    const second = await this.put(rel, text("second"));
+    const refused = async (attempt: () => Promise<unknown>) => {
+      try {
+        await attempt();
+        return false;
+      } catch (error) {
+        if (error instanceof StorageConflict) {
+          return true;
+        }
+        throw error;
+      }
+    };
+    const refusedWhenOpened = await refused(() =>
+      this.upload(rel, text("stale"), { ifMatch: first.eTag ?? "none" }),
+    );
+    const url = await this.session(rel, { ifMatch: second.eTag ?? "none" });
+    await this.put(rel, text("changed elsewhere"));
+    const refusedWhenSent = await refused(() => this.send(url, text("late")));
+    return { refusedWhenOpened, refusedWhenSent };
   }
 
   private async put(rel: string, bytes: Uint8Array): Promise<DriveItem> {

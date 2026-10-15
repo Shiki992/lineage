@@ -21,19 +21,26 @@ $ErrorActionPreference = "Stop"
 $folder = Join-Path $env:USERPROFILE ".lineage-dev-certs"
 $name = "Lineage development (localhost)"
 
-function Find-Certs([string]$store) {
-    Get-ChildItem "Cert:\CurrentUser\$store" | Where-Object { $_.FriendlyName -eq $name }
+function Find-Mine {
+    Get-ChildItem "Cert:\CurrentUser\My" | Where-Object { $_.FriendlyName -eq $name }
+}
+
+# The trusted copy has no friendly name (a .cer file doesn't carry one), so it
+# is found by the thumbprint of the certificate in the personal store.
+function Find-Trusted {
+    $prints = @(Find-Mine | ForEach-Object { $_.Thumbprint })
+    Get-ChildItem "Cert:\CurrentUser\Root" | Where-Object { $prints -contains $_.Thumbprint }
 }
 
 if ($Remove) {
-    Find-Certs "Root" | Remove-Item
-    Find-Certs "My" | Remove-Item
+    Find-Trusted | Remove-Item
+    Find-Mine | Remove-Item
     if (Test-Path $folder) { Remove-Item -Recurse -Force $folder }
     Write-Host "Removed the Lineage development certificate."
     exit 0
 }
 
-if (Find-Certs "Root") {
+if (Find-Trusted) {
     Write-Host "The Lineage development certificate is already trusted. Use -Remove to start again."
     exit 0
 }

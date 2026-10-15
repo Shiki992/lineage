@@ -8,7 +8,7 @@
 // getFileAsync and asks the engine whether every revision survived as Lineage's.
 // Use a scratch document: each file replaces its contents.
 
-import type { DocumentHost, Engine, Written } from "@lineage/shell";
+import type { DocumentHost, Engine, Storage, Written } from "@lineage/shell";
 import { useState } from "react";
 import { devLog } from "../storage/dev-folder";
 
@@ -19,7 +19,23 @@ interface Row {
   ms: number;
 }
 
-export function Diagnostics({ engine, host }: { engine: Engine; host: DocumentHost }) {
+interface ConditionalWrites {
+  checkConditionalWrites(): Promise<{ refusedWhenOpened: boolean; refusedWhenSent: boolean }>;
+}
+
+export function Diagnostics({
+  engine,
+  host,
+  storage,
+}: {
+  engine: Engine;
+  host: DocumentHost;
+  storage: Storage | null;
+}) {
+  const oneDrive =
+    storage && "checkConditionalWrites" in storage
+      ? (storage as Storage & ConditionalWrites)
+      : null;
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,6 +54,23 @@ export function Diagnostics({ engine, host }: { engine: Engine; host: DocumentHo
         ok ? "Ids written by Word are read by the engine." : `Ids differ: ${JSON.stringify(read)}`,
       );
       devLog({ name: "spike.ids", kind: ok ? "ok" : "differ" });
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function conditionalCheck(): Promise<void> {
+    if (!oneDrive) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await oneDrive.checkConditionalWrites();
+      setStatus(
+        `OneDrive refused a stale write when the upload was opened: ${r.refusedWhenOpened ? "yes" : "NO"}; when its bytes arrived after a change: ${r.refusedWhenSent ? "yes" : "no"}.`,
+      );
     } catch (error) {
       setStatus(String(error));
     } finally {
@@ -108,6 +141,16 @@ export function Diagnostics({ engine, host }: { engine: Engine; host: DocumentHo
         <button type="button" className="button" disabled={busy} onClick={() => void writeCheck()}>
           Run the write check
         </button>
+        {oneDrive && (
+          <button
+            type="button"
+            className="button"
+            disabled={busy}
+            onClick={() => void conditionalCheck()}
+          >
+            Check OneDrive's conditional writes
+          </button>
+        )}
       </div>
       <p role="status">{status}</p>
       <ul className="list small">
