@@ -6,7 +6,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { MemoryStorage, loadEngine } from "@lineage/shell";
+import { Lineage, MemoryStorage, loadEngine } from "@lineage/shell";
 import { FakeHost } from "@lineage/shell/testing";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -105,6 +105,46 @@ describe("the task pane", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "What I've sent" }));
     expect(await screen.findByText("Reviewed")).toBeTruthy();
+  });
+
+  it("offers to review an untracked file that is a copy sent without its ids", async () => {
+    const engine = loadEngine(wasm, new Uint8Array(32).fill(12));
+    const storage = new MemoryStorage();
+    const masterHost = new FakeHost(engine, fixture("resume-master.docx"), {
+      name: "Resume.docx",
+      url: "C:/Users/someone/Resume.docx",
+    });
+    const master = new Lineage({ engine, storage, host: masterHost });
+    await master.open();
+    const started = await master.startTracking();
+    if (started.kind !== "master") {
+      throw new Error("not tracking");
+    }
+    const sent = await master.sendCopy(started.file.nodeId, {
+      recipient: "Northgate Analytics",
+      purpose: null,
+      embedId: false,
+    });
+    const copy = await storage.readFile(sent.ref);
+
+    // The copy comes back without ids and is opened in Word.
+    const host = new FakeHost(engine, copy, {
+      name: "Avery Quinn - Northgate notes.docx",
+      url: "C:/Users/someone/Downloads/Avery Quinn - Northgate notes.docx",
+    });
+    render(<App engine={engine} host={host} storage={{ kind: "ready", storage }} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review it as a file that came back" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "This came back from Northgate Analytics" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review their changes" }));
+    expect(await screen.findByRole("heading", { name: "Lineage kept the file" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open “Resume”" }));
+    await waitFor(() => {
+      expect(host.opened).toEqual([{ path: "C:/Users/someone/Resume.docx" }]);
+    });
   });
 
   it("shows the engine's words when something can't be done", async () => {

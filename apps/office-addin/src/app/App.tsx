@@ -143,6 +143,30 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
     };
   }, [lineage]);
 
+  // Another window may have changed the history meanwhile (a copy that came
+  // back is recorded from its own window): read it again when the panel comes
+  // back into view on its home screen. Found in the Phase 3 Word run.
+  const showingPanel =
+    screen.kind === "home" && (opened?.kind === "master" || opened?.kind === "version");
+  useEffect(() => {
+    if (!lineage || !showingPanel) {
+      return;
+    }
+    const again = () => {
+      if (document.visibilityState === "visible") {
+        lineage.refresh().then(setOpened, (e: unknown) => {
+          console.error(e);
+        });
+      }
+    };
+    window.addEventListener("focus", again);
+    document.addEventListener("visibilitychange", again);
+    return () => {
+      window.removeEventListener("focus", again);
+      document.removeEventListener("visibilitychange", again);
+    };
+  }, [lineage, showingPanel]);
+
   const home = useCallback(() => {
     setScreen({ kind: "home" });
   }, []);
@@ -247,6 +271,41 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
     );
   } else if (!opened) {
     body = <p role="status">Opening…</p>;
+  } else if (screen.kind === "cameBack") {
+    // Drawn before the untracked screen: an untracked file may be a copy that
+    // came back without its ids.
+    const returning = screen.returning;
+    body = (
+      <CameBack
+        name={returning.name}
+        recognition={returning.recognition}
+        busy={busy !== null}
+        onBack={() => {
+          setScreen(
+            opened.kind === "cameBack" || opened.kind === "untracked"
+              ? { kind: "home" }
+              : { kind: "chooseReturned" },
+          );
+        }}
+        onConfirm={(candidate, how) => {
+          confirmReturned(returning, candidate, how);
+        }}
+      />
+    );
+  } else if (screen.kind === "openToReview") {
+    const target = screen;
+    body = (
+      <OpenToReview
+        name={target.name}
+        hereName={target.canReviewHere && openFile ? openFile.displayName : null}
+        busy={busy !== null}
+        onBack={home}
+        onOpen={() => void run("Opening", (l) => l.openNode(target.family, target.node))}
+        onReviewHere={() => {
+          reviewReturned(target.returned);
+        }}
+      />
+    );
   } else if (opened.kind === "untracked") {
     body = (
       <StartTracking
@@ -280,35 +339,6 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
             setScreen({ kind: "cameBack", returning: await l.recognise(bytes, name) });
           })
         }
-      />
-    );
-  } else if (screen.kind === "cameBack") {
-    const returning = screen.returning;
-    body = (
-      <CameBack
-        name={returning.name}
-        recognition={returning.recognition}
-        busy={busy !== null}
-        onBack={() => {
-          setScreen(opened.kind === "cameBack" ? { kind: "home" } : { kind: "chooseReturned" });
-        }}
-        onConfirm={(candidate, how) => {
-          confirmReturned(returning, candidate, how);
-        }}
-      />
-    );
-  } else if (screen.kind === "openToReview") {
-    const target = screen;
-    body = (
-      <OpenToReview
-        name={target.name}
-        hereName={target.canReviewHere && openFile ? openFile.displayName : null}
-        busy={busy !== null}
-        onBack={home}
-        onOpen={() => void run("Opening", (l) => l.openNode(target.family, target.node))}
-        onReviewHere={() => {
-          reviewReturned(target.returned);
-        }}
       />
     );
   } else if (screen.kind === "returnedReview") {
