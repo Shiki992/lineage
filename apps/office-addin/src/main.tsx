@@ -12,6 +12,7 @@ import wasmUrl from "@lineage/shell/wasm?url";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
+import { signIn } from "./auth/sign-in";
 import { pageStart, timing } from "./metrics";
 import { WordHost } from "./office/word-host";
 import { chooseStorage } from "./storage/choose";
@@ -34,9 +35,25 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
   try {
     const { engine, loadMs } = await loadEngineAsync(wasmUrl);
     timing("engine.load", loadMs);
+    let storage = chooseStorage();
+    if (storage.kind === "signIn") {
+      // Signed in to Word already? Then no button is needed.
+      try {
+        const signedIn = await signIn({ interactive: false });
+        engine.setAuthor(signedIn.name);
+        storage = { kind: "ready", storage: signedIn.storage };
+      } catch {
+        // The sign-in screen offers the button.
+      }
+    }
+    const interactive = async () => {
+      const signedIn = await signIn({ interactive: true });
+      engine.setAuthor(signedIn.name);
+      return signedIn.storage;
+    };
     view.render(
       <StrictMode>
-        <App engine={engine} host={new WordHost()} storage={chooseStorage()} />
+        <App engine={engine} host={new WordHost()} storage={storage} signIn={interactive} />
       </StrictMode>,
     );
   } catch (error) {
