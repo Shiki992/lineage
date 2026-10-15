@@ -6,7 +6,8 @@
   "license": "Apache-2.0",
   "description": "Typed wrapper around the Lineage wasm engine, plus the storage interface.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/build-wasm.mjs && tsc --noEmit",
@@ -14,5 +15,8 @@
   },
   "devDependencies": {
     "ajv": "8.20.0"
+  },
+  "dependencies": {
+    "valibot": "1.5.0"
   }
 }
