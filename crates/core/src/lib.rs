@@ -4,11 +4,17 @@
 //! Lineage document engine.
 //!
 //! Reads Office packages, builds canonical models, computes what changed, runs
-//! three-way merges and writes results back. Pure: no file, network or clock access.
-//! The engine itself arrives in Phase 1; Phase 0 only fixes the crate's place in the
-//! workspace and the open change format it will implement (`spec/format/`).
+//! three-way merges and writes results back. Pure: no file, network or clock
+//! access. Callers pass bytes in and get bytes back.
 
 #![forbid(unsafe_code)]
+
+pub mod error;
+pub mod package;
+pub mod xml;
+
+pub use error::{Error, Result};
+pub use package::Package;
 
 /// Version of the open change format (`spec/format/v0`) this crate implements.
 pub const SPEC_VERSION: &str = "0";

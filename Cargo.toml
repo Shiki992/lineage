@@ -24,10 +24,15 @@ lineage = { path = "crates/lineage" }
 lineage-testkit = { path = "crates/testkit" }
 # Exact pin: wasm-bindgen-cli must match this version exactly (see scripts/build-wasm.mjs).
 wasm-bindgen = "=0.2.129"
+# Engine: zip reading, deflate and XML. Chosen in docs/decisions/0005-docx-package-and-xml.md.
+rawzip = "0.5.2"
+miniz_oxide = { version = "0.9.1", default-features = false, features = ["with-alloc"] }
+roxmltree = { version = "0.21.1", default-features = false, features = ["std", "positions"] }
 # Dev-only: JSON Schema checks for spec/format and an independent zip reader for fixtures.
 boon = "0.6.1"
 serde_json = "1"
 zip = { version = "9.0.3", default-features = false }
+flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
