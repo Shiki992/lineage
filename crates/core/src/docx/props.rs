@@ -164,6 +164,9 @@ pub fn write_ids(package: &mut Package, ids: &LineageIds) -> Result<()> {
     } else {
         format!(r#" xmlns:vt="{}""#, ns::VT)
     };
+    // New properties go in together: appending twice to a self-closing
+    // <Properties/> would expand the same tag twice.
+    let mut added = String::new();
     for (name, value) in wanted {
         let existing = root.children().find(|n| {
             xml::is(*n, ns::CUSTOM_PROPS, "property") && n.attribute("name") == Some(name)
@@ -184,9 +187,12 @@ pub fn write_ids(package: &mut Package, ids: &LineageIds) -> Result<()> {
                         1,
                     );
                 }
-                xml::append_child(&mut edits, text, root, &fragment);
+                added.push_str(&fragment);
             }
         }
+    }
+    if !added.is_empty() {
+        xml::append_child(&mut edits, text, root, &added);
     }
     let new = edits.apply(text)?;
     package.set_part(&part, new.into_bytes());
@@ -309,6 +315,38 @@ mod tests {
             text.contains(r#"pid="6""#),
             "new properties get the next pids"
         );
+    }
+
+    #[test]
+    fn writes_into_an_empty_properties_element() {
+        // Found in Phase 2: 40 of the maintainer's 45 documents have an empty,
+        // self-closing <Properties/>. Adding two properties expanded it twice,
+        // the edits overlapped, and Start tracking failed.
+        for empty in [
+            format!(
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="{}" xmlns:vt="{}"/>"#,
+                ns::CUSTOM_PROPS,
+                ns::VT
+            ),
+            format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?><Properties xmlns="{}" xmlns:vt="{}" />"#,
+                ns::CUSTOM_PROPS,
+                ns::VT
+            ),
+            format!(r#"<Properties xmlns="{}"/>"#, ns::CUSTOM_PROPS),
+        ] {
+            let mut package =
+                Package::read(&fixture("headings-paragraphs.docx").to_bytes()).expect("reads");
+            add_custom_part(&mut package, &empty).expect("adds");
+            assert_eq!(custom_properties(&package).expect("reads"), []);
+            write_ids(&mut package, &ids(4)).expect("writes into <Properties/>");
+            let reread = Package::read(&package.to_bytes().expect("bytes")).expect("rereads");
+            assert_eq!(read_ids(&reread).expect("reads"), Some(ids(4)), "{empty}");
+            let text =
+                String::from_utf8(reread.part("docProps/custom.xml").expect("part").to_vec())
+                    .expect("utf-8");
+            assert!(text.contains(r#"pid="2""#) && text.contains(r#"pid="3""#));
+        }
     }
 
     #[test]

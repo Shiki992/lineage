@@ -161,6 +161,30 @@ pub fn snapshot(bytes: &[u8]) -> Result<(BlobHash, Vec<Blob>)> {
     Ok((hash, blobs))
 }
 
+/// The small blobs a panel is likely to need: every checkpoint's snapshot
+/// manifest and change list, in ledger order without repeats. The host fetches
+/// these up front; the parts a manifest names, sent copies and returned files
+/// are fetched only when a command asks for them.
+#[must_use]
+pub fn referenced(state: &crate::state::FamilyState) -> Vec<BlobHash> {
+    let mut out: Vec<BlobHash> = Vec::new();
+    for checkpoint in &state.checkpoints {
+        for hash in std::iter::once(&checkpoint.snapshot).chain(&checkpoint.changes) {
+            if !out.contains(hash) {
+                out.push(hash.clone());
+            }
+        }
+    }
+    out
+}
+
+/// The part blobs a manifest names, or `None` when the bytes are not a manifest.
+#[must_use]
+pub fn manifest_parts(bytes: &[u8]) -> Option<Vec<BlobHash>> {
+    let manifest: Manifest = serde_json::from_slice(bytes).ok()?;
+    (manifest.v == 1).then(|| manifest.parts.into_iter().map(|p| p.blob).collect())
+}
+
 /// Rebuilds a file from its snapshot. Every part is identical to the one saved.
 ///
 /// # Errors
@@ -236,6 +260,25 @@ mod tests {
             store.0.insert(blob.hash, blob.bytes);
         }
         assert!(restore(&manifest, &store).is_err());
+    }
+
+    #[test]
+    fn manifests_name_their_parts() {
+        let bytes = fixtures::all()[0].1.to_bytes();
+        let (manifest, blobs) = snapshot(&bytes).expect("snapshots");
+        let json = &blobs
+            .iter()
+            .find(|b| b.hash == manifest)
+            .expect("manifest")
+            .bytes;
+        let parts = manifest_parts(json).expect("is a manifest");
+        assert_eq!(
+            parts.len(),
+            Package::read(&bytes).expect("reads").parts().len()
+        );
+        assert!(parts.iter().all(|p| blobs.iter().any(|b| &b.hash == p)));
+        assert_eq!(manifest_parts(b"{\"v\":2,\"parts\":[]}"), None);
+        assert_eq!(manifest_parts(&bytes), None, "a .docx is not a manifest");
     }
 
     #[test]

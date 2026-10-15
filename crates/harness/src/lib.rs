@@ -323,21 +323,15 @@ impl<S: Storage> Panel<S> {
     /// # Errors
     /// When a card is not on the panel, or a change cannot be written safely.
     pub fn decide(&mut self, file: &str, decisions: &[(&str, Decision)]) -> Result<Outcome> {
-        let updates = self.updates(file)?;
-        let mut resolved = Vec::new();
-        for (card, decision) in decisions {
-            let group = updates
-                .groups
-                .iter()
-                .find(|g| g.view.ids().contains(card))
-                .ok_or_else(|| HarnessError::Panel(format!("no update card {card}")))?;
-            resolved.push((group.checkpoint.clone(), (*card).to_owned(), *decision));
-        }
+        let cards: Vec<(String, Decision)> = decisions
+            .iter()
+            .map(|(card, decision)| ((*card).to_owned(), *decision))
+            .collect();
         let bytes = self.storage.read_file(file)?;
         let state = self.state()?;
         let node = Self::node_of(&state, file)?;
         let outcome = self.press(|ctx, state, blobs| {
-            commands::decide(ctx, state, &node, &bytes, &resolved, blobs)
+            commands::decide_cards(ctx, state, &node, &bytes, &cards, blobs)
         })?;
         self.write_outcome(file, &outcome)?;
         Ok(outcome)

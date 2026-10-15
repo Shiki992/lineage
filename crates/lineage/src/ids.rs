@@ -87,6 +87,33 @@ impl IdSource for SequentialIds {
     }
 }
 
+/// Ids for the task pane: the first 128 bits of SHA-256(seed ‖ counter). The
+/// host draws the 32-byte seed from a secure random source once, so the crate
+/// itself stays free of randomness and ids never repeat within a session.
+#[derive(Clone, Debug)]
+pub struct SeededIds {
+    seed: [u8; 32],
+    counter: u64,
+}
+
+impl SeededIds {
+    #[must_use]
+    pub fn new(seed: [u8; 32]) -> Self {
+        Self { seed, counter: 0 }
+    }
+}
+
+impl IdSource for SeededIds {
+    fn next_id(&mut self) -> Id {
+        self.counter += 1;
+        let mut input = Vec::with_capacity(40);
+        input.extend_from_slice(&self.seed);
+        input.extend_from_slice(&self.counter.to_le_bytes());
+        let hex = lineage_core::hash::sha256_hex(&input);
+        Id(hex[..32].to_owned())
+    }
+}
+
 /// A point in time: milliseconds since 1970-01-01T00:00:00Z.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -176,6 +203,25 @@ mod tests {
         let mut ids = SequentialIds::new(1);
         assert_eq!(ids.next_id().as_str(), "10000000000000000000000000000001");
         assert!(Id::parse(ids.next_id().as_str()).is_ok());
+    }
+
+    #[test]
+    fn seeded_ids_are_well_formed_and_distinct() {
+        let mut a = SeededIds::new([7; 32]);
+        let mut b = SeededIds::new([8; 32]);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..1000 {
+            for id in [a.next_id(), b.next_id()] {
+                assert!(Id::parse(id.as_str()).is_ok(), "{id}");
+                assert!(seen.insert(id), "ids repeat");
+            }
+        }
+        let mut again = SeededIds::new([7; 32]);
+        assert_eq!(
+            again.next_id(),
+            SeededIds::new([7; 32]).next_id(),
+            "the same seed gives the same ids"
+        );
     }
 
     #[test]

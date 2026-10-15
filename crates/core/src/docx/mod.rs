@@ -260,8 +260,17 @@ impl Docx {
     /// shows them). Used by tests and the Word smoke comparison.
     #[must_use]
     pub fn body_lines(&self) -> Vec<String> {
+        self.body().lines()
+    }
+}
+
+impl Story {
+    /// Every paragraph's text, one per line, read the way [`Docx::body_lines`]
+    /// reads the body.
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
-        collect_lines(&self.body().blocks, &mut lines);
+        collect_lines(&self.blocks, &mut lines);
         lines
     }
 }

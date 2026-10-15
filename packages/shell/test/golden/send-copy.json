@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "value": {
+    "blobs": [
+      "3fe9cd5321d8609142e17f199b5ecf5e24d2b6fbe3bc9993d944fdb4f8548a55"
+    ],
+    "created": "8b3fda26766265ccd1505e34fbf66ac1",
+    "familyId": null,
+    "hasFile": false,
+    "ids": null,
+    "ledgerLines": "{\"v\":1,\"seq\":23,\"at\":1792057080000,\"event\":{\"type\":\"CopySent\",\"sent_copy_id\":\"8b3fda26766265ccd1505e34fbf66ac1\",\"from_checkpoint_id\":\"34cf8035f2345f5a62f5541afccad074\",\"recipient\":\"Northgate Analytics\",\"purpose\":\"Data engineer\",\"format\":\"docx\",\"file\":\"3fe9cd5321d8609142e17f199b5ecf5e24d2b6fbe3bc9993d944fdb4f8548a55\",\"id_embedded\":true,\"cleaned\":{\"revisions\":6,\"comments\":0,\"hidden_runs\":0}}}\n",
+    "newFileName": "Resume – data roles (Northgate Analytics).docx",
+    "nothingChanged": false,
+    "records": 1
+  }
+}

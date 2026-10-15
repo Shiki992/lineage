@@ -13,7 +13,8 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const outDir = join(root, "packages", "shell", "wasm-pkg");
-const wasmFile = join(root, "target", "wasm32-unknown-unknown", "release", "lineage_wasm.wasm");
+// The `wasm` profile in Cargo.toml: release with the smallest code (decision 0010).
+const wasmFile = join(root, "target", "wasm32-unknown-unknown", "wasm", "lineage_wasm.wasm");
 
 function lockedWasmBindgenVersion() {
   const lock = readFileSync(join(root, "Cargo.lock"), "utf8");
@@ -55,11 +56,15 @@ run("cargo", [
   "lineage-wasm",
   "--target",
   "wasm32-unknown-unknown",
-  "--release",
+  "--profile",
+  "wasm",
 ]);
+// Function names are only for debugging and are a third of the file.
 run("wasm-bindgen", [
   "--target",
   "web",
+  "--remove-name-section",
+  "--remove-producers-section",
   "--out-dir",
   outDir,
   "--out-name",
@@ -68,4 +73,4 @@ run("wasm-bindgen", [
 ]);
 
 const size = statSync(join(outDir, "lineage_wasm_bg.wasm")).size;
-console.log(`wasm-pkg ready: lineage_wasm_bg.wasm is ${size} bytes (before wasm-opt)`);
+console.log(`wasm-pkg ready: lineage_wasm_bg.wasm is ${size} bytes`);

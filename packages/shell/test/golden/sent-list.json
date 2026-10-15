@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "value": {
+    "groups": [
+      {
+        "month": "October 2026",
+        "rows": [
+          {
+            "button": "Open",
+            "chip": null,
+            "date": "15 Oct",
+            "format": "Word",
+            "id": "8b3fda26766265ccd1505e34fbf66ac1",
+            "purpose": "Data engineer",
+            "recipient": "Northgate Analytics",
+            "version": "Resume – data roles · v3"
+          }
+        ]
+      }
+    ],
+    "note": "Each copy is kept exactly as sent.",
+    "title": "What I've sent"
+  }
+}

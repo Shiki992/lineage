@@ -1,0 +1,8 @@
+{
+  "error": {
+    "detail": "wrong file: the file is a different version",
+    "kind": "wrongFile",
+    "userMessage": "This file isn't the version Lineage expected. Open the right file and try again."
+  },
+  "ok": false
+}

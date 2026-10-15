@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "value": {
+    "actions": [
+      "Make a tailored version",
+      "Save checkpoint",
+      "Send a copy"
+    ],
+    "callout": null,
+    "chip": "Master",
+    "fileName": "Resume.docx",
+    "follows": "2 tailored versions follow this file",
+    "footer": "What I've sent",
+    "latest": {
+      "id": "fb0cea28644ef1325935f077db54217a",
+      "label": "v3",
+      "note": "Corvia title",
+      "when": "15 Oct"
+    },
+    "nodeId": "1fb55efa97c78be4f78ab7dc34ce3cad",
+    "versions": [
+      {
+        "button": "Open",
+        "id": "5c81cc14a997e2ba9928492bcc208f37",
+        "name": "Resume – data roles.docx",
+        "status": "Has v1",
+        "storageRef": "Resume – data roles.docx"
+      },
+      {
+        "button": "Open",
+        "id": "96657bd73b2c38fce315aedec0ac9486",
+        "name": "Resume – platform roles.docx",
+        "status": "Has v1",
+        "storageRef": "Resume – platform roles.docx"
+      }
+    ]
+  }
+}

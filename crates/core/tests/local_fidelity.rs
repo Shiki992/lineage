@@ -162,6 +162,23 @@ fn local_documents_round_trip() {
         } else {
             tally.fail(n, "merge", "items against itself");
         }
+        // Start tracking writes the two ids into the custom properties. Added
+        // in Phase 2, after it failed on files with an empty <Properties/>.
+        let ids = lineage_core::docx::props::LineageIds {
+            family: "0".repeat(32),
+            checkpoint: "1".repeat(32),
+        };
+        let mut with_ids = package.clone();
+        match lineage_core::docx::props::write_ids(&mut with_ids, &ids)
+            .and_then(|()| with_ids.to_bytes())
+            .and_then(|b| {
+                Docx::open(&b)?;
+                lineage_core::docx::props::read_ids(&Package::read(&b)?)
+            }) {
+            Ok(Some(read)) if read == ids => tally.ok("ids write, reread and the file still opens"),
+            Ok(_) => tally.fail(n, "ids", "read back differently"),
+            Err(e) => tally.fail(n, "ids", category(&e)),
+        }
         match clean_copy(&bytes, None) {
             Ok((clean, report)) => match Docx::open(&clean) {
                 Ok(copy) => {

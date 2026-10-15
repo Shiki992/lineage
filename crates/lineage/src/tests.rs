@@ -184,6 +184,149 @@ fn a_declined_change_is_not_offered_again() {
 }
 
 #[test]
+fn cards_are_decided_by_their_ids_alone() {
+    let mut host = Host::new();
+    let master_file = host.start(&resume::package("t", &resume::master_v1_lines()).to_bytes());
+    let master = host.master();
+    let (version, version_file) = host.make_version("Resume – data roles.docx");
+    host.save(
+        &master,
+        &edit(&master_file, &resume::master_v2_lines()),
+        "New job",
+    );
+    host.offer(std::slice::from_ref(&version));
+    let cards: Vec<(String, Decision)> = host
+        .offered(&version)
+        .into_iter()
+        .map(|(_, id)| (id, Decision::BringIn))
+        .collect();
+    let state = host.state().clone();
+    let mut ctx = Context {
+        now: host.now,
+        ids: &mut host.ids,
+        author: None,
+    };
+    let outcome = commands::decide_cards(
+        &mut ctx,
+        &state,
+        &version,
+        &version_file,
+        &cards,
+        &host.blobs,
+    )
+    .expect("decides");
+    let after = host.take(outcome).file.expect("written");
+    assert_eq!(
+        lines(&after),
+        lines(&resume::package("t", &resume::master_v2_lines()).to_bytes()),
+        "accepting gives the master's text"
+    );
+
+    let state = host.state().clone();
+    let mut ctx = Context {
+        now: host.now,
+        ids: &mut host.ids,
+        author: None,
+    };
+    let unknown = vec![("not-a-card".to_owned(), Decision::BringIn)];
+    let refused = commands::decide_cards(&mut ctx, &state, &version, &after, &unknown, &host.blobs);
+    assert!(matches!(refused, Err(crate::Error::NotAllowed(_))));
+}
+
+/// What Word does to a file it saves without edits: new revision-save ids on
+/// the paragraphs and a new modified date. The text is untouched.
+fn resaved_by_word(file: &[u8]) -> Vec<u8> {
+    let mut package = Package::read(file).expect("reads");
+    let doc = String::from_utf8(package.part("word/document.xml").expect("doc").to_vec())
+        .expect("utf-8")
+        .replace(
+            "<w:p>",
+            r#"<w:p w:rsidR="00A1B2C3" w:rsidRDefault="00A1B2C3">"#,
+        );
+    package.set_part("word/document.xml", doc.into_bytes());
+    if let Some(core) = package.part("docProps/core.xml") {
+        let core = String::from_utf8(core.to_vec()).expect("utf-8").replace(
+            "</cp:coreProperties>",
+            "<!-- saved again --></cp:coreProperties>",
+        );
+        package.set_part("docProps/core.xml", core.into_bytes());
+    }
+    package.to_bytes().expect("bytes")
+}
+
+#[test]
+fn a_file_word_saved_again_without_edits_has_not_changed() {
+    // Found in Phase 2, in Word: sending a copy of a version just after
+    // bringing changes in made a new checkpoint ("v3"), because Word had
+    // re-saved the file and the bytes no longer matched.
+    let mut host = Host::new();
+    let master_file = host.start(&resume::package("t", &resume::master_v1_lines()).to_bytes());
+    let master = host.master();
+    let resaved = resaved_by_word(&master_file);
+    assert_ne!(resaved, master_file);
+    let state = host.state().clone();
+    let mut ctx = Context {
+        now: host.now,
+        ids: &mut host.ids,
+        author: None,
+    };
+    let outcome = commands::save_checkpoint(&mut ctx, &state, &master, &resaved, "", &host.blobs)
+        .expect("saves");
+    assert!(outcome.nothing_changed, "no new checkpoint");
+    let outcome = commands::send_copy(
+        &mut ctx,
+        &state,
+        &master,
+        &resaved,
+        "Mentor",
+        None,
+        true,
+        &host.blobs,
+    )
+    .expect("sends");
+    let saved = outcome
+        .records
+        .iter()
+        .filter(|r| matches!(r.event, event::Event::CheckpointSaved { .. }))
+        .count();
+    assert_eq!(saved, 0, "the copy comes from v1, not a new checkpoint");
+    // A real edit still counts.
+    let edited = edit(&resaved, &resume::master_v2_lines());
+    let outcome = commands::save_checkpoint(&mut ctx, &state, &master, &edited, "", &host.blobs)
+        .expect("saves");
+    assert!(!outcome.nothing_changed);
+}
+
+#[test]
+fn referenced_blobs_are_the_manifests_and_change_lists() {
+    let mut host = Host::new();
+    let master_file = host.start(&resume::package("t", &resume::master_v1_lines()).to_bytes());
+    let master = host.master();
+    host.make_version("Resume – data roles.docx");
+    host.save(
+        &master,
+        &edit(&master_file, &resume::master_v2_lines()),
+        "New job",
+    );
+    let state = host.state();
+    let referenced = crate::blob::referenced(state);
+    let expected: usize = state
+        .checkpoints
+        .iter()
+        .map(|c| 1 + usize::from(c.changes.is_some()))
+        .sum();
+    assert_eq!(referenced.len(), expected, "no repeats here");
+    for hash in &referenced {
+        assert!(host.blobs.0.contains_key(hash), "stored");
+    }
+    let changes = state.checkpoints.iter().filter_map(|c| c.changes.as_ref());
+    for hash in changes {
+        assert!(referenced.contains(hash));
+        assert!(crate::blob::manifest_parts(&host.blobs.0[hash]).is_none());
+    }
+}
+
+#[test]
 fn a_change_copied_in_by_hand_is_detected_as_merged() {
     let mut host = Host::new();
     let master_file = host.start(&resume::package("t", &resume::master_v1_lines()).to_bytes());

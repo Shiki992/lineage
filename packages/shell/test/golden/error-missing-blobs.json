@@ -1,0 +1,11 @@
+{
+  "error": {
+    "detail": "1 blobs to fetch",
+    "hashes": [
+      "5305106efb0c7b35e6c25c595efefe40851ff4b39c305dcfb889387d164b7719"
+    ],
+    "kind": "missingBlobs",
+    "userMessage": "Lineage is still fetching this file's history."
+  },
+  "ok": false
+}

@@ -422,6 +422,10 @@ name = "lineage-wasm"
 version = "0.0.0"
 dependencies = [
  "lineage",
+ "lineage-core",
+ "lineage-testkit",
+ "serde",
+ "serde_json",
  "wasm-bindgen",
 ]
 

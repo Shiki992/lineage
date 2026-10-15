@@ -90,6 +90,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm format:check
+      - name: Task-pane budgets (decision 0010)
+        run: pnpm budgets
 
   fuzz:
     name: Fuzz the readers (short)

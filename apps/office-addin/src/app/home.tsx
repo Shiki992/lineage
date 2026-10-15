@@ -1,0 +1,215 @@
+// Copyright 2026 Hrishikesh Vedantam
+// SPDX-License-Identifier: Apache-2.0
+
+// The first screen for each kind of file: the canvas "Personal users" master
+// resume panel, a tailored version's panel, and the screens before a file is
+// tracked. Every label comes from the engine (glossary words), except the few
+// that only exist here.
+
+import type { MasterPanel, VersionPanel } from "@lineage/shell";
+import { Button, Header, LatestCheckpoint, LinkButton } from "./parts";
+
+export type Action = "makeVersion" | "saveCheckpoint" | "sendCopy";
+
+const ACTIONS: Record<string, Action> = {
+  "Make a tailored version": "makeVersion",
+  "Save checkpoint": "saveCheckpoint",
+  "Send a copy": "sendCopy",
+};
+
+function Actions({
+  labels,
+  busy,
+  onAction,
+}: {
+  labels: readonly string[];
+  busy: boolean;
+  onAction: (a: Action) => void;
+}) {
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      {labels.map((label, i) => {
+        const action = ACTIONS[label];
+        return action ? (
+          <Button
+            key={label}
+            primary={i === 0}
+            wide
+            disabled={busy}
+            onClick={() => {
+              onAction(action);
+            }}
+          >
+            {label}
+          </Button>
+        ) : null;
+      })}
+    </div>
+  );
+}
+
+export function MasterHome({
+  panel,
+  busy,
+  onOffer,
+  onOpen,
+  onAction,
+  onSent,
+}: {
+  panel: MasterPanel;
+  busy: boolean;
+  onOffer: (versions: readonly string[]) => void;
+  onOpen: (storageRef: string) => void;
+  onAction: (action: Action) => void;
+  onSent: () => void;
+}) {
+  return (
+    <div className="stack">
+      <Header name={panel.fileName} chip={panel.chip} kind="master" line={panel.follows} />
+      <LatestCheckpoint card={panel.latest} />
+      {panel.callout && (
+        <section className="callout stack" style={{ gap: 8 }} aria-label="Changes to offer">
+          <p>{panel.callout.text}</p>
+          <Button
+            primary
+            disabled={busy}
+            onClick={() => {
+              onOffer(panel.callout?.versions ?? []);
+            }}
+          >
+            {panel.callout.button}
+          </Button>
+        </section>
+      )}
+      {panel.versions.length > 0 && (
+        <section className="stack" style={{ gap: 8 }} aria-labelledby="versions">
+          <h2 id="versions">Tailored versions</h2>
+          <ul className="list">
+            {panel.versions.map((v) => (
+              <li key={v.id} className="card row row--spread">
+                <div>
+                  <p>{v.name}</p>
+                  <p className="secondary small">{v.status}</p>
+                </div>
+                <Button
+                  aria-label={`${v.button} ${v.name}`}
+                  disabled={busy}
+                  onClick={() => {
+                    onOpen(v.storageRef);
+                  }}
+                >
+                  {v.button}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <Actions labels={panel.actions} busy={busy} onAction={onAction} />
+      <footer>
+        <LinkButton onClick={onSent}>{panel.footer}</LinkButton>
+      </footer>
+    </div>
+  );
+}
+
+export function VersionHome({
+  panel,
+  busy,
+  onReview,
+  onAction,
+  onSent,
+}: {
+  panel: VersionPanel;
+  busy: boolean;
+  onReview: () => void;
+  onAction: (action: Action) => void;
+  onSent: () => void;
+}) {
+  return (
+    <div className="stack">
+      <Header name={panel.fileName} chip={panel.chip} kind="variant" line={panel.status} />
+      {panel.updates && (
+        <section className="callout stack" style={{ gap: 8 }} aria-label="Updates from the master">
+          <p>{panel.updates}</p>
+          <Button primary disabled={busy} onClick={onReview}>
+            Review them
+          </Button>
+        </section>
+      )}
+      <LatestCheckpoint card={panel.latest} />
+      <Actions labels={panel.actions} busy={busy} onAction={onAction} />
+      <footer>
+        <LinkButton onClick={onSent}>{panel.footer}</LinkButton>
+      </footer>
+    </div>
+  );
+}
+
+export function StartTracking({
+  name,
+  saved,
+  storage,
+  busy,
+  onStart,
+}: {
+  name: string;
+  saved: boolean;
+  storage: string;
+  busy: boolean;
+  onStart: () => void;
+}) {
+  return (
+    <div className="stack">
+      <h1>{name}</h1>
+      <p>
+        Lineage keeps a history of this file and lets you make tailored versions that follow it.
+        When you change this file, each version is offered the change, and you choose what to bring
+        in.
+      </p>
+      <p className="secondary small">History is kept in {storage}. Your file stays where it is.</p>
+      {!saved && (
+        <p className="warning" id="save-first">
+          Save this file first, then start tracking it.
+        </p>
+      )}
+      <Button
+        primary
+        wide
+        disabled={busy || !saved}
+        aria-describedby={saved ? undefined : "save-first"}
+        onClick={onStart}
+      >
+        Start tracking
+      </Button>
+    </div>
+  );
+}
+
+export function Elsewhere({ storage }: { storage: string }) {
+  return (
+    <div className="stack">
+      <h1>History not found</h1>
+      <p>
+        This file is tracked by Lineage, but its history isn't in {storage}. Sign in with the
+        account you used when you started tracking it.
+      </p>
+    </div>
+  );
+}
+
+export function SignIn({ busy, onSignIn }: { busy: boolean; onSignIn: () => void }) {
+  return (
+    <div className="stack">
+      <h1>Lineage</h1>
+      <p>Sign in with your Microsoft account to keep Lineage's history in your OneDrive.</p>
+      <p className="secondary small">
+        Lineage asks only for its own folder in your OneDrive (Apps › Lineage). Nothing is sent
+        anywhere else.
+      </p>
+      <Button primary wide disabled={busy} onClick={onSignIn}>
+        Sign in with Microsoft
+      </Button>
+    </div>
+  );
+}

@@ -1,0 +1,8 @@
+{
+  "error": {
+    "detail": "not an id: \"not an id\"",
+    "kind": "badInput",
+    "userMessage": "Lineage couldn't understand that request. Nothing was changed."
+  },
+  "ok": false
+}
