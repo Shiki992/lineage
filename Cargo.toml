@@ -35,6 +35,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Dev-only: JSON Schema checks for spec/format and an independent zip reader for fixtures.
 boon = "0.6.1"
+# Dev-only: property tests. No default features, so no fork or tempfile (0006).
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 zip = { version = "9.0.3", default-features = false }
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 

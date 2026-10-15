@@ -149,7 +149,23 @@ pub fn align(a: &[Block], b: &[Block], a_src: Option<&str>, b_src: Option<&str>)
     // so a moved block never stands in for an edited one.
     detect_moves(a, b, &a_keys, &b_keys, &mut fates, &mut from, 0..2);
 
-    // Edited in place.
+    // Edited in place, between the blocks that stayed (unchanged or only
+    // reformatted), so the pairs found here never cross those: crossing pairs
+    // would be a move nobody recorded.
+    let mut stayed: Vec<(usize, usize)> = fates
+        .iter()
+        .enumerate()
+        .filter_map(|(i, f)| match f {
+            Fate::Same(j) | Fate::Formatted(j) => Some((i, *j)),
+            _ => None,
+        })
+        .collect();
+    stayed.sort_unstable();
+    let mut starts = vec![(0, 0)];
+    starts.extend(stayed.iter().map(|&(i, j)| (i + 1, j + 1)));
+    let mut ends = stayed;
+    ends.push((a.len(), b.len()));
+    let gaps: Vec<((usize, usize), (usize, usize))> = starts.into_iter().zip(ends).collect();
     for &((a_lo, b_lo), (a_hi, b_hi)) in &gaps {
         let rest_a: Vec<usize> = (a_lo..a_hi)
             .filter(|&i| fates[i] == Fate::Deleted)
@@ -355,6 +371,53 @@ mod tests {
         assert!((2..=4).contains(&moved), "{:?}", al.fates);
         assert!(!al.fates.contains(&Fate::Deleted));
         assert_eq!(al.inserted().count(), 0);
+    }
+
+    /// Found by the property tests: a reformatted block and an edited block
+    /// paired in separate passes crossed each other, which put them in the
+    /// wrong order when written.
+    #[test]
+    fn edited_pairs_never_cross_reformatted_ones() {
+        use lineage_testkit::docx::{Package, para, run, run_with};
+        let doc = |paras: &[(&str, bool)]| {
+            let body: String = paras
+                .iter()
+                .map(|(t, bold)| {
+                    if *bold {
+                        para("", &run_with("<w:b/>", t))
+                    } else {
+                        para("", &run(t))
+                    }
+                })
+                .collect();
+            Docx::open(&Package::new("t", body).to_bytes()).expect("opens")
+        };
+        let a = doc(&[
+            ("data", false),
+            ("data", false),
+            ("engineer", false),
+            ("engineer", false),
+        ]);
+        let b = doc(&[
+            ("engineer", true),
+            ("data data", false),
+            ("engineer", false),
+            ("data", false),
+        ]);
+        let al = align(&a.body().blocks, &b.body().blocks, None, None);
+        let mut in_place: Vec<(usize, usize)> = al
+            .fates
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.stayed())
+            .filter_map(|(i, f)| f.target().map(|j| (i, j)))
+            .collect();
+        in_place.sort_unstable();
+        assert!(
+            in_place.windows(2).all(|w| w[0].1 < w[1].1),
+            "{:?}",
+            al.fates
+        );
     }
 
     #[test]

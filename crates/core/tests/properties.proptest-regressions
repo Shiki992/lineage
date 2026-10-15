@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 82ce905bf47d31a882dcd719869ae538b1c02c2b29c5dc4465c0bf26f7c77a31 # shrinks to paras = [Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["engineer"], bold: false }, Para { style: Normal, words: ["engineer"], bold: false }], edits = [Move(665519579893047420, 4012235884607698194), AppendWord(6385425270018982790, "data"), Move(10310724811990743312, 3783550860123279335), ToggleBold(5652910523726890076)]
