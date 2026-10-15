@@ -1,0 +1,45 @@
+{
+  "specVersion": "0",
+  "format": "docx",
+  "changes": [
+    {
+      "id": "cell-1",
+      "kind": "modify",
+      "location": {
+        "format": "docx",
+        "part": "word/document.xml",
+        "blockIndex": 2,
+        "cell": {
+          "row": 3,
+          "column": 1,
+          "blockIndex": 0
+        },
+        "charRange": {
+          "start": 0,
+          "end": 4
+        }
+      },
+      "before": "$26k",
+      "after": "$31k",
+      "formattingOnly": false,
+      "confidence": 100,
+      "summary": "In the 'Traction' table: '$26k' changed to '$31k'"
+    },
+    {
+      "id": "row-1",
+      "kind": "insert",
+      "location": {
+        "format": "docx",
+        "part": "word/document.xml",
+        "blockIndex": 2,
+        "cell": {
+          "row": 4
+        }
+      },
+      "before": null,
+      "after": "Q4 2026\t$34k\t23",
+      "formattingOnly": false,
+      "confidence": 100
+    }
+  ]
+}

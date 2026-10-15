@@ -3,21 +3,33 @@
 
 //! Lineage family logic.
 //!
-//! Turns ledger events and blobs into new events and blobs: checkpoints, tailored
-//! versions, offers, change states, sent copies and file identity. Pure: storage is
-//! the caller's job. The logic arrives in Phase 1.
+//! Turns ledger events and blobs into new events and blobs: checkpoints,
+//! tailored versions, offers, change states (decision 0002), sent copies and file
+//! identity. Pure: storage, ids and the clock are the host's, passed in.
+//!
+//! - [`event`]: the JSON Lines ledger.
+//! - [`state`]: the family folded from it.
+//! - [`commands`]: one function per panel button.
+//! - [`changes`]: change states, the merge base, detection.
+//! - [`identity`]: ids in files, and fingerprints.
+//! - [`blob`]: content-addressed blobs and snapshots.
+//! - [`views`]: the panels.
 
 #![forbid(unsafe_code)]
 
+pub mod blob;
+pub mod changes;
+pub mod commands;
+pub mod error;
+pub mod event;
+pub mod identity;
+pub mod ids;
+pub mod state;
+pub mod views;
+
+pub use error::{Error, Result};
+pub use ids::{Id, IdSource, SequentialIds, Timestamp};
 pub use lineage_core::{ENGINE_VERSION, SPEC_VERSION};
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn re_exports_core_versions() {
-        assert_eq!(ENGINE_VERSION, lineage_core::ENGINE_VERSION);
-        assert_eq!(SPEC_VERSION, lineage_core::SPEC_VERSION);
-    }
-}
+mod tests;

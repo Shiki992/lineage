@@ -1,0 +1,32 @@
+[package]
+name = "lineage-fuzz"
+description = "cargo-fuzz targets for the .docx and zip readers. Returned files are untrusted input."
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace: libfuzzer-sys needs a nightly toolchain and is never shipped.
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+lineage-core = { path = "../crates/core" }
+
+[[bin]]
+name = "docx_reader"
+path = "fuzz_targets/docx_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "zip_reader"
+path = "fuzz_targets/zip_reader.rs"
+test = false
+doc = false
+bench = false

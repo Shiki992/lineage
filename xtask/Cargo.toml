@@ -12,6 +12,5 @@ publish.workspace = true
 [lints]
 workspace = true
 
-[dev-dependencies]
-# An independent zip reader, so fixture tests don't trust our own writer.
-zip.workspace = true
+[dependencies]
+lineage-testkit.workspace = true

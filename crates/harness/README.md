@@ -2,11 +2,12 @@
 
 Test-only. Never shipped (decision 0001: no user-facing command line).
 
-From Phase 1 it holds:
+- `src/storage.rs`: the storage interface the TypeScript adapters mirror, with `MemoryStorage` and `LocalFolderStorage`. Layout per family: `Lineage/<familyId>/ledger.jsonl` and `Lineage/<familyId>/blobs/<sha256>`, with the person's files in the folder itself. Ledger appends are optimistic (the version read must still be current), and blobs are checked against their names.
+- `src/lib.rs`: `Panel`, one method per button on the personal screens: start tracking, save checkpoint, make a tailored version, show what changed, offer to versions, updates, bring in, decline, decide (for overlaps), send a copy, what I've sent, open what they received. Each returns what the panel would draw.
+- `tests/personal_resume.rs`: the Phase 1 "done when" scenario, in memory and on a real folder.
+- `tests/scenarios.rs`: text typed in by hand, v3 without v2, overlaps, sending without the id, unsaved changes before sending, append conflicts, folder safety.
 
-- local-folder and in-memory storage behind the same interface the TypeScript storage adapters implement,
-- one function per button on the personal screens (start tracking, save checkpoint, make a tailored version, offer, bring in or decline, send a copy, and so on),
-- scenario tests that click through those functions the way a person would.
+"The person edits the file in Word" is simulated by replacing the file's `word/document.xml` with one made by `lineage-testkit`, never by the engine's own writer.
 
 ```bash
 cargo test -p lineage-harness

@@ -1,0 +1,140 @@
+// Copyright 2026 Hrishikesh Vedantam
+// SPDX-License-Identifier: Apache-2.0
+
+//! The open change format, `spec/format/v0`: serde types and conversion from the
+//! engine's changes. The JSON Schema in `spec/format/v0/` is the contract; tests
+//! validate everything this module writes against it.
+
+use serde::{Deserialize, Serialize};
+
+use super::{CellStep, Change, ChangeKind, Path};
+
+/// A change list: `{ specVersion, format, changes }`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChangeList {
+    pub spec_version: String,
+    pub format: String,
+    pub changes: Vec<SpecChange>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SpecChange {
+    pub id: String,
+    pub kind: String,
+    pub location: Location,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_location: Option<Location>,
+    pub before: Option<String>,
+    pub after: Option<String>,
+    pub formatting_only: bool,
+    pub confidence: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Location {
+    pub format: String,
+    pub part: String,
+    pub block_index: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_anchor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub char_range: Option<CharRange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell: Option<Box<CellLocation>>,
+}
+
+/// A place inside a table: a row, and optionally a cell and a block in it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CellLocation {
+    pub row: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_index: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell: Option<Box<CellLocation>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CharRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+fn cell_location(steps: &[CellStep]) -> Option<Box<CellLocation>> {
+    let (first, rest) = steps.split_first()?;
+    Some(Box::new(CellLocation {
+        row: first.row,
+        column: first.column,
+        block_index: first.block,
+        cell: cell_location(rest),
+    }))
+}
+
+fn location(part: &str, path: &Path, change: &Change, with_range: bool) -> Location {
+    Location {
+        format: "docx".to_owned(),
+        part: part.to_owned(),
+        block_index: path.block,
+        block_anchor: change.anchor.clone(),
+        char_range: if with_range {
+            change
+                .char_range
+                .map(|(start, end)| CharRange { start, end })
+        } else {
+            None
+        },
+        cell: cell_location(&path.cells),
+    }
+}
+
+/// The change list for `changes`. `summary` gives each change its plain-English
+/// summary, if any.
+#[must_use]
+pub fn change_list(changes: &[Change], summary: impl Fn(&Change) -> Option<String>) -> ChangeList {
+    let changes = changes
+        .iter()
+        .filter_map(|change| {
+            let (path, from) = match change.kind {
+                ChangeKind::Delete => (change.before.as_ref()?, None),
+                ChangeKind::Move => (change.after.as_ref()?, change.before.as_ref()),
+                _ => (change.after.as_ref()?, None),
+            };
+            let with_range = matches!(change.kind, ChangeKind::Modify | ChangeKind::Format);
+            Some(SpecChange {
+                id: change.id.clone(),
+                kind: change.kind.as_str().to_owned(),
+                location: location(&change.part, path, change, with_range),
+                from_location: from.map(|p| location(&change.part, p, change, false)),
+                before: change.before_text.clone(),
+                after: change.after_text.clone(),
+                formatting_only: change.formatting_only,
+                confidence: change.confidence,
+                summary: summary(change).filter(|s| !s.is_empty()),
+            })
+        })
+        .collect();
+    ChangeList {
+        spec_version: crate::SPEC_VERSION.to_owned(),
+        format: "docx".to_owned(),
+        changes,
+    }
+}
+
+impl ChangeList {
+    /// The change list as JSON.
+    ///
+    /// # Panics
+    /// Never: the types serialise infallibly.
+    #[must_use]
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).expect("change lists always serialise")
+    }
+}

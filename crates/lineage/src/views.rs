@@ -1,0 +1,326 @@
+// Copyright 2026 Hrishikesh Vedantam
+// SPDX-License-Identifier: Apache-2.0
+
+//! Panel view models for the personal screens (BLUEPRINT §6): the master panel,
+//! a tailored version's panel, and "What I've sent". Every string is what the
+//! panel shows, in the words of the glossary.
+
+use crate::blob::BlobSource;
+use crate::changes::variant_status;
+use crate::error::Result;
+use crate::event::Role;
+use crate::ids::Id;
+use crate::state::FamilyState;
+
+/// The latest checkpoint, as a card.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CheckpointCard {
+    pub id: Id,
+    /// "v3".
+    pub label: String,
+    pub note: String,
+    /// "15 Oct".
+    pub when: String,
+}
+
+/// "Your master has 1 change your tailored versions don't have".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Callout {
+    pub text: String,
+    /// "Offer it to both versions".
+    pub button: String,
+    /// The versions the button offers to.
+    pub versions: Vec<Id>,
+}
+
+/// One tailored version in the master's list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VersionRow {
+    pub id: Id,
+    pub name: String,
+    /// "Has v3 · last sent 2 Oct".
+    pub status: String,
+    pub button: String,
+}
+
+/// The master panel.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MasterPanel {
+    pub file_name: String,
+    /// "Master".
+    pub chip: String,
+    /// "2 tailored versions follow this file".
+    pub follows: String,
+    pub latest: CheckpointCard,
+    pub callout: Option<Callout>,
+    pub versions: Vec<VersionRow>,
+    /// "Make a tailored version", "Save checkpoint", "Send a copy".
+    pub actions: Vec<String>,
+    /// "What I've sent".
+    pub footer: String,
+}
+
+/// A tailored version's panel.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VersionPanel {
+    pub file_name: String,
+    /// "Tailored version".
+    pub chip: String,
+    /// "Made from master v1 · has v3".
+    pub status: String,
+    pub latest: CheckpointCard,
+    /// "2 updates from the master", if any were offered.
+    pub updates: Option<String>,
+    pub actions: Vec<String>,
+    pub footer: String,
+}
+
+fn card(state: &FamilyState, node: &Id) -> Option<CheckpointCard> {
+    let latest = state.latest(node)?;
+    Some(CheckpointCard {
+        id: latest.id.clone(),
+        label: state.label(&latest.id),
+        note: latest.note.clone(),
+        when: latest.at.day_label(),
+    })
+}
+
+fn version_status(
+    state: &FamilyState,
+    node: &Id,
+    blobs: &dyn BlobSource,
+) -> Result<(String, usize, Vec<String>)> {
+    let status = variant_status(state, node, blobs)?;
+    let mut text = format!("Has {}", state.label(&status.base));
+    if let Some(sent) = state.sent_from(node).last() {
+        text.push_str(&format!(" · last sent {}", sent.at.day_label()));
+    }
+    let not_offered: Vec<String> = status
+        .offerable
+        .iter()
+        .filter(|p| !p.offered)
+        .map(|p| format!("{}:{}", p.checkpoint, p.change.id))
+        .collect();
+    let offered = status.offerable.iter().filter(|p| p.offered).count();
+    Ok((text, offered, not_offered))
+}
+
+/// The master panel.
+///
+/// # Errors
+/// When a change list blob is missing.
+pub fn master_panel(state: &FamilyState, blobs: &dyn BlobSource) -> Result<MasterPanel> {
+    let master = state.master()?;
+    let mut versions = Vec::new();
+    let mut waiting: Vec<String> = Vec::new();
+    let mut waiting_for: Vec<Id> = Vec::new();
+    for node in state.variants().filter(|n| n.follows_master) {
+        let (status, _, not_offered) = version_status(state, &node.id, blobs)?;
+        if !not_offered.is_empty() {
+            waiting_for.push(node.id.clone());
+        }
+        for key in not_offered {
+            if !waiting.contains(&key) {
+                waiting.push(key);
+            }
+        }
+        versions.push(VersionRow {
+            id: node.id.clone(),
+            name: node.display_name.clone(),
+            status,
+            button: "Open".to_owned(),
+        });
+    }
+    let follows = match versions.len() {
+        0 => "No tailored versions yet".to_owned(),
+        1 => "1 tailored version follows this file".to_owned(),
+        n => format!("{n} tailored versions follow this file"),
+    };
+    let callout = (!waiting.is_empty()).then(|| {
+        let changes = if waiting.len() == 1 {
+            "1 change".to_owned()
+        } else {
+            format!("{} changes", waiting.len())
+        };
+        let it = if waiting.len() == 1 { "it" } else { "them" };
+        let to = match waiting_for.len() {
+            1 if versions.len() == 1 => "your tailored version".to_owned(),
+            1 => format!(
+                "'{}'",
+                state
+                    .node(&waiting_for[0])
+                    .map_or("", |n| n.display_name.as_str())
+            ),
+            2 => "both versions".to_owned(),
+            n => format!("all {n} versions"),
+        };
+        let who = if versions.len() == 1 {
+            "your tailored version doesn't"
+        } else {
+            "your tailored versions don't"
+        };
+        Callout {
+            text: format!("Your master has {changes} {who} have"),
+            button: format!("Offer {it} to {to}"),
+            versions: waiting_for.clone(),
+        }
+    });
+    Ok(MasterPanel {
+        file_name: master.display_name.clone(),
+        chip: "Master".to_owned(),
+        follows,
+        latest: card(state, &master.id)
+            .ok_or_else(|| crate::Error::Ledger("the master has no checkpoint".to_owned()))?,
+        callout,
+        versions,
+        actions: vec![
+            "Make a tailored version".to_owned(),
+            "Save checkpoint".to_owned(),
+            "Send a copy".to_owned(),
+        ],
+        footer: "What I've sent".to_owned(),
+    })
+}
+
+/// A tailored version's panel.
+///
+/// # Errors
+/// When the node is not a tailored version, or a blob is missing.
+pub fn version_panel(
+    state: &FamilyState,
+    node: &Id,
+    blobs: &dyn BlobSource,
+) -> Result<VersionPanel> {
+    let info = state
+        .node(node)
+        .filter(|n| n.role == Role::Variant)
+        .ok_or_else(|| crate::Error::NotAllowed("not a tailored version".to_owned()))?;
+    let (has, offered, _) = version_status(state, node, blobs)?;
+    let made_from = info
+        .made_from
+        .as_ref()
+        .map(|c| state.label(c))
+        .unwrap_or_default();
+    Ok(VersionPanel {
+        file_name: info.display_name.clone(),
+        chip: "Tailored version".to_owned(),
+        status: format!("Made from master {made_from} · {}", has.to_lowercase()),
+        latest: card(state, node)
+            .ok_or_else(|| crate::Error::Ledger("no checkpoint".to_owned()))?,
+        updates: match offered {
+            0 => None,
+            1 => Some("1 update from the master".to_owned()),
+            n => Some(format!("{n} updates from the master")),
+        },
+        actions: vec!["Save checkpoint".to_owned(), "Send a copy".to_owned()],
+        footer: "What I've sent".to_owned(),
+    })
+}
+
+/// One sent copy in "What I've sent".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SentRow {
+    pub id: Id,
+    pub recipient: String,
+    /// "Resume – data roles · v2".
+    pub version: String,
+    pub purpose: Option<String>,
+    /// "Word".
+    pub format: String,
+    /// "2 Oct".
+    pub date: String,
+    /// "Came back with 5 changes", once a returned file is matched to it.
+    pub chip: Option<String>,
+    pub button: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SentGroup {
+    /// "October 2026".
+    pub month: String,
+    pub rows: Vec<SentRow>,
+}
+
+/// "What I've sent".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SentList {
+    pub title: String,
+    pub groups: Vec<SentGroup>,
+    /// "Each copy is kept exactly as sent."
+    pub note: String,
+}
+
+/// "What I've sent", newest first, grouped by month. `search` filters by
+/// recipient, version or purpose (case-insensitive).
+#[must_use]
+pub fn sent_list(state: &FamilyState, search: Option<&str>) -> SentList {
+    let needle = search
+        .map(str::to_lowercase)
+        .filter(|s| !s.trim().is_empty());
+    let mut copies: Vec<&crate::state::SentCopy> = state.sent.iter().collect();
+    copies.sort_by_key(|s| std::cmp::Reverse(s.at));
+    let mut groups: Vec<SentGroup> = Vec::new();
+    for copy in copies {
+        let node = state
+            .checkpoint(&copy.from)
+            .and_then(|c| state.node(&c.node));
+        let version = format!(
+            "{} · {}",
+            node.map_or("", |n| n.display_name.as_str())
+                .trim_end_matches(".docx"),
+            state.label(&copy.from)
+        );
+        if let Some(needle) = &needle {
+            let haystack = format!(
+                "{} {} {}",
+                copy.recipient,
+                version,
+                copy.purpose.as_deref().unwrap_or("")
+            )
+            .to_lowercase();
+            if !haystack.contains(needle) {
+                continue;
+            }
+        }
+        let returned = state
+            .returned
+            .iter()
+            .rfind(|r| r.sent.as_ref() == Some(&copy.id));
+        let chip = returned.map(|r| match (r.change_count, &r.reviewed) {
+            (_, Some(_)) => "Reviewed".to_owned(),
+            (0, None) => "Came back unchanged".to_owned(),
+            (1, None) => "Came back with 1 change".to_owned(),
+            (n, None) => format!("Came back with {n} changes"),
+        });
+        let row = SentRow {
+            id: copy.id.clone(),
+            recipient: copy.recipient.clone(),
+            version,
+            purpose: copy.purpose.clone(),
+            format: if copy.format == "pdf" { "PDF" } else { "Word" }.to_owned(),
+            date: copy.at.day_label(),
+            button: if chip
+                .as_deref()
+                .is_some_and(|c| c.starts_with("Came back with"))
+            {
+                "Review".to_owned()
+            } else {
+                "Open".to_owned()
+            },
+            chip,
+        };
+        let month = copy.at.month_label();
+        match groups.last_mut() {
+            Some(group) if group.month == month => group.rows.push(row),
+            _ => groups.push(SentGroup {
+                month,
+                rows: vec![row],
+            }),
+        }
+    }
+    SentList {
+        title: "What I've sent".to_owned(),
+        groups,
+        note: "Each copy is kept exactly as sent.".to_owned(),
+    }
+}

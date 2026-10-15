@@ -18,6 +18,14 @@ pub const OUT_DIR: &str = "fixtures/docx/synthetic";
 
 /// Every synthetic fixture, as (file name, package).
 pub fn all() -> Vec<(&'static str, Package)> {
+    let mut all = phase_0();
+    all.extend(crate::features::all());
+    all.extend(crate::resume::all());
+    all
+}
+
+/// The ten fixtures from Phase 0.
+fn phase_0() -> Vec<(&'static str, Package)> {
     vec![
         ("headings-paragraphs.docx", headings_paragraphs()),
         ("lists.docx", lists()),
@@ -358,10 +366,14 @@ mod tests {
             let expected = package.parts();
             let mut archive = zip::ZipArchive::new(Cursor::new(package.to_bytes()))
                 .unwrap_or_else(|e| panic!("{name}: not a zip: {e}"));
-            assert_eq!(archive.len(), expected.len(), "{name}: entry count");
+            // Streamed fixtures also hold directory entries, which are not parts.
+            let files: Vec<usize> = (0..archive.len())
+                .filter(|&i| !archive.by_index(i).expect("entry").is_dir())
+                .collect();
+            assert_eq!(files.len(), expected.len(), "{name}: entry count");
 
             let content_types = String::from_utf8(expected[0].1.clone()).expect("utf-8");
-            for (index, (part, data)) in expected.iter().enumerate() {
+            for (&index, (part, data)) in files.iter().zip(&expected) {
                 let mut file = archive.by_index(index).expect("entry");
                 assert_eq!(
                     file.name().expect("entry name").as_ref(),

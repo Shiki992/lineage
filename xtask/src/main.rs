@@ -10,16 +10,13 @@
 
 #![forbid(unsafe_code)]
 
-mod checksum;
-mod docx;
-mod fixtures;
 mod headers;
-mod png;
-mod zip_writer;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+use lineage_testkit::fixtures;
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 82ce905bf47d31a882dcd719869ae538b1c02c2b29c5dc4465c0bf26f7c77a31 # shrinks to paras = [Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["engineer"], bold: false }, Para { style: Normal, words: ["engineer"], bold: false }], edits = [Move(665519579893047420, 4012235884607698194), AppendWord(6385425270018982790, "data"), Move(10310724811990743312, 3783550860123279335), ToggleBold(5652910523726890076)]
+cc 23415d1cb64ae25d070ad9929aec25579aa05becabab549d196a7e55462efc6e # shrinks to paras = [Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["data"], bold: false }], edits = [Delete(0), ReplaceWord(0, 0, "engineer")]
+cc 4942e6d9323b1750d4844e2bd553cef18e0fb348a65a61a946a2b1f1d1b3f833 # shrinks to paras = [Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["nightly"], bold: true }, Para { style: Normal, words: ["nightly"], bold: true }], mine = [(4985950791799325077, "data")], masters = [(3854073386791028190, "data"), (10171923322190598727, "data")]
+cc 43a528f6c9ee80961aae5a9a7fcfee83ca693e72e08de94c88529fbb3afc49d8 # shrinks to paras = [Para { style: Normal, words: ["warehouse"], bold: true }, Para { style: Normal, words: ["warehouse"], bold: true }, Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["data"], bold: false }, Para { style: Normal, words: ["data"], bold: false }], mine = [(3243664276261026316, "data"), (2545210937906499165, "data")], masters = [(10913715778017180120, "data")]

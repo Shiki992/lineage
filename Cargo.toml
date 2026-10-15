@@ -1,6 +1,15 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/lineage", "crates/wasm", "crates/harness", "xtask"]
+# The fuzz targets are their own workspace (they need nightly).
+exclude = ["fuzz"]
+members = [
+    "crates/core",
+    "crates/lineage",
+    "crates/wasm",
+    "crates/harness",
+    "crates/testkit",
+    "xtask",
+]
 
 [workspace.package]
 version = "0.0.0"
@@ -14,12 +23,24 @@ publish = false
 [workspace.dependencies]
 lineage-core = { path = "crates/core" }
 lineage = { path = "crates/lineage" }
+lineage-testkit = { path = "crates/testkit" }
 # Exact pin: wasm-bindgen-cli must match this version exactly (see scripts/build-wasm.mjs).
 wasm-bindgen = "=0.2.129"
+# Engine: zip reading, deflate and XML. Chosen in docs/decisions/0005-docx-package-and-xml.md.
+rawzip = "0.5.2"
+miniz_oxide = { version = "0.9.1", default-features = false, features = ["with-alloc"] }
+roxmltree = { version = "0.21.1", default-features = false, features = ["std", "positions"] }
+# Content addressing and change ids. Justified in docs/decisions/0006-phase-1-dependencies.md.
+sha2 = { version = "0.11.1", default-features = false }
+# The change list (spec/format) and the ledger are JSON. Justified in 0006.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 # Dev-only: JSON Schema checks for spec/format and an independent zip reader for fixtures.
 boon = "0.6.1"
-serde_json = "1"
+# Dev-only: property tests. No default features, so no fork or tempfile (0006).
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 zip = { version = "9.0.3", default-features = false }
+flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

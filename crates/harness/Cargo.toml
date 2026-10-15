@@ -14,3 +14,7 @@ workspace = true
 
 [dependencies]
 lineage.workspace = true
+lineage-core.workspace = true
+
+[dev-dependencies]
+lineage-testkit.workspace = true

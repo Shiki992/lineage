@@ -38,7 +38,7 @@
       "properties": {
         "id": { "$ref": "#/$defs/changeId" },
         "kind": {
-          "description": "insert, delete and modify change content; move relocates content unchanged; format changes only formatting.",
+          "description": "insert, delete and modify change content; move relocates content (before and after differ if it was also edited); format changes only formatting.",
           "enum": ["insert", "delete", "modify", "move", "format"]
         },
         "location": { "$ref": "#/$defs/location" },
@@ -115,7 +115,24 @@
           "type": "string",
           "minLength": 1
         },
-        "charRange": { "$ref": "#/$defs/charRange" }
+        "charRange": { "$ref": "#/$defs/charRange" },
+        "cell": { "$ref": "#/$defs/cellLocation" }
+      }
+    },
+    "cellLocation": {
+      "description": "A place inside the table at blockIndex: a row, then optionally a column and the block inside that cell. Nested tables nest another cell. A row without a column means the whole row.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["row"],
+      "properties": {
+        "row": { "type": "integer", "minimum": 0 },
+        "column": { "type": "integer", "minimum": 0 },
+        "blockIndex": {
+          "description": "Zero-based index of the block inside the cell.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "cell": { "$ref": "#/$defs/cellLocation" }
       }
     },
     "charRange": {

@@ -45,7 +45,7 @@ Every Rust, TypeScript and JavaScript source file starts with:
 
 See [fixtures/docx/README.md](fixtures/docx/README.md). In short:
 
-1. Prefer a **synthetic** fixture: add it to `xtask/src/fixtures.rs`, run `cargo xtask fixtures`, and add a row to the fixtures README.
+1. Prefer a **synthetic** fixture: add it to `crates/testkit/src/fixtures.rs`, run `cargo xtask fixtures`, and add a row to the fixtures README.
 2. A **hand-made** file (for quirks only a real app produces) must use invented content. Record the app and version that saved it, and its licence.
 3. Every engine bug gets a fixture that reproduces it and a test.
 

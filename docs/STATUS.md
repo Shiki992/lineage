@@ -1,5 +1,79 @@
 # Status
 
+## Phase 1: Word engine and family logic (2026-10-15). Done.
+
+Branch `phase-1-word-core`, from `phase-0-foundations`. Not pushed. Decisions: [0005 package and XML](decisions/0005-docx-package-and-xml.md), [0006 dependencies](decisions/0006-phase-1-dependencies.md), [0007 merging and clean copies](decisions/0007-merge-and-clean-copies.md).
+
+**Done**
+
+- **Package layer** (`crates/core/src/package`, `xml`):
+  - rawzip reader with size, name, CRC and compression checks;
+  - miniz_oxide inflate capped at the declared size;
+  - our own writer, which copies unchanged entries as their original compressed bytes.
+  - XML is parsed with roxmltree and changed only by byte-range splices, so untouched XML stays byte-identical.
+  - The writer re-parses every part it changed and refuses to return malformed XML.
+- **Canonical model** (`docx/`):
+  - stories (body, headers and footers by section, footnotes, endnotes) → blocks (paragraphs, tables with rows and cells, section breaks, opaque) → text, atoms and markers, with byte spans;
+  - styles and numbering referenced, not flattened;
+  - accepted and rejected views of existing tracked changes, matching Word (checked: whitespace without `xml:space`, `w:cr`, text boxes, field results, paragraphs before tables).
+- **What changed** (`diff/`):
+  - patience LCS on content-and-formatting keys, with ties treated as one changed line so repeated lines pair with their counterparts;
+  - formatting-only pairs, moves, similarity pairing (whole-percentage Dice), table rows and cells;
+  - a word-level diff inside paragraphs;
+  - the v0 change list, with a new optional `cell` location (schema, examples, Rust and TypeScript tests updated).
+- **Three-way merge** (`merge/`): clean, already there, overlap (both edited, deleted vs edited, edited vs deleted, both added here, formatting vs text) or by hand, per paragraph, cell, row, section break or opaque block.
+- **Tracked-change writer** (`write/`):
+  - `w:ins`, `w:del`, `w:rPrChange` and `w:pPrChange`, row and table insertions and deletions, and new external hyperlinks, all by "Lineage";
+  - moves shown as a deletion plus an insertion;
+  - `Check` says in advance what can be written.
+  - **No empty paragraph is ever left** at the end of the document or a cell, or before a table: the last paragraph mark changes hands Word's way (`write/ends.rs`), so accepting gives the master's version and rejecting gives the original, exactly.
+- **Custom properties and clean copies** (`docx/props.rs`, `clean.rs`), **summaries** (`summary.rs`) and the **what-changed view model** (`view.rs`).
+- **Family logic** (`crates/lineage`):
+  - JSON Lines ledger with validated ids and hashes, and a `FamilyState` fold;
+  - content-addressed snapshots;
+  - change states and the merge base (decision 0002), with detection of text typed in by hand and of Lineage changes rejected in Word;
+  - fingerprints, pure commands for every button, panel views.
+- **Harness** (`crates/harness`): memory and local-folder storage, and `Panel` with one method per button. **The Phase 1 "done when" scenario passes end to end** in memory and on disk (`tests/personal_resume.rs`), plus 8 more scenarios.
+- **Fixtures:** 38 synthetic .docx files (`crates/testkit`, moved out of xtask; the Phase 0 ten are byte-identical). All open in Word.
+- **Tests:** 177 Rust tests pass, plus 18 TypeScript tests.
+  - The 7 property tests pass at 10,000 cases each. They found three bugs, now fixed with regression tests: crossing pairs, repeated-line pairing, and the end of the document.
+- **Word check** (`scripts/word-smoke.ps1 -Compare`):
+  - All 57 engine outputs on fixtures (writer outputs and clean copies) open in Word.
+  - The 54 that can be compared match Word's accept-all and reject-all text exactly. Files with DATE fields, maths or symbols are opened but not compared, because Word shows those in its own way.
+  - Paragraph styles after accept and reject were checked for the end-of-document cases.
+- **Your documents** (`tests/local_fidelity.rs`, local only, counts only), 45 files:
+  - every file reads, writes back with every part and entry identical, opens in both views and cleans to the same text;
+  - for all 44 neighbouring pairs, bringing every change in reproduces the other file and rejecting gives the original back;
+  - all 89 outputs open in Word, and the 44 merges match Word's accept-all and reject-all text.
+  - This run found two real bugs (self-closing empty paragraphs, paragraphs before tables), now fixed with regression tests. 60 changes between neighbours were left to bring in by hand (mostly section breaks and table layout).
+- **Fuzzing:** `fuzz/` with `docx_reader` and `zip_reader`, and a CI job on a pinned nightly.
+  - Not run locally: on Windows, the AddressSanitizer runtime in Visual Studio does not match nightly Rust's, and WSL has no Rust installed.
+  - `the_reader_never_panics_on_damaged_files` covers damaged input on stable in every test run.
+
+**Wasm size** (release, `opt-level = "s"`, LTO, before wasm-opt; measured with a temporary export that reaches the whole engine, then removed):
+
+- 1,296,730 bytes raw, 357,725 bytes gzipped, plus about 6.8 KB of JS glue;
+- compiles in about 1 ms in Node (lazy tiering).
+
+The committed wasm crate still exports only the Phase 0 bridge (21,855 bytes). Task-pane budgets are set in Phase 2.
+
+**Known issues**
+
+- Brought in by hand for now (each shown with its reason; see 0007):
+  - footnote and endnote changes;
+  - section breaks;
+  - table columns, merged cells and table formatting;
+  - new pictures or other new parts;
+  - content in tables of contents and block content controls;
+  - paragraphs that already have unaccepted tracked changes.
+- UTF-16 parts are read-only.
+- Fuzzing has only run in CI, not locally.
+- A sent copy drops the document title with the other metadata. Make it an option if people want titles kept.
+
+## Phase 2 and Phase 3
+
+Not started. The maintainer asked to continue into both.
+
 ## Phase 0: repository foundations (2026-10-15). Done locally; CI result below.
 
 Branch `phase-0-foundations`. Decisions: [0004-stack](decisions/0004-stack.md).
@@ -68,4 +142,4 @@ Task-pane budgets are set in Phase 2.
 
 ## Next
 
-Phase 1 (Word engine and family logic), in plan mode, after Phase 0 is reviewed and merged.
+Phase 2 (Word add-in), then Phase 3 (returned files).

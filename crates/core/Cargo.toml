@@ -12,6 +12,19 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[dependencies]
+rawzip.workspace = true
+miniz_oxide.workspace = true
+roxmltree.workspace = true
+sha2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
 [dev-dependencies]
 boon.workspace = true
-serde_json.workspace = true
+proptest.workspace = true
+lineage-testkit.workspace = true
+# An independent zip reader (its own archive parsing and CRC checks), so package
+# tests don't trust our own code.
+zip = { workspace = true, features = ["deflate-flate2"] }
+flate2.workspace = true
