@@ -199,8 +199,9 @@ export const Candidate = v.strictObject({
   family: Id,
   checkpoint: Id,
   sent: v.nullable(Id),
-  /** The file the copy was made from. */
+  /** The file the copy was made from, and its name. */
   node: Id,
+  nodeName: Text,
   title: Text,
   detail: Text,
   score: Text,

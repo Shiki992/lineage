@@ -468,7 +468,7 @@ export class Lineage {
     returning: Returning,
     candidate: s.Candidate,
     matchedBy: s.MatchedBy,
-  ): Promise<{ returned: string; family: string; node: string }> {
+  ): Promise<{ returned: string; family: string; node: string; nodeName: string }> {
     return this.serial("recordReturned", async () => {
       const result = await this.press(candidate.family, (ledger) =>
         this.engine.recordReturned(
@@ -487,7 +487,12 @@ export class Lineage {
       if (!returned) {
         throw new LineageError("Lineage couldn't keep the file.", "no record came back");
       }
-      return { returned, family: candidate.family, node: candidate.node };
+      return {
+        returned,
+        family: candidate.family,
+        node: candidate.node,
+        nodeName: candidate.nodeName,
+      };
     });
   }
 

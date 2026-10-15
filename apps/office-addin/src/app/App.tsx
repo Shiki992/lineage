@@ -6,11 +6,15 @@
 // the engine and storage; this file only draws and routes.
 
 import type {
+  Candidate,
   CardDecision,
   DocumentHost,
   Engine,
   Family,
+  MatchedBy,
   Opened,
+  Returning,
+  ReturnReview,
   SendArgs,
   SentList,
   Storage,
@@ -27,6 +31,7 @@ import { MakeVersion, SaveCheckpoint, SendCopy } from "./forms";
 import type { Action } from "./home";
 import { Elsewhere, MasterHome, SignIn, StartTracking, VersionHome } from "./home";
 import { Button, ErrorBanner, LinkButton } from "./parts";
+import { CameBack, ChooseReturned, OpenToReview, ReviewReturned } from "./returned";
 import { WhatIveSent } from "./sent";
 
 type Screen =
@@ -36,6 +41,17 @@ type Screen =
   | { kind: "updates"; updates: Updates }
   | { kind: "sendCopy"; family: Family }
   | { kind: "sent"; list: SentList }
+  | { kind: "chooseReturned" }
+  | { kind: "cameBack"; returning: Returning }
+  | {
+      kind: "openToReview";
+      family: string;
+      node: string;
+      name: string;
+      returned: string;
+      canReviewHere: boolean;
+    }
+  | { kind: "returnedReview"; review: ReturnReview }
   | { kind: "diagnostics" };
 
 export interface AppProps {
@@ -56,6 +72,8 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; open?: () => void } | null>(null);
   const [crashed, setCrashed] = useState(false);
+  /** For an untracked document: whether it looks like a copy that came back. */
+  const [untrackedReturning, setUntrackedReturning] = useState<Returning | null>(null);
   const lineage = useMemo(
     () => (storage ? new Lineage({ engine, storage, host, onTiming: timing }) : null),
     [engine, host, storage],
@@ -98,6 +116,20 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
           setOpened(found);
           timing("panel.ready", performance.now() - pageStart);
         }
+        // An untracked document may be a copy that came back without its ids:
+        // check in the background, so the panel shows at once.
+        if (found.kind === "untracked") {
+          lineage.recogniseOpen().then(
+            (returning) => {
+              if (live && returning.recognition.verdict !== "unknown") {
+                setUntrackedReturning(returning);
+              }
+            },
+            (e: unknown) => {
+              console.error(e);
+            },
+          );
+        }
       },
       (e: unknown) => {
         console.error(e);
@@ -118,6 +150,41 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
   const refresh = async (l: Lineage) => {
     setOpened(await l.refresh());
     setScreen({ kind: "home" });
+  };
+
+  const openFile = opened?.kind === "master" || opened?.kind === "version" ? opened.file : null;
+
+  /** "Review" on a file that came back: its review in the open file. */
+  const reviewReturned = (returned: string) => {
+    setNotice(null);
+    void run("Getting their changes", async (l) => {
+      setScreen({ kind: "returnedReview", review: await l.returnedReview(returned) });
+    });
+  };
+
+  /** The person confirmed which copy came back: keep it, then review it where it belongs. */
+  const confirmReturned = (returning: Returning, candidate: Candidate, how: MatchedBy) => {
+    void run("Keeping the file", async (l) => {
+      const kept = await l.recordReturned(returning, candidate, how);
+      if (openFile?.familyId === kept.family && openFile.nodeId === kept.node) {
+        setOpened(await l.refresh());
+        setScreen({ kind: "returnedReview", review: await l.returnedReview(kept.returned) });
+        return;
+      }
+      setScreen({
+        kind: "openToReview",
+        family: kept.family,
+        node: kept.node,
+        name: kept.nodeName,
+        returned: kept.returned,
+        canReviewHere: openFile?.familyId === kept.family,
+      });
+    });
+  };
+
+  const cameBackLink = () => {
+    setNotice(null);
+    setScreen({ kind: "chooseReturned" });
   };
 
   const onAction = (action: Action) => {
@@ -187,6 +254,12 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
         saved={opened.saved}
         storage={storageLabel}
         busy={busy !== null}
+        cameBack={untrackedReturning?.recognition ?? null}
+        onCameBack={() => {
+          if (untrackedReturning) {
+            setScreen({ kind: "cameBack", returning: untrackedReturning });
+          }
+        }}
         onStart={() =>
           void run("Starting to track", async (l) => {
             setOpened(await l.startTracking());
@@ -197,6 +270,88 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
     );
   } else if (opened.kind === "elsewhere") {
     body = <Elsewhere storage={storageLabel} />;
+  } else if (screen.kind === "chooseReturned") {
+    body = (
+      <ChooseReturned
+        busy={busy !== null}
+        onBack={home}
+        onFile={(bytes, name) =>
+          void run("Looking for the copy it came from", async (l) => {
+            setScreen({ kind: "cameBack", returning: await l.recognise(bytes, name) });
+          })
+        }
+      />
+    );
+  } else if (screen.kind === "cameBack") {
+    const returning = screen.returning;
+    body = (
+      <CameBack
+        name={returning.name}
+        recognition={returning.recognition}
+        busy={busy !== null}
+        onBack={() => {
+          setScreen(opened.kind === "cameBack" ? { kind: "home" } : { kind: "chooseReturned" });
+        }}
+        onConfirm={(candidate, how) => {
+          confirmReturned(returning, candidate, how);
+        }}
+      />
+    );
+  } else if (screen.kind === "openToReview") {
+    const target = screen;
+    body = (
+      <OpenToReview
+        name={target.name}
+        hereName={target.canReviewHere && openFile ? openFile.displayName : null}
+        busy={busy !== null}
+        onBack={home}
+        onOpen={() => void run("Opening", (l) => l.openNode(target.family, target.node))}
+        onReviewHere={() => {
+          reviewReturned(target.returned);
+        }}
+      />
+    );
+  } else if (screen.kind === "returnedReview") {
+    const review = screen.review;
+    const family = openFile?.familyId ?? "";
+    body = (
+      <ReviewReturned
+        review={review}
+        isSource={openFile?.nodeId === review.fromNode}
+        busy={busy !== null}
+        onBack={home}
+        onOpenSource={() => void run("Opening", (l) => l.openNode(family, review.fromNode))}
+        onOpenReturned={() =>
+          void run("Opening what came back", (l) => l.openReturned(family, review.returned))
+        }
+        onApply={(cards: CardDecision[]) =>
+          void run("Keeping your choices", async (l) => {
+            const { wrote } = await l.decideReturned(review.returned, cards);
+            await refresh(l);
+            setNotice({
+              text: wrote
+                ? "Done. The changes you kept are in your file as tracked changes by Lineage, and a checkpoint was saved."
+                : "Done. Nothing was added to your file.",
+            });
+          })
+        }
+      />
+    );
+  } else if (opened.kind === "cameBack") {
+    const returning = opened.returning;
+    body = (
+      <CameBack
+        name={returning.name}
+        recognition={returning.recognition}
+        busy={busy !== null}
+        onBack={() => {
+          setScreen({ kind: "home" });
+        }}
+        onConfirm={(candidate, how) => {
+          confirmReturned(returning, candidate, how);
+        }}
+      />
+    );
   } else if (screen.kind === "saveCheckpoint") {
     body = (
       <SaveCheckpoint
@@ -283,6 +438,8 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
           })
         }
         onOpen={(sent) => void run("Opening the copy", (l) => l.openSentCopy(sent))}
+        onReview={reviewReturned}
+        onCameBack={cameBackLink}
       />
     );
   } else if (opened.kind === "master") {
@@ -306,6 +463,8 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
             setScreen({ kind: "sent", list: await l.sentList() });
           })
         }
+        onCameBack={cameBackLink}
+        onReviewReturned={reviewReturned}
       />
     );
   } else {
@@ -324,6 +483,8 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
             setScreen({ kind: "sent", list: await l.sentList() });
           })
         }
+        onCameBack={cameBackLink}
+        onReviewReturned={reviewReturned}
       />
     );
   }

@@ -61,6 +61,52 @@ describe("the task pane", () => {
     });
   });
 
+  it("brings back a mentor's copy, one change at a time", async () => {
+    const engine = loadEngine(wasm, new Uint8Array(32).fill(11));
+    const storage = new MemoryStorage();
+    const host = new FakeHost(engine, fixture("resume-master.docx"), {
+      name: "Resume.docx",
+      url: "https://d.docs.live.net/0/Documents/Resume.docx",
+    });
+    render(<App engine={engine} host={host} storage={{ kind: "ready", storage }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start tracking" }));
+    await screen.findByText("Lineage is tracking this file. This is v1.");
+    fireEvent.click(screen.getByRole("button", { name: "Send a copy" }));
+    fireEvent.change(await screen.findByLabelText("Who it's for"), { target: { value: "Mentor" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save copy and record it" }));
+    await screen.findByText(/Saved “Resume \(Mentor\)\.docx”/);
+
+    // The mentor's edits, in a file that kept the copy's ids.
+    const copy = await storage.readFile(storage.refFor("sent", "Resume (Mentor).docx"));
+    const ids = engine.readIds(copy);
+    expect(ids).not.toBeNull();
+    const back = engine.writeIds(
+      fixture("resume-tailored-data.docx"),
+      ids ?? { family: "", checkpoint: "" },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "A file came back" }));
+    fireEvent.change(await screen.findByTestId("returned-file"), {
+      target: {
+        files: [new File([back as Uint8Array<ArrayBuffer>], "Resume - comments from Sam.docx")],
+      },
+    });
+    expect(await screen.findByRole("heading", { name: "This came back from Mentor" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review their changes" }));
+    expect(await screen.findByText("Change 1 of 4")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    for (let i = 0; i < 3; i++) {
+      fireEvent.click(await screen.findByRole("button", { name: "Skip" }));
+    }
+    fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+    expect(await screen.findByText(/^Done\. The changes you kept are in your file/)).toBeTruthy();
+    expect(host.replaced).toBe(1);
+    expect(screen.getByText("Kept 1 change from Mentor")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "What I've sent" }));
+    expect(await screen.findByText("Reviewed")).toBeTruthy();
+  });
+
   it("shows the engine's words when something can't be done", async () => {
     const engine = loadEngine(wasm, new Uint8Array(32).fill(10));
     const host = new FakeHost(engine, new TextEncoder().encode("not a Word file"), {

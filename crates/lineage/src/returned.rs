@@ -372,8 +372,10 @@ pub struct CandidateRow {
     pub family: Id,
     pub checkpoint: Id,
     pub sent: Option<Id>,
-    /// The file the copy was made from, where its changes are reviewed.
+    /// The file the copy was made from, where its changes are reviewed, and
+    /// its name: "Resume – data roles".
     pub node: Id,
+    pub node_name: String,
     /// "Northgate Analytics", or "A copy you didn't record sending".
     pub title: String,
     /// "Resume – data roles · v2 · sent 2 Oct".
@@ -417,6 +419,7 @@ pub fn describe(found: &Recognition, states: &[&FamilyState]) -> RecognitionView
                 checkpoint: c.checkpoint.clone(),
                 sent: c.sent.clone(),
                 node: node.id.clone(),
+                node_name: stem(&node.display_name).to_owned(),
                 title: sent.map_or_else(
                     || "A copy you didn't record sending".to_owned(),
                     |s| s.recipient.clone(),
