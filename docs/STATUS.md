@@ -23,7 +23,7 @@ Branch `phase-0-foundations`. Decisions: [0004-stack](decisions/0004-stack.md).
   - cargo-deny.
   - wasm build and TypeScript lint, typecheck, tests and format.
   - DCO check on pull requests.
-- **Local results:** cargo fmt, clippy (`-D warnings`), `cargo test --workspace` (25 tests), `cargo deny check`, both xtask checks, and `pnpm lint`, `typecheck`, `test` (16 tests) and `format:check` all pass.
+- **Local results:** cargo fmt, clippy (`-D warnings`), `cargo test --workspace` (20 tests), `cargo deny check`, both xtask checks, and `pnpm lint`, `typecheck`, `test` (16 tests) and `format:check` all pass.
 
 **Wasm baseline** (release, `opt-level = "s"`, LTO, before wasm-opt):
 
