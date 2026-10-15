@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use boon::{Compiler, SchemaIndex, Schemas};
 use serde_json::Value;
 
-const SCHEMA_ID: &str = "https://github.com/Shiki992/lineage/spec/format/v0/change-list.schema.json";
+const SCHEMA_ID: &str =
+    "https://github.com/Shiki992/lineage/spec/format/v0/change-list.schema.json";
 
 fn spec_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../spec/format/v0")
@@ -25,7 +26,10 @@ fn read_json(path: &Path) -> Value {
 
 fn compile_schema() -> (Schemas, SchemaIndex) {
     let schema = read_json(&spec_dir().join("change-list.schema.json"));
-    assert_eq!(schema["$id"], SCHEMA_ID, "schema $id changed; update SCHEMA_ID");
+    assert_eq!(
+        schema["$id"], SCHEMA_ID,
+        "schema $id changed; update SCHEMA_ID"
+    );
     let mut schemas = Schemas::new();
     let mut compiler = Compiler::new();
     compiler
