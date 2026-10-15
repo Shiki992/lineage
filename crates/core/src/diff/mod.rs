@@ -393,23 +393,48 @@ pub(crate) fn unit_of(block: &Block) -> Unit {
     }
 }
 
+/// The outline level of a heading paragraph: 1 for Heading 1, and so on.
+#[must_use]
+pub fn heading_level(p: &Paragraph) -> Option<u8> {
+    if let Some(style) = p.props.style.as_deref() {
+        let lower = style.to_ascii_lowercase();
+        if let Some(digits) = lower.strip_prefix("heading") {
+            return Some(digits.parse().unwrap_or(1));
+        }
+    }
+    p.props
+        .direct
+        .get("outlineLvl")
+        .and_then(|v| {
+            v.trim_start_matches("val=")
+                .trim_end_matches(';')
+                .parse::<u8>()
+                .ok()
+        })
+        .map(|level| level + 1)
+}
+
 /// True for a paragraph in a heading style (or with an outline level).
 #[must_use]
 pub fn is_heading(p: &Paragraph) -> bool {
-    p.props
-        .style
-        .as_deref()
-        .is_some_and(|s| s.to_ascii_lowercase().starts_with("heading"))
-        || p.props.direct.get("outlineLvl").is_some()
+    heading_level(p).is_some()
 }
 
-/// The text of the nearest heading before `index`.
+/// The text of the heading a block sits under: the nearest heading before it,
+/// or for a heading, the nearest heading of a higher level.
 pub(crate) fn heading_before(blocks: &[Block], index: usize) -> Option<String> {
+    let own = match blocks.get(index) {
+        Some(Block::Paragraph(p)) => heading_level(p),
+        _ => None,
+    };
     blocks[..index.min(blocks.len())]
         .iter()
         .rev()
         .find_map(|b| match b {
-            Block::Paragraph(p) if is_heading(p) && !p.text().trim().is_empty() => Some(p.text()),
+            Block::Paragraph(p) if !p.text().trim().is_empty() => {
+                let level = heading_level(p)?;
+                own.is_none_or(|own| level < own).then(|| p.text())
+            }
             _ => None,
         })
 }
