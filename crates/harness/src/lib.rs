@@ -3,16 +3,414 @@
 
 //! Test-only harness for end-to-end scenarios (decision 0001).
 //!
-//! Phase 1 adds local-folder and in-memory storage here, one function per button the
-//! personal screens will have, and scenario tests that click through them the way a
-//! person would. This crate is never shipped, and there is no user-facing command line.
+//! [`Panel`] has one method per button on the personal screens. Each method
+//! does what the task pane will do: read the file and the family's history from
+//! storage, call the pure command in `lineage`, store the blobs, append the
+//! records, write the files, and return what the panel then shows. This crate is
+//! never shipped, and there is no user-facing command line.
 
 #![forbid(unsafe_code)]
+
+pub mod storage;
+
+use std::fmt;
+
+use lineage::blob::{BlobHash, BlobSource};
+use lineage::commands::{self, Context, Outcome, Updates};
+use lineage::event::{self};
+use lineage::state::FamilyState;
+use lineage::views::{self, MasterPanel, SentList, VersionPanel};
+use lineage::{Id, SequentialIds, Timestamp};
+use lineage_core::merge::Decision;
+use lineage_core::view::WhatChanged;
+
+pub use storage::{LocalFolderStorage, MemoryStorage, Storage, StorageError};
 
 /// The engine version the harness was built against.
 #[must_use]
 pub fn engine_version() -> &'static str {
     lineage::ENGINE_VERSION
+}
+
+/// What can go wrong when pressing a button.
+#[derive(Debug)]
+pub enum HarnessError {
+    Lineage(lineage::Error),
+    Storage(StorageError),
+    /// The scenario did something the panel would not allow.
+    Panel(String),
+}
+
+impl fmt::Display for HarnessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Lineage(e) => write!(f, "{e} ({})", e.user_message()),
+            Self::Storage(e) => write!(f, "{e}"),
+            Self::Panel(d) => write!(f, "{d}"),
+        }
+    }
+}
+
+impl std::error::Error for HarnessError {}
+
+impl From<lineage::Error> for HarnessError {
+    fn from(e: lineage::Error) -> Self {
+        Self::Lineage(e)
+    }
+}
+
+impl From<StorageError> for HarnessError {
+    fn from(e: StorageError) -> Self {
+        Self::Storage(e)
+    }
+}
+
+pub type Result<T> = std::result::Result<T, HarnessError>;
+
+struct StoredBlobs<'a, S: Storage> {
+    storage: &'a S,
+    family: &'a Id,
+}
+
+impl<S: Storage> BlobSource for StoredBlobs<'_, S> {
+    fn blob(&self, hash: &BlobHash) -> Option<Vec<u8>> {
+        self.storage.get_blob(self.family, hash)
+    }
+}
+
+/// The personal panel, driven like a person would.
+pub struct Panel<S: Storage> {
+    pub storage: S,
+    ids: SequentialIds,
+    now: Timestamp,
+    family: Option<Id>,
+}
+
+impl<S: Storage> Panel<S> {
+    /// A panel over `storage`, with the clock starting at `now` and moving on a
+    /// minute per button.
+    pub fn new(storage: S, now: Timestamp) -> Self {
+        Self {
+            storage,
+            ids: SequentialIds::new(1),
+            now,
+            family: None,
+        }
+    }
+
+    /// Opens the family a file belongs to (as the task pane does on open).
+    ///
+    /// # Errors
+    /// When the file is not tracked.
+    pub fn open_family_of(&mut self, file: &str) -> Result<FamilyState> {
+        let bytes = self.storage.read_file(file)?;
+        let package = lineage_core::Package::read(&bytes).map_err(lineage::Error::from)?;
+        let ids = lineage_core::docx::props::read_ids(&package)
+            .map_err(lineage::Error::from)?
+            .ok_or_else(|| HarnessError::Panel(format!("{file} is not tracked")))?;
+        let family = Id::parse(&ids.family).map_err(HarnessError::Panel)?;
+        self.family = Some(family);
+        self.state()
+    }
+
+    fn family(&self) -> Result<&Id> {
+        self.family
+            .as_ref()
+            .ok_or_else(|| HarnessError::Panel("no family is open".to_owned()))
+    }
+
+    /// The family's state, folded from the stored ledger.
+    ///
+    /// # Errors
+    /// When the ledger cannot be read or is damaged.
+    pub fn state(&self) -> Result<FamilyState> {
+        let (bytes, _) = self.storage.read_ledger(self.family()?)?;
+        Ok(FamilyState::from_records(&event::decode(&bytes)?)?)
+    }
+
+    fn node_of(state: &FamilyState, file: &str) -> Result<Id> {
+        state
+            .nodes
+            .iter()
+            .find(|n| n.storage_ref == file)
+            .map(|n| n.id.clone())
+            .ok_or_else(|| HarnessError::Panel(format!("{file} is not in this family")))
+    }
+
+    /// Runs a command against the latest state and stores what it produced.
+    /// If the ledger moved on while the command ran (another device appended),
+    /// the command runs once more on the new state.
+    fn press<F>(&mut self, mut command: F) -> Result<Outcome>
+    where
+        F: FnMut(&mut Context<'_>, &FamilyState, &dyn BlobSource) -> lineage::Result<Outcome>,
+    {
+        for _attempt in 0..2 {
+            let family = self.family()?.clone();
+            let (bytes, version) = self.storage.read_ledger(&family)?;
+            let state = FamilyState::from_records(&event::decode(&bytes)?)?;
+            let outcome = {
+                let blobs = StoredBlobs {
+                    storage: &self.storage,
+                    family: &family,
+                };
+                let mut ctx = Context {
+                    now: self.now,
+                    ids: &mut self.ids,
+                    author: None,
+                };
+                command(&mut ctx, &state, &blobs)?
+            };
+            for blob in &outcome.blobs {
+                self.storage.put_blob(&family, blob)?;
+            }
+            let lines = event::encode(&outcome.records)?;
+            match self.storage.append_ledger(&family, version, &lines) {
+                Ok(_) => {
+                    self.now = Timestamp(self.now.0 + 60_000);
+                    return Ok(outcome);
+                }
+                Err(StorageError::Conflict) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Err(HarnessError::Storage(StorageError::Conflict))
+    }
+
+    /// "Start tracking" the file: it becomes the master of a new family.
+    ///
+    /// # Errors
+    /// When the file is already tracked or cannot be read.
+    pub fn start_tracking(&mut self, file: &str) -> Result<MasterPanel> {
+        let bytes = self.storage.read_file(file)?;
+        let empty = lineage::blob::MemoryBlobs::default();
+        let mut ctx = Context {
+            now: self.now,
+            ids: &mut self.ids,
+            author: None,
+        };
+        let (state, outcome) = commands::start_tracking(&mut ctx, &bytes, file, file, &empty)?;
+        let family = state.family_id.clone();
+        for blob in &outcome.blobs {
+            self.storage.put_blob(&family, blob)?;
+        }
+        self.storage
+            .append_ledger(&family, 0, &event::encode(&outcome.records)?)?;
+        if let Some(bytes) = &outcome.file {
+            self.storage.write_file(file, bytes)?;
+        }
+        self.family = Some(family);
+        self.now = Timestamp(self.now.0 + 60_000);
+        self.master_panel()
+    }
+
+    /// The master panel.
+    ///
+    /// # Errors
+    /// When the history cannot be read.
+    pub fn master_panel(&self) -> Result<MasterPanel> {
+        let state = self.state()?;
+        let family = self.family()?;
+        let blobs = StoredBlobs {
+            storage: &self.storage,
+            family,
+        };
+        Ok(views::master_panel(&state, &blobs)?)
+    }
+
+    /// A tailored version's panel.
+    ///
+    /// # Errors
+    /// When the file is not a tailored version of this family.
+    pub fn version_panel(&self, file: &str) -> Result<VersionPanel> {
+        let state = self.state()?;
+        let node = Self::node_of(&state, file)?;
+        let family = self.family()?;
+        let blobs = StoredBlobs {
+            storage: &self.storage,
+            family,
+        };
+        Ok(views::version_panel(&state, &node, &blobs)?)
+    }
+
+    fn write_outcome(&mut self, file: &str, outcome: &Outcome) -> Result<()> {
+        if let Some(bytes) = &outcome.file {
+            self.storage.write_file(file, bytes)?;
+        }
+        Ok(())
+    }
+
+    /// "Save checkpoint" for the open file.
+    ///
+    /// # Errors
+    /// When the file is not this family's.
+    pub fn save_checkpoint(&mut self, file: &str, note: &str) -> Result<Outcome> {
+        let bytes = self.storage.read_file(file)?;
+        let state = self.state()?;
+        let node = Self::node_of(&state, file)?;
+        let outcome = self.press(|ctx, state, blobs| {
+            commands::save_checkpoint(ctx, state, &node, &bytes, note, blobs)
+        })?;
+        self.write_outcome(file, &outcome)?;
+        Ok(outcome)
+    }
+
+    /// "Make a tailored version". The new file is saved next to the master as `name`.
+    ///
+    /// # Errors
+    /// When a file of that name exists, or the master cannot be restored.
+    pub fn make_tailored_version(&mut self, name: &str) -> Result<String> {
+        if self.storage.file_names()?.iter().any(|n| n == name) {
+            return Err(HarnessError::Panel(format!("{name} already exists")));
+        }
+        let outcome = self.press(|ctx, state, blobs| {
+            commands::make_tailored_version(ctx, state, name, name, blobs)
+        })?;
+        let new = outcome
+            .new_file
+            .ok_or_else(|| HarnessError::Panel("no file made".to_owned()))?;
+        self.storage.write_file(name, &new.bytes)?;
+        Ok(name.to_owned())
+    }
+
+    /// "What changed" since the file's last checkpoint.
+    ///
+    /// # Errors
+    /// When the file is not this family's.
+    pub fn show_what_changed(&self, file: &str) -> Result<WhatChanged> {
+        let bytes = self.storage.read_file(file)?;
+        let state = self.state()?;
+        let node = Self::node_of(&state, file)?;
+        let family = self.family()?;
+        let blobs = StoredBlobs {
+            storage: &self.storage,
+            family,
+        };
+        Ok(commands::what_changed(&state, &node, &bytes, &blobs)?)
+    }
+
+    /// The master panel's "Offer it to …" button.
+    ///
+    /// # Errors
+    /// When there is nothing to offer.
+    pub fn offer_to_versions(&mut self) -> Result<MasterPanel> {
+        let panel = self.master_panel()?;
+        let callout = panel
+            .callout
+            .ok_or_else(|| HarnessError::Panel("nothing to offer".to_owned()))?;
+        let versions = callout.versions;
+        self.press(|ctx, state, blobs| commands::offer_to_versions(ctx, state, &versions, blobs))?;
+        self.master_panel()
+    }
+
+    /// The updates a tailored version has been offered.
+    ///
+    /// # Errors
+    /// When the file is not a tailored version of this family.
+    pub fn updates(&self, file: &str) -> Result<Updates> {
+        let bytes = self.storage.read_file(file)?;
+        let state = self.state()?;
+        let node = Self::node_of(&state, file)?;
+        let family = self.family()?;
+        let blobs = StoredBlobs {
+            storage: &self.storage,
+            family,
+        };
+        Ok(commands::updates(&state, &node, &bytes, &blobs)?)
+    }
+
+    /// Presses buttons on update cards: `decisions` are (card id, decision).
+    ///
+    /// # Errors
+    /// When a card is not on the panel, or a change cannot be written safely.
+    pub fn decide(&mut self, file: &str, decisions: &[(&str, Decision)]) -> Result<Outcome> {
+        let updates = self.updates(file)?;
+        let mut resolved = Vec::new();
+        for (card, decision) in decisions {
+            let group = updates
+                .groups
+                .iter()
+                .find(|g| g.view.ids().contains(card))
+                .ok_or_else(|| HarnessError::Panel(format!("no update card {card}")))?;
+            resolved.push((group.checkpoint.clone(), (*card).to_owned(), *decision));
+        }
+        let bytes = self.storage.read_file(file)?;
+        let state = self.state()?;
+        let node = Self::node_of(&state, file)?;
+        let outcome = self.press(|ctx, state, blobs| {
+            commands::decide(ctx, state, &node, &bytes, &resolved, blobs)
+        })?;
+        self.write_outcome(file, &outcome)?;
+        Ok(outcome)
+    }
+
+    /// "Bring in" on every listed card.
+    ///
+    /// # Errors
+    /// See [`Panel::decide`].
+    pub fn bring_in(&mut self, file: &str, cards: &[&str]) -> Result<Outcome> {
+        let decisions: Vec<(&str, Decision)> =
+            cards.iter().map(|c| (*c, Decision::BringIn)).collect();
+        self.decide(file, &decisions)
+    }
+
+    /// "Decline" on every listed card.
+    ///
+    /// # Errors
+    /// See [`Panel::decide`].
+    pub fn decline(&mut self, file: &str, cards: &[&str]) -> Result<Outcome> {
+        let decisions: Vec<(&str, Decision)> =
+            cards.iter().map(|c| (*c, Decision::Decline)).collect();
+        self.decide(file, &decisions)
+    }
+
+    /// "Send a copy" → "Save copy and record it". Returns the saved copy's file name.
+    ///
+    /// # Errors
+    /// When the file is not this family's, or a clean copy cannot be made.
+    pub fn send_a_copy(
+        &mut self,
+        file: &str,
+        recipient: &str,
+        purpose: Option<&str>,
+        include_id: bool,
+    ) -> Result<String> {
+        let bytes = self.storage.read_file(file)?;
+        let state = self.state()?;
+        let node = Self::node_of(&state, file)?;
+        let outcome = self.press(|ctx, state, blobs| {
+            commands::send_copy(
+                ctx, state, &node, &bytes, recipient, purpose, include_id, blobs,
+            )
+        })?;
+        self.write_outcome(file, &outcome)?;
+        let copy = outcome
+            .new_file
+            .ok_or_else(|| HarnessError::Panel("no copy made".to_owned()))?;
+        self.storage.write_file(&copy.name, &copy.bytes)?;
+        Ok(copy.name)
+    }
+
+    /// "What I've sent".
+    ///
+    /// # Errors
+    /// When the history cannot be read.
+    pub fn what_ive_sent(&self, search: Option<&str>) -> Result<SentList> {
+        Ok(views::sent_list(&self.state()?, search))
+    }
+
+    /// "Open" on a sent copy: the exact bytes they received.
+    ///
+    /// # Errors
+    /// When the copy is unknown or its stored bytes are missing.
+    pub fn open_what_they_received(&self, sent: &Id) -> Result<Vec<u8>> {
+        let state = self.state()?;
+        let family = self.family()?;
+        let blobs = StoredBlobs {
+            storage: &self.storage,
+            family,
+        };
+        Ok(commands::open_sent_copy(&state, sent, &blobs)?)
+    }
 }
 
 #[cfg(test)]
