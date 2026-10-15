@@ -13,8 +13,13 @@ pub mod diff;
 pub mod docx;
 pub mod error;
 pub mod hash;
+pub mod merge;
 pub mod package;
+pub mod write;
 pub mod xml;
+
+#[cfg(test)]
+pub(crate) mod testutil;
 
 pub use docx::{Docx, View};
 pub use error::{Error, Result};

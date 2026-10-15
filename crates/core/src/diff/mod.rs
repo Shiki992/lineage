@@ -152,6 +152,15 @@ pub enum ByHand {
     Opaque,
     /// A header or footer that exists on one side only.
     Story,
+    /// This version has unaccepted tracked changes there: accept or reject them
+    /// in Word first.
+    Revisions,
+    /// It needs a picture or other part this version does not have.
+    NewPart,
+    /// The two files write their XML in ways that cannot be combined safely.
+    Markup,
+    /// The engine cannot tell where it goes.
+    Placement,
 }
 
 /// One change between two states of a document.

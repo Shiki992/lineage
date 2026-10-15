@@ -146,8 +146,9 @@ impl Edits {
     /// character. Nothing is applied in that case.
     pub fn apply(&self, source: &str) -> Result<String> {
         let mut order: Vec<&Edit> = self.list.iter().collect();
-        // Stable: insertions at one point stay in the order they were added.
-        order.sort_by_key(|edit| edit.range.start);
+        // Stable: insertions at one point stay in the order they were added, and
+        // come before a replacement that starts at the same point.
+        order.sort_by_key(|edit| (edit.range.start, !edit.range.is_empty()));
         let mut out = String::with_capacity(source.len() + 64);
         let mut cursor = 0;
         for edit in order {
@@ -310,6 +311,13 @@ mod tests {
         edits.insert(1, "2");
         edits.replace(1..2, "B");
         assert_eq!(edits.apply("abc").expect("applies"), "a12Bc");
+
+        // Added after the replacement, an insertion at its start still goes first.
+        let mut later = Edits::new();
+        later.replace(1..2, "B");
+        later.insert(1, "1");
+        later.insert(2, "2");
+        assert_eq!(later.apply("abc").expect("applies"), "a1B2c");
     }
 
     #[test]

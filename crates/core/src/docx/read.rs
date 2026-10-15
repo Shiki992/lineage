@@ -760,7 +760,7 @@ impl<'t> Reader<'t> {
                         kind: AtomKind::NoteReference,
                         key: Fnv::new().str(kind).str(&note).finish(),
                         display: String::new(),
-                        span: node.range(),
+                        span: child.range(),
                         run: Some(index),
                         container: ctx.container,
                         rel_ids: Vec::new(),
