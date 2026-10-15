@@ -9,11 +9,12 @@
 // new ledger. Files that can be made again from history (tailored versions, sent
 // copies) are written after the append.
 
-import type { CommandResult, Engine } from "./engine.js";
+import type { CommandResult, Engine, FamilyLedger } from "./engine.js";
 import { EngineError } from "./engine.js";
 import type { DocumentHost } from "./host.js";
 import type * as s from "./schemas.js";
 import type { Storage } from "./storage.js";
+import type { FileLocation } from "./storage.js";
 import { FileExists, StorageConflict, StorageError, checkFileName } from "./storage.js";
 
 /** A failure the person can act on, with the words the panel shows. */
@@ -28,12 +29,27 @@ export class LineageError extends Error {
   }
 }
 
+/** A file that came back, held while the person confirms which copy it is. */
+export interface Returning {
+  readonly bytes: Uint8Array;
+  /** Its file name. */
+  readonly name: string;
+  readonly recognition: s.Recognition;
+}
+
 /** What the panel shows for the open document. */
 export type Opened =
   | { readonly kind: "untracked"; readonly name: string; readonly saved: boolean }
   | { readonly kind: "elsewhere"; readonly ids: s.Ids }
   | { readonly kind: "master"; readonly file: s.OpenFile; readonly panel: s.MasterPanel }
-  | { readonly kind: "version"; readonly file: s.OpenFile; readonly panel: s.VersionPanel };
+  | { readonly kind: "version"; readonly file: s.OpenFile; readonly panel: s.VersionPanel }
+  /**
+   * The open document is a copy that came back (its ids name a sent copy), or
+   * an older copy of a file (its checkpoint isn't the file's latest). It is
+   * never shown as the file itself, so it can't be saved as one of its
+   * checkpoints by mistake (decision 0012).
+   */
+  | { readonly kind: "cameBack"; readonly file: s.OpenFile; readonly returning: Returning };
 
 export interface LineageOptions {
   readonly engine: Engine;
@@ -125,14 +141,17 @@ export class Lineage {
     }
   }
 
-  /** Runs an engine call, fetching whatever blobs it reports missing. */
-  private async withBlobs<T>(family: string, run: () => T): Promise<T> {
+  /**
+   * Runs an engine call, fetching whatever blobs it reports missing: from the
+   * family the engine names, else from `family`.
+   */
+  private async withBlobs<T>(family: string, run: () => T, rounds = FETCH_ROUNDS): Promise<T> {
     for (let round = 0; ; round++) {
       try {
         return run();
       } catch (error) {
-        if (error instanceof EngineError && error.kind === "missingBlobs" && round < FETCH_ROUNDS) {
-          await this.fetchBlobs(family, error.hashes);
+        if (error instanceof EngineError && error.kind === "missingBlobs" && round < rounds) {
+          await this.fetchBlobs(error.family ?? family, error.hashes);
           continue;
         }
         throw error;
@@ -205,6 +224,12 @@ export class Lineage {
       }
       await this.fetchBlobs(ids.family, this.engine.referencedBlobs(ledger));
       const file = this.engine.openFile(ledger, ids.checkpoint);
+      if (file.copyOf !== null || !file.isLatest) {
+        this.openFile = undefined;
+        const { name } = await this.host.describe();
+        const returning = await this.recogniseBytes(await this.host.readBytes(), name);
+        return { kind: "cameBack", file, returning };
+      }
       this.openFile = file;
       return this.panelFor(file, ledger);
     });
@@ -370,22 +395,157 @@ export class Lineage {
       const result = await this.press(
         file.familyId,
         (ledger) => this.engine.decide(ledger, file.nodeId, original, cards, this.now()),
-        async ({ file: written, outcome }) => {
-          if (!written) {
-            return undefined;
-          }
-          await this.write(written, original);
-          if (outcome.ids) {
-            await this.host.writeIds(outcome.ids);
-          }
-          await this.host.save();
-          return async () => {
-            await this.write(original, written);
-            await this.host.save();
-          };
-        },
+        (made) => this.writeAndSave(made, original),
       );
       return { wrote: result.file !== undefined };
+    });
+  }
+
+  /**
+   * The document change for a command that writes tracked changes: write,
+   * check, set the ids, save; and how to undo it if the append fails.
+   */
+  private async writeAndSave(
+    { file: written, outcome }: CommandResult,
+    original: Uint8Array,
+  ): Promise<(() => Promise<void>) | undefined> {
+    if (!written) {
+      return undefined;
+    }
+    await this.write(written, original);
+    if (outcome.ids) {
+      await this.host.writeIds(outcome.ids);
+    }
+    await this.host.save();
+    return async () => {
+      await this.write(original, written);
+      await this.host.save();
+    };
+  }
+
+  /** Every family's ledger in storage, for recognising a file. */
+  private async ledgers(): Promise<FamilyLedger[]> {
+    const out: FamilyLedger[] = [];
+    for (const family of await this.storage.families()) {
+      const { bytes } = await this.storage.readLedger(family);
+      if (bytes.length > 0) {
+        out.push({ family, ledger: bytes });
+      }
+    }
+    return out;
+  }
+
+  private async recogniseBytes(bytes: Uint8Array, name: string): Promise<Returning> {
+    const ledgers = await this.ledgers();
+    // Each family with candidates may need its manifests, then their parts.
+    const recognition = await this.withBlobs(
+      "",
+      () => this.engine.recognise(bytes, ledgers),
+      2 * ledgers.length + 2,
+    );
+    return { bytes, name, recognition };
+  }
+
+  /** "A file came back": which copy `bytes` is, looking in every family. */
+  recognise(bytes: Uint8Array, name: string): Promise<Returning> {
+    return this.serial("recognise", () => this.recogniseBytes(bytes, name));
+  }
+
+  /** Is the open (untracked) document a copy that came back? */
+  recogniseOpen(): Promise<Returning> {
+    return this.serial("recogniseOpen", async () => {
+      const { name } = await this.host.describe();
+      return this.recogniseBytes(await this.host.readBytes(), name);
+    });
+  }
+
+  /**
+   * "Review the changes": keeps the returned file exactly as it came back, as
+   * the copy the panel recognised or the person chose. Returns the record and
+   * the file it came from.
+   */
+  recordReturned(
+    returning: Returning,
+    candidate: s.Candidate,
+    matchedBy: s.MatchedBy,
+  ): Promise<{ returned: string; family: string; node: string }> {
+    return this.serial("recordReturned", async () => {
+      const result = await this.press(candidate.family, (ledger) =>
+        this.engine.recordReturned(
+          ledger,
+          returning.bytes,
+          {
+            name: returning.name,
+            checkpoint: candidate.checkpoint,
+            sent: candidate.sent,
+            matchedBy,
+          },
+          this.now(),
+        ),
+      );
+      const returned = result.outcome.created;
+      if (!returned) {
+        throw new LineageError("Lineage couldn't keep the file.", "no record came back");
+      }
+      return { returned, family: candidate.family, node: candidate.node };
+    });
+  }
+
+  /** The changes in a returned file still to decide, against the open file. */
+  returnedReview(returned: string): Promise<s.ReturnReview> {
+    return this.serial("returnedReview", async () => {
+      const file = this.requireFile();
+      const bytes = await this.host.readBytes();
+      const ledger = await this.ledger(file.familyId);
+      return this.withBlobs(file.familyId, () =>
+        this.engine.returnedReview(ledger, file.nodeId, bytes, returned),
+      );
+    });
+  }
+
+  /**
+   * "Apply" on a review: kept changes are written into the open document as
+   * tracked changes by Lineage, read back and checked, then a checkpoint is
+   * saved; skipped ones are recorded. As with `decide`, if Word didn't take the
+   * changes exactly, the original goes back and nothing is recorded.
+   */
+  decideReturned(returned: string, cards: readonly s.CardDecision[]): Promise<{ wrote: boolean }> {
+    return this.serial("decideReturned", async () => {
+      const file = this.requireFile();
+      const original = await this.host.readBytes();
+      const result = await this.press(
+        file.familyId,
+        (ledger) =>
+          this.engine.decideReturned(ledger, file.nodeId, original, returned, cards, this.now()),
+        (made) => this.writeAndSave(made, original),
+      );
+      return { wrote: result.file !== undefined };
+    });
+  }
+
+  /** "Open what came back": the exact bytes, as a new document. */
+  openReturned(family: string, returned: string): Promise<void> {
+    return this.serial("openReturned", async () => {
+      const ledger = await this.ledger(family);
+      const bytes = await this.withBlobs(family, () => this.engine.openReturned(ledger, returned));
+      await this.host.openCopy(bytes);
+    });
+  }
+
+  /** Opens a file of a family: a tailored version from storage, or the master where Word has it. */
+  openNode(family: string, node: string): Promise<void> {
+    return this.serial("openNode", async () => {
+      const found = this.engine.family(await this.ledger(family)).nodes.find((n) => n.id === node);
+      if (!found) {
+        throw new LineageError("Lineage couldn't find that file.", `node ${node} is unknown`);
+      }
+      const location: FileLocation =
+        found.role === "variant"
+          ? await this.storage.fileLocation(found.storageRef)
+          : /^https?:\/\//i.test(found.storageRef)
+            ? { webUrl: found.storageRef }
+            : { path: found.storageRef };
+      await this.host.openFile(location);
     });
   }
 

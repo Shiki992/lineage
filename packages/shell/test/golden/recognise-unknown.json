@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "value": {
+    "byIds": false,
+    "candidates": [],
+    "headline": "Lineage doesn't recognise this file",
+    "note": "It doesn't match any copy you've sent, or any checkpoint Lineage has saved.",
+    "verdict": "unknown"
+  }
+}

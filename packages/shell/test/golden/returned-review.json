@@ -1,0 +1,51 @@
+{
+  "ok": true,
+  "value": {
+    "from": "You sent this to Northgate Analytics on 15 Oct, from Resume – data roles v3.",
+    "fromName": "Resume – data roles",
+    "fromNode": "5c81cc14a997e2ba9928492bcc208f37",
+    "headline": "1 change from Northgate Analytics",
+    "notes": [],
+    "returned": "a2beee49a6c5af73f179373cdc04bdfe",
+    "theirs": "Northgate Analytics",
+    "view": {
+      "alreadyThere": [],
+      "byHand": [],
+      "changes": [
+        {
+          "byHand": null,
+          "choices": [
+            {
+              "decision": "bringIn",
+              "label": "Keep"
+            },
+            {
+              "decision": "decline",
+              "label": "Skip"
+            }
+          ],
+          "id": "ce94b311b51ec4e2c",
+          "place": "Under 'Data engineer (logistics), Corvia Freight, 2020 to 2023'",
+          "summary": "'Built the shipment data warehouse used by forty analysts.' changed to 'Designed the shipment data warehouse used by forty analysts.'",
+          "text": [
+            {
+              "kind": "removed",
+              "text": "Built"
+            },
+            {
+              "kind": "added",
+              "text": "Designed"
+            },
+            {
+              "kind": "same",
+              "text": " the shipment data warehouse used by forty analysts."
+            }
+          ]
+        }
+      ],
+      "formatting": [],
+      "headline": "1 change from Northgate Analytics",
+      "overlaps": []
+    }
+  }
+}

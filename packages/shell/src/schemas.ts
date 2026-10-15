@@ -65,6 +65,9 @@ export const Family = v.strictObject({
 });
 export type Family = v.InferOutput<typeof Family>;
 
+export const CopyOf = v.strictObject({ sentCopyId: Id, recipient: Text, date: Text });
+export type CopyOf = v.InferOutput<typeof CopyOf>;
+
 export const OpenFile = v.strictObject({
   familyId: Id,
   nodeId: Id,
@@ -73,6 +76,8 @@ export const OpenFile = v.strictObject({
   storageRef: Text,
   checkpointLabel: Text,
   isLatest: v.boolean(),
+  /** Set when the open file is a copy that was sent and came back. */
+  copyOf: v.nullable(CopyOf),
 });
 export type OpenFile = v.InferOutput<typeof OpenFile>;
 
@@ -88,6 +93,10 @@ export const VersionRow = v.strictObject({
 });
 export type VersionRow = v.InferOutput<typeof VersionRow>;
 
+/** A file that came back, with changes still to review. */
+export const ReturnedRow = v.strictObject({ id: Id, text: Text, detail: Text, button: Text });
+export type ReturnedRow = v.InferOutput<typeof ReturnedRow>;
+
 export const MasterPanel = v.strictObject({
   nodeId: Id,
   fileName: Text,
@@ -95,6 +104,7 @@ export const MasterPanel = v.strictObject({
   follows: Text,
   latest: CheckpointCard,
   callout: v.nullable(Callout),
+  returned: v.array(ReturnedRow),
   versions: v.array(VersionRow),
   actions: v.array(Text),
   footer: Text,
@@ -108,6 +118,7 @@ export const VersionPanel = v.strictObject({
   status: Text,
   latest: CheckpointCard,
   updates: v.nullable(Text),
+  returned: v.array(ReturnedRow),
   actions: v.array(Text),
   footer: Text,
 });
@@ -167,6 +178,8 @@ export const SentRow = v.strictObject({
   format: Text,
   date: Text,
   chip: v.nullable(Text),
+  /** The latest file that came back from this copy. */
+  returned: v.nullable(Id),
   button: Text,
 });
 export type SentRow = v.InferOutput<typeof SentRow>;
@@ -177,6 +190,45 @@ export const SentList = v.strictObject({
   note: Text,
 });
 export type SentList = v.InferOutput<typeof SentList>;
+
+export const Verdict = v.picklist(["certain", "choose", "unknown"]);
+export type Verdict = v.InferOutput<typeof Verdict>;
+
+/** One copy a returned file could be. */
+export const Candidate = v.strictObject({
+  family: Id,
+  checkpoint: Id,
+  sent: v.nullable(Id),
+  /** The file the copy was made from. */
+  node: Id,
+  title: Text,
+  detail: Text,
+  score: Text,
+});
+export type Candidate = v.InferOutput<typeof Candidate>;
+
+/** "Which copy is this?" */
+export const Recognition = v.strictObject({
+  verdict: Verdict,
+  byIds: v.boolean(),
+  headline: Text,
+  note: v.nullable(Text),
+  candidates: v.array(Candidate),
+});
+export type Recognition = v.InferOutput<typeof Recognition>;
+
+/** The review of a file that came back. */
+export const ReturnReview = v.strictObject({
+  returned: Id,
+  headline: Text,
+  from: Text,
+  notes: v.array(Text),
+  theirs: Text,
+  fromNode: Id,
+  fromName: Text,
+  view: WhatChanged,
+});
+export type ReturnReview = v.InferOutput<typeof ReturnReview>;
 
 export const Written = v.strictObject({
   ok: v.boolean(),
@@ -208,6 +260,7 @@ export const Envelope = v.variant("ok", [
       userMessage: v.pipe(Text, v.minLength(1)),
       detail: Text,
       hashes: v.optional(v.array(BlobHash)),
+      family: v.optional(Id),
     }),
   }),
 ]);
@@ -227,6 +280,17 @@ export const SendArgs = v.strictObject({
   embedId: v.boolean(),
 });
 export type SendArgs = v.InferOutput<typeof SendArgs>;
+
+export const MatchedBy = v.picklist(["ids", "content", "person"]);
+export type MatchedBy = v.InferOutput<typeof MatchedBy>;
+
+export const RecordArgs = v.strictObject({
+  name: v.pipe(Text, v.trim(), v.maxLength(200)),
+  checkpoint: Id,
+  sent: v.nullable(Id),
+  matchedBy: MatchedBy,
+});
+export type RecordArgs = v.InferOutput<typeof RecordArgs>;
 
 /** The value schema each golden reply's `value` must match, by file name. */
 export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
@@ -252,4 +316,13 @@ export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "check-written": Written,
   "check-written-failed": Written,
   "referenced-blobs": v.array(BlobHash),
+  "open-file-copy": OpenFile,
+  "recognise-certain": Recognition,
+  "recognise-choose": Recognition,
+  "recognise-unknown": Recognition,
+  "record-returned": Outcome,
+  "version-panel-returned": VersionPanel,
+  "sent-list-returned": SentList,
+  "returned-review": ReturnReview,
+  "decide-returned": Outcome,
 };

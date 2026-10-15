@@ -31,6 +31,8 @@ export class EngineError extends Error {
     readonly detail: string,
     /** For `missingBlobs`: what to fetch before calling again. */
     readonly hashes: readonly string[] = [],
+    /** For `missingBlobs` from a call over several families: where they are. */
+    readonly family?: string,
   ) {
     super(`${kind}: ${detail}`);
   }
@@ -102,8 +104,39 @@ export interface Engine {
   ): CommandResult;
   sentList(ledger: Uint8Array, search?: string): s.SentList;
   openSentCopy(ledger: Uint8Array, sent: string): Uint8Array;
+  /** Which copy `file` is, looking in every family given. */
+  recognise(file: Uint8Array, ledgers: readonly FamilyLedger[]): s.Recognition;
+  recordReturned(
+    ledger: Uint8Array,
+    file: Uint8Array,
+    args: s.RecordArgs,
+    nowMs: number,
+  ): CommandResult;
+  returnedReview(
+    ledger: Uint8Array,
+    node: string,
+    file: Uint8Array,
+    returned: string,
+  ): s.ReturnReview;
+  decideReturned(
+    ledger: Uint8Array,
+    node: string,
+    file: Uint8Array,
+    returned: string,
+    cards: readonly s.CardDecision[],
+    nowMs: number,
+  ): CommandResult;
+  openReturned(ledger: Uint8Array, returned: string): Uint8Array;
   checkWritten(expected: Uint8Array, actual: Uint8Array): s.Written;
 }
+
+/** One family's stored ledger, for calls that look across families. */
+export interface FamilyLedger {
+  readonly family: string;
+  readonly ledger: Uint8Array;
+}
+
+const ledgerText = new TextDecoder("utf-8", { fatal: true });
 
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
@@ -190,7 +223,7 @@ function wrap(seed: Uint8Array): Engine {
     if (!envelope.ok) {
       reply.free();
       const e = envelope.error;
-      throw new EngineError(e.kind, e.userMessage, e.detail, e.hashes ?? []);
+      throw new EngineError(e.kind, e.userMessage, e.detail, e.hashes ?? [], e.family);
     }
     return { value: envelope.value, reply };
   }
@@ -308,6 +341,37 @@ function wrap(seed: Uint8Array): Engine {
     sentList: (ledger, search) =>
       view("sentList", s.SentList, (e) => e.sentList(ledger, search ?? null)),
     openSentCopy: (ledger, sent) => bytes("openSentCopy", (e) => e.openSentCopy(ledger, sent)),
+    recognise: (file, ledgers) =>
+      view("recognise", s.Recognition, (e) =>
+        e.recognise(
+          file,
+          json(
+            ledgers.map((l) => ({
+              family: checked(s.Id, l.family, "recognise"),
+              ledger: ledgerText.decode(l.ledger),
+            })),
+          ),
+        ),
+      ),
+    recordReturned: (ledger, file, args, nowMs) =>
+      command("recordReturned", (e) =>
+        e.recordReturned(ledger, file, json(checked(s.RecordArgs, args, "recordReturned")), nowMs),
+      ),
+    returnedReview: (ledger, node, file, returned) =>
+      view("returnedReview", s.ReturnReview, (e) => e.returnedReview(ledger, node, file, returned)),
+    decideReturned: (ledger, node, file, returned, cards, nowMs) =>
+      command("decideReturned", (e) =>
+        e.decideReturned(
+          ledger,
+          node,
+          file,
+          returned,
+          json(checked(v.array(s.CardDecision), cards, "decideReturned")),
+          nowMs,
+        ),
+      ),
+    openReturned: (ledger, returned) =>
+      bytes("openReturned", (e) => e.openReturned(ledger, returned)),
     checkWritten: (expected, actual) =>
       view("checkWritten", s.Written, (e) => e.checkWritten(expected, actual)),
   };

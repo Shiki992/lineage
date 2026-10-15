@@ -51,6 +51,8 @@ describe("golden replies", () => {
     );
     const missing = golden("error-missing-blobs") as { error: { hashes: string[] } };
     expect(missing.error.hashes.length).toBeGreaterThan(0);
+    const elsewhere = v.parse(s.Envelope, golden("error-missing-blobs-family"));
+    expect(!elsewhere.ok && elsewhere.error.family).toMatch(/^[0-9a-f]{32}$/);
   });
 });
 
@@ -80,6 +82,32 @@ describe("schemas", () => {
     expect(
       v.parse(s.SendArgs, { recipient: " Northgate ", purpose: null, embedId: false }).recipient,
     ).toBe("Northgate");
+  });
+
+  it("say which copy came back, and when Lineage must ask", () => {
+    const value = (name: string) =>
+      v.parse(s.Recognition, (golden(name) as { value: unknown }).value);
+    const certain = value("recognise-certain");
+    expect(certain.verdict).toBe("certain");
+    expect(certain.candidates).toHaveLength(1);
+    const choose = value("recognise-choose");
+    expect(choose.verdict).toBe("choose");
+    expect(choose.candidates.length).toBeGreaterThan(1);
+    const unknown = value("recognise-unknown");
+    expect(unknown.candidates).toEqual([]);
+    expect(
+      v.safeParse(s.RecordArgs, {
+        name: "x.docx",
+        checkpoint: "a".repeat(32),
+        sent: null,
+        matchedBy: "guess",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("draw the review of a returned file with keep and skip", () => {
+    const review = v.parse(s.ReturnReview, (golden("returned-review") as { value: unknown }).value);
+    expect(review.view.changes[0]?.choices.map((c) => c.label)).toEqual(["Keep", "Skip"]);
   });
 
   it("draw the update cards the engine sends", () => {

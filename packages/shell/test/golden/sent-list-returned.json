@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "value": {
+    "groups": [
+      {
+        "month": "October 2026",
+        "rows": [
+          {
+            "button": "Review",
+            "chip": "Came back with 1 change",
+            "date": "15 Oct",
+            "format": "Word",
+            "id": "8b3fda26766265ccd1505e34fbf66ac1",
+            "purpose": "Data engineer",
+            "recipient": "Northgate Analytics",
+            "returned": "a2beee49a6c5af73f179373cdc04bdfe",
+            "version": "Resume – data roles · v3"
+          }
+        ]
+      }
+    ],
+    "note": "Each copy is kept exactly as sent.",
+    "title": "What I've sent"
+  }
+}

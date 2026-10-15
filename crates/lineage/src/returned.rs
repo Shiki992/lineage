@@ -287,7 +287,8 @@ pub fn score(
 ///   changed words than any copy sent from another checkpoint, and no
 ///   unrecorded checkpoint needs fewer;
 /// - otherwise a **choice** of those within [`WITHIN`] of the best and at least
-///   [`POSSIBLE`];
+///   [`POSSIBLE`]. A checkpoint nothing was recorded as sent from is listed only
+///   when it fits better than every recorded copy;
 /// - **unknown** when nothing reaches [`POSSIBLE`].
 #[must_use]
 pub fn verdict(mut candidates: Vec<Candidate>) -> Recognition {
@@ -328,9 +329,15 @@ pub fn verdict(mut candidates: Vec<Candidate>) -> Recognition {
             candidates: Vec::new(),
         };
     }
+    let closest_sent = candidates
+        .iter()
+        .filter(|c| c.sent.is_some() && c.score >= POSSIBLE)
+        .map(|c| c.changed)
+        .min();
     let choices = candidates
         .into_iter()
         .filter(|c| c.score >= POSSIBLE && c.score + WITHIN >= top)
+        .filter(|c| c.sent.is_some() || closest_sent.is_none_or(|best| c.changed < best))
         .take(CHOICES)
         .collect();
     Recognition {
@@ -365,6 +372,8 @@ pub struct CandidateRow {
     pub family: Id,
     pub checkpoint: Id,
     pub sent: Option<Id>,
+    /// The file the copy was made from, where its changes are reviewed.
+    pub node: Id,
     /// "Northgate Analytics", or "A copy you didn't record sending".
     pub title: String,
     /// "Resume – data roles · v2 · sent 2 Oct".
@@ -407,6 +416,7 @@ pub fn describe(found: &Recognition, states: &[&FamilyState]) -> RecognitionView
                 family: c.family.clone(),
                 checkpoint: c.checkpoint.clone(),
                 sent: c.sent.clone(),
+                node: node.id.clone(),
                 title: sent.map_or_else(
                     || "A copy you didn't record sending".to_owned(),
                     |s| s.recipient.clone(),
@@ -550,6 +560,9 @@ pub struct ReturnReview {
     pub notes: Vec<String>,
     /// Who made the changes, for the overlap cards: "Northgate Analytics".
     pub theirs: String,
+    /// The file the copy was made from, and its name.
+    pub from_node: Id,
+    pub from_name: String,
     /// Their changes still to decide, and those the file already has.
     pub view: WhatChanged,
 }
@@ -668,6 +681,8 @@ pub fn review(
         from,
         notes,
         theirs: theirs_label,
+        from_node: from_node.id.clone(),
+        from_name: stem(&from_node.display_name).to_owned(),
         view,
     })
 }

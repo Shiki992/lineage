@@ -415,3 +415,137 @@ fn ids_are_read_and_written_and_a_file_is_found_by_them() {
     let e = error(&session.open_file(&host.ledger, &"f".repeat(32)));
     assert_eq!(e["kind"], "wrongFile");
 }
+
+#[test]
+fn a_file_that_comes_back_crosses_the_boundary() {
+    let Started {
+        mut host,
+        master_file,
+        master,
+        ..
+    } = started();
+    let reply = host.session.send_copy(
+        &host.ledger,
+        &master,
+        &master_file,
+        r#"{"recipient":"Mentor","purpose":null,"embedId":true}"#,
+        host.now,
+    );
+    let (_, _, copy) = host.take(reply);
+    let back = edit(
+        &copy.expect("copy"),
+        &lineage_testkit::returned::light_edits(&resume::master_v1_lines()),
+    );
+    let family = str_of(&value(&host.session.family(&host.ledger))["familyId"]);
+    let ledgers = serde_json::json!([{
+        "family": family,
+        "ledger": String::from_utf8(host.ledger.clone()).expect("utf-8"),
+    }])
+    .to_string();
+
+    // Without its ids, a fresh pane asks for blobs from the right family, then finds it.
+    let stripped = lineage_core::clean::clean_copy(&back, None)
+        .expect("strips")
+        .0;
+    let mut fresh = Host::new(9);
+    fresh.ledger = host.ledger.clone();
+    fresh.stored = host.stored.clone();
+    let first = error(&fresh.session.recognise(&stripped, &ledgers));
+    assert_eq!(first["kind"], "missingBlobs");
+    assert_eq!(first["family"], Value::String(family.clone()));
+    let (reply, rounds) = fresh.fetching(|s| s.recognise(&stripped, &ledgers));
+    assert!(
+        (1..=2).contains(&rounds),
+        "a manifest, then its parts: {rounds}"
+    );
+    let found = value(&reply);
+    assert_eq!(found["verdict"], "certain");
+    assert_eq!(found["byIds"], false);
+    assert_eq!(found["candidates"][0]["title"], "Mentor");
+
+    // A ledger given as another family is refused.
+    let wrong = serde_json::json!([{"family": "0".repeat(32), "ledger": ""}]).to_string();
+    assert_eq!(
+        error(&host.session.recognise(&back, &wrong))["kind"],
+        "ledger"
+    );
+
+    // With its ids: recorded, reviewed and kept into the master.
+    let found = value(&host.session.recognise(&back, &ledgers));
+    assert_eq!(found["byIds"], true);
+    let candidate = &found["candidates"][0];
+    let args = |how: &str| {
+        serde_json::json!({
+            "name": "Resume - comments.docx",
+            "checkpoint": candidate["checkpoint"],
+            "sent": candidate["sent"],
+            "matchedBy": how,
+        })
+        .to_string()
+    };
+    let refused = host
+        .session
+        .record_returned(&host.ledger, &stripped, &args("ids"), host.now);
+    assert_eq!(error(&refused)["kind"], "notAllowed");
+    let reply = host
+        .session
+        .record_returned(&host.ledger, &back, &args("ids"), host.now);
+    let (recorded, _, _) = host.take(reply);
+    let returned = str_of(&recorded["created"]);
+    assert_eq!(
+        error(
+            &host
+                .session
+                .record_returned(&host.ledger, &back, "{}", host.now)
+        )["kind"],
+        "badInput"
+    );
+
+    let review = value(&host.session.returned_review(
+        &host.ledger,
+        &master,
+        &master_file,
+        &returned,
+    ));
+    assert_eq!(review["headline"], "3 changes from Mentor");
+    let cards: Vec<Value> = review["view"]["changes"]
+        .as_array()
+        .expect("changes")
+        .iter()
+        .map(|c| serde_json::json!({"card": c["id"], "decision": "bringIn"}))
+        .collect();
+    let reply = host.session.decide_returned(
+        &host.ledger,
+        &master,
+        &master_file,
+        &returned,
+        &serde_json::to_string(&cards).expect("json"),
+        host.now,
+    );
+    let (outcome, file, _) = host.take(reply);
+    assert!(outcome["ids"]["checkpoint"].is_string());
+    let written = file.expect("written");
+    assert_eq!(
+        lineage_core::Docx::open(&written)
+            .expect("opens")
+            .body_lines(),
+        lines(
+            &resume::package(
+                "t",
+                &lineage_testkit::returned::light_edits(&resume::master_v1_lines())
+            )
+            .to_bytes()
+        )
+    );
+    let opened = host.session.open_returned(&host.ledger, &returned);
+    value(&opened);
+    let mut opened = opened;
+    assert_eq!(opened.file.take().expect("bytes"), back);
+
+    // The sent copy opened in Word names its node and recipient.
+    let sent = str_of(&found["candidates"][0]["sent"]);
+    let open = value(&host.session.open_file(&host.ledger, &sent));
+    assert_eq!(open["nodeId"], Value::String(master));
+    assert_eq!(open["copyOf"]["recipient"], "Mentor");
+    assert_eq!(open["isLatest"], false);
+}

@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "value": {
+    "byIds": true,
+    "candidates": [
+      {
+        "checkpoint": "34cf8035f2345f5a62f5541afccad074",
+        "detail": "Resume – data roles · v3 · sent 15 Oct",
+        "family": "119736279a3062acd1d1873c28a849ee",
+        "node": "5c81cc14a997e2ba9928492bcc208f37",
+        "score": "Recognised by its Lineage ID",
+        "sent": "8b3fda26766265ccd1505e34fbf66ac1",
+        "title": "Northgate Analytics"
+      }
+    ],
+    "headline": "This came back from Northgate Analytics",
+    "note": null,
+    "verdict": "certain"
+  }
+}

@@ -425,6 +425,10 @@ fn two_copies_of_one_checkpoint_are_a_choice() {
         sent.contains(&Some(&a)) && sent.contains(&Some(&b)),
         "{found:?}"
     );
+    assert!(
+        !sent.contains(&None),
+        "an unrecorded checkpoint that fits no better than a recorded copy isn't listed"
+    );
     let view = describe(&found, &[host.state()]);
     assert_eq!(view.headline, "Which copy is this?");
     let titles: Vec<&str> = view.candidates.iter().map(|c| c.title.as_str()).collect();
