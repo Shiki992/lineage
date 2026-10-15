@@ -202,6 +202,17 @@ async function handle(root: string, req: IncomingMessage, res: ServerResponse): 
     send(res, 204);
     return;
   }
+  if (route === "spike-actual" && method === "POST" && fileName(a)) {
+    // What Word held after a failed write check, for the engine's tests.
+    const dir = path.join(root, "spike-actual");
+    const file = inside(dir, a);
+    if (file) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, await body(req));
+      send(res, 204);
+      return;
+    }
+  }
   if (route === "spike" && method === "GET") {
     const dir = path.join(root, "spike");
     if (a === "") {

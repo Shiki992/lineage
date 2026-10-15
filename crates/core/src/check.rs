@@ -92,11 +92,14 @@ pub fn written(expected: &[u8], actual: &[u8]) -> Result<Written> {
 }
 
 /// Every story's lines, keyed by story. Keys, not part names: Word renames
-/// header and footer parts when it saves.
+/// header and footer parts when it saves. A story with no lines is left out:
+/// once a document has had notes, Word keeps footnote and endnote parts that
+/// hold only its separators, and that is not a difference the person can see.
 fn story_lines(docx: &Docx) -> BTreeMap<StoryKey, Vec<String>> {
     docx.stories
         .iter()
         .map(|story| (story.key.clone(), story.lines()))
+        .filter(|(_, lines)| !lines.is_empty())
         .collect()
 }
 
@@ -203,6 +206,30 @@ mod tests {
         assert_eq!(found.lineage_found, 0);
         assert!(found.other_added > 0);
         assert!(!found.ok());
+    }
+
+    #[test]
+    fn empty_note_parts_word_keeps_are_not_a_difference() {
+        // Found in Phase 2: after a file with notes went in, Word read every
+        // later file back with footnote and endnote parts holding only its
+        // separators, and every write looked like it had failed.
+        let plain = resume::package("t", &resume::master_v1_lines()).to_bytes();
+        let mut with_parts = resume::package("t", &resume::master_v1_lines());
+        with_parts.footnotes = Some(String::new());
+        with_parts.endnotes = Some(String::new());
+        let found = written(&plain, &with_parts.to_bytes()).expect("compares");
+        assert!(found.ok(), "{found:?}");
+        // A note with text is still a difference.
+        let mut with_note = resume::package("t", &resume::master_v1_lines());
+        with_note.footnotes = Some(format!(
+            r#"<w:footnote w:id="1">{}</w:footnote>"#,
+            lineage_testkit::docx::plain("A note that matters.")
+        ));
+        assert!(
+            !written(&plain, &with_note.to_bytes())
+                .expect("compares")
+                .ok()
+        );
     }
 
     #[test]

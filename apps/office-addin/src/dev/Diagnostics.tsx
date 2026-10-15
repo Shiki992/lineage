@@ -23,6 +23,7 @@ export function Diagnostics({ engine, host }: { engine: Engine; host: DocumentHo
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [only, setOnly] = useState("");
 
   async function idsCheck(): Promise<void> {
     setBusy(true);
@@ -48,7 +49,8 @@ export function Diagnostics({ engine, host }: { engine: Engine; host: DocumentHo
     setBusy(true);
     setRows([]);
     try {
-      const names = (await (await fetch("/__lineage-dev/spike")).json()) as string[];
+      const all = (await (await fetch("/__lineage-dev/spike")).json()) as string[];
+      const names = all.filter((n) => n.includes(only.trim()));
       const done: Row[] = [];
       for (const name of names) {
         const started = performance.now();
@@ -57,7 +59,15 @@ export function Diagnostics({ engine, host }: { engine: Engine; host: DocumentHo
             await (await fetch(`/__lineage-dev/spike/${encodeURIComponent(name)}`)).arrayBuffer(),
           );
           await host.replaceContents(bytes);
-          const written = engine.checkWritten(bytes, await host.readBytes());
+          const actual = await host.readBytes();
+          const written = engine.checkWritten(bytes, actual);
+          if (!written.ok) {
+            // Keep what Word holds, so the engine's tests can say what differs.
+            await fetch(`/__lineage-dev/spike-actual/${encodeURIComponent(name)}`, {
+              method: "POST",
+              body: actual as Uint8Array<ArrayBuffer>,
+            });
+          }
           done.push({ name, written, ms: performance.now() - started });
           devLog({
             name: `spike.write.${written.ok ? "ok" : "failed"}`,
@@ -80,6 +90,17 @@ export function Diagnostics({ engine, host }: { engine: Engine; host: DocumentHo
   return (
     <section className="panel stack" aria-labelledby="diagnostics">
       <h2 id="diagnostics">Diagnostics (development)</h2>
+      <div className="field">
+        <label htmlFor="spike-only">Only files whose name contains</label>
+        <input
+          id="spike-only"
+          className="input"
+          value={only}
+          onChange={(e) => {
+            setOnly(e.target.value);
+          }}
+        />
+      </div>
       <div className="row">
         <button type="button" className="button" disabled={busy} onClick={() => void idsCheck()}>
           Check ids
