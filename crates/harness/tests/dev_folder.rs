@@ -32,6 +32,29 @@ impl BlobSource for Stored<'_> {
     }
 }
 
+/// With `LINEAGE_SMOKE_DIR` set, writes the file and the text Word should show
+/// with every revision accepted and with every revision rejected, for
+/// `scripts/word-smoke.ps1 -Compare` (as the engine's own tests do).
+fn smoke(name: &str, bytes: &[u8]) {
+    let Some(dir) = std::env::var_os("LINEAGE_SMOKE_DIR").map(PathBuf::from) else {
+        return;
+    };
+    std::fs::create_dir_all(&dir).expect("smoke folder");
+    std::fs::write(dir.join(format!("{name}.docx")), bytes).expect("writes");
+    for (view, suffix) in [
+        (lineage_core::View::Accepted, "accepted"),
+        (lineage_core::View::Rejected, "rejected"),
+    ] {
+        let lines: Vec<String> = Docx::open_view(bytes, view)
+            .expect("opens")
+            .body_lines()
+            .into_iter()
+            .map(|line| line.replace('\n', "\u{b}"))
+            .collect();
+        std::fs::write(dir.join(format!("{name}.{suffix}.txt")), lines.join("\n")).expect("writes");
+    }
+}
+
 #[test]
 #[ignore = "reads the task pane's development folder; run by hand after a Word session"]
 fn the_task_pane_wrote_a_sound_history() {
@@ -80,6 +103,7 @@ fn the_task_pane_wrote_a_sound_history() {
                     .any(|c| c.as_str() == ids.checkpoint),
                 "the version on disk is one of its node's checkpoints"
             );
+            smoke(&format!("version-{versions}"), &bytes);
             versions += 1;
         }
         let sent_dir = root.join("Sent copies");
