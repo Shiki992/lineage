@@ -10,14 +10,16 @@
 # next to it (written by the engine tests when LINEAGE_SMOKE_DIR is set) is also
 # checked: Word accepts all revisions and its paragraph text must equal the
 # .accepted.txt lines, then Word rejects all revisions and its text must equal the
-# .rejected.txt lines. A mismatch prints the first differing line, so use -Compare
-# only on synthetic outputs, never on personal documents.
+# .rejected.txt lines. A mismatch prints the first differing line; add -Private
+# for personal documents, which prints its number only.
 #
-# Usage: powershell -NoProfile -File scripts/word-smoke.ps1 [folder] [-Compare]
+# Usage: powershell -NoProfile -File scripts/word-smoke.ps1 [folder] [-Compare] [-Private]
 
 param(
   [string]$Folder = (Join-Path $PSScriptRoot "..\fixtures\docx\synthetic"),
-  [switch]$Compare
+  [switch]$Compare,
+  # With personal documents: report mismatching line numbers only, never text.
+  [switch]$Private
 )
 
 # Word's paragraph text, normalised to what the engine's model shows: paragraph
@@ -32,6 +34,13 @@ function Get-Lines($doc) {
     # wdWithInTable) but in no cell. It is not a paragraph of the document.
     if ($p.Range.Information(12) -and $p.Range.Cells.Count -eq 0) { continue }
     $text = [string]$p.Range.Text
+    # Pictures show as a placeholder character in the text; drop each one by its
+    # position (last first), so real characters are never touched.
+    $starts = @()
+    foreach ($shape in $p.Range.InlineShapes) { $starts += $shape.Range.Start - $p.Range.Start }
+    foreach ($at in ($starts | Sort-Object -Descending)) {
+      if ($at -ge 0 -and $at -lt $text.Length) { $text = $text.Remove($at, 1) }
+    }
     $text = $text.TrimEnd([char]13, [char]7)
     $text = $text.Replace([string][char]30, [string][char]0x2011).Replace([string][char]31, [string][char]0x00AD)
     # 12: page break; 1: inline picture; 2: footnote or endnote reference mark.
@@ -53,7 +62,11 @@ function Compare-Lines($name, $label, $got, $expectedFile) {
   }
   for ($i = 0; $i -lt $want.Count; $i++) {
     if ($got[$i] -ne $want[$i]) {
-      Write-Host ("{0}: {1} MISMATCH  line {2}: Word '{3}' expected '{4}'" -f $name, $label, $i, $got[$i], $want[$i])
+      if ($Private) {
+        Write-Host ("{0}: {1} MISMATCH  line {2}" -f $name, $label, $i)
+      } else {
+        Write-Host ("{0}: {1} MISMATCH  line {2}: Word '{3}' expected '{4}'" -f $name, $label, $i, $got[$i], $want[$i])
+      }
       return $false
     }
   }

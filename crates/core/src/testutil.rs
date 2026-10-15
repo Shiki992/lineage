@@ -46,12 +46,11 @@ pub fn smoke(name: &str, bytes: &[u8]) {
     let dir = PathBuf::from(dir);
     std::fs::create_dir_all(&dir).expect("smoke folder");
     std::fs::write(dir.join(format!("{name}.docx")), bytes).expect("write output");
-    // Word updates DATE fields when it opens a file, shows maths in its own
-    // characters and pictures and symbols as placeholders, so those files are opened but
-    // not compared.
+    // Word updates DATE fields when it opens a file, and shows maths and symbols
+    // in its own characters, so those files are opened but not compared.
     let docx = open(bytes);
     let main = docx.part_text(&docx.main_part).unwrap_or_default();
-    if [" DATE ", "oMath", "<pic:pic", ":sym "]
+    if [" DATE ", "oMath", ":sym "]
         .iter()
         .any(|s| main.contains(s))
     {
