@@ -12,7 +12,7 @@ pub const HEADER: [&str; 2] = [
     "// SPDX-License-Identifier: Apache-2.0",
 ];
 
-const EXTENSIONS: [&str; 5] = ["rs", "ts", "js", "mjs", "cjs"];
+const EXTENSIONS: [&str; 6] = ["rs", "ts", "tsx", "js", "mjs", "cjs"];
 
 /// Directories never scanned: build output, dependencies, generated code, and the
 /// maintainer's local test documents.
