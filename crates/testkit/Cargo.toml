@@ -1,0 +1,17 @@
+[package]
+name = "lineage-testkit"
+description = "Test-only builder for synthetic .docx files, used by the fixture generator and engine tests. Never shipped."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# An independent zip reader, so fixture tests don't trust our own writer.
+zip.workspace = true

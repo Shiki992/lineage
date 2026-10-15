@@ -55,6 +55,7 @@ crates/lineage             Rust. Family logic: ledger events, checkpoints, varia
 crates/wasm                wasm-bindgen bindings exposing core + lineage to JavaScript.
 crates/harness             Rust, test-only. Local-folder and in-memory storage that drives
                            end-to-end scenarios. Never shipped; no user-facing command line.
+crates/testkit             Rust, test-only. Builds synthetic .docx files for fixtures and tests.
 packages/shell             TypeScript. Typed wrapper around the wasm module + storage interface.
 packages/storage-onedrive  TypeScript. Microsoft Graph calls only.
 packages/storage-gdrive    TypeScript. Drive API calls only, drive.file scope.

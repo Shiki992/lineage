@@ -6,7 +6,8 @@
 //! input always gives the same bytes on every OS. Word, LibreOffice and Google Docs
 //! all open stored packages.
 //!
-//! This is test tooling only. The engine's own zip handling is a Phase 1 decision.
+//! This is test tooling only. The engine has its own writer in `lineage-core`, so
+//! fixtures never depend on the code they test.
 
 use crate::checksum::crc32;
 
