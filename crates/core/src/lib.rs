@@ -9,10 +9,13 @@
 
 #![forbid(unsafe_code)]
 
+pub mod docx;
 pub mod error;
+pub mod hash;
 pub mod package;
 pub mod xml;
 
+pub use docx::{Docx, View};
 pub use error::{Error, Result};
 pub use package::Package;
 
