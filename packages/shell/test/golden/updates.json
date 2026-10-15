@@ -1,0 +1,187 @@
+{
+  "ok": true,
+  "value": {
+    "groups": [
+      {
+        "checkpoint": "dba4e15c49acf7b217146abba72211f7",
+        "label": "From master v2",
+        "view": {
+          "alreadyThere": [],
+          "byHand": [],
+          "changes": [
+            {
+              "byHand": null,
+              "choices": [
+                {
+                  "decision": "bringIn",
+                  "label": "Bring in"
+                },
+                {
+                  "decision": "decline",
+                  "label": "Decline"
+                }
+              ],
+              "id": "cfffb39e145e80d8e",
+              "place": "Under 'Experience'",
+              "summary": "Added under 'Experience': 'Senior data engineer, Halden Robotics, 2023 to now'",
+              "text": [
+                {
+                  "kind": "added",
+                  "text": "Senior data engineer, Halden Robotics, 2023 to now"
+                }
+              ]
+            },
+            {
+              "byHand": null,
+              "choices": [
+                {
+                  "decision": "bringIn",
+                  "label": "Bring in"
+                },
+                {
+                  "decision": "decline",
+                  "label": "Decline"
+                }
+              ],
+              "id": "c825eb43ff615ff8a",
+              "place": "Under 'Senior data engineer, Halden Robotics, 2023 to now'",
+              "summary": "Added under 'Senior data engineer, Halden Robotics, 2023 to now': 'Moved nightly batch jobs to streaming, cutting report delays…'",
+              "text": [
+                {
+                  "kind": "added",
+                  "text": "Moved nightly batch jobs to streaming, cutting report delays from hours to minutes."
+                }
+              ]
+            }
+          ],
+          "formatting": [],
+          "headline": "2 updates from the master",
+          "overlaps": []
+        }
+      },
+      {
+        "checkpoint": "fb0cea28644ef1325935f077db54217a",
+        "label": "From master v3",
+        "view": {
+          "alreadyThere": [],
+          "byHand": [
+            {
+              "byHand": "This changes page layout or sections. Copy it in by hand for now.",
+              "choices": [
+                {
+                  "decision": "decline",
+                  "label": "Decline"
+                }
+              ],
+              "id": "c8cf8853631e6b595",
+              "place": "Under 'Education'",
+              "summary": "Added a section break under 'Education'",
+              "text": [
+                {
+                  "kind": "added",
+                  "text": ""
+                }
+              ]
+            }
+          ],
+          "changes": [
+            {
+              "byHand": null,
+              "choices": [
+                {
+                  "decision": "bringIn",
+                  "label": "Bring in"
+                },
+                {
+                  "decision": "decline",
+                  "label": "Decline"
+                }
+              ],
+              "id": "ceea73148df45704c",
+              "place": "Under 'Education'",
+              "summary": "Added under 'Education': 'References are available on request.'",
+              "text": [
+                {
+                  "kind": "added",
+                  "text": "References are available on request."
+                }
+              ]
+            }
+          ],
+          "formatting": [
+            {
+              "byHand": null,
+              "choices": [
+                {
+                  "decision": "bringIn",
+                  "label": "Bring in"
+                },
+                {
+                  "decision": "decline",
+                  "label": "Decline"
+                }
+              ],
+              "id": "c38136802d67ebac4",
+              "place": null,
+              "summary": "'Avery Quinn' made bold",
+              "text": [
+                {
+                  "kind": "reformatted",
+                  "text": "Avery Quinn"
+                }
+              ]
+            }
+          ],
+          "headline": "4 updates from the master",
+          "overlaps": [
+            {
+              "before": "Data engineer, Corvia Freight, 2020 to 2023",
+              "choices": [
+                {
+                  "decision": "keepMine",
+                  "label": "Keep mine"
+                },
+                {
+                  "decision": "useMasters",
+                  "label": "Use the master's"
+                }
+              ],
+              "id": "cc7247e383f30a1e5",
+              "masters": [
+                {
+                  "kind": "removed",
+                  "text": "Data"
+                },
+                {
+                  "kind": "added",
+                  "text": "Lead data"
+                },
+                {
+                  "kind": "same",
+                  "text": " engineer, Corvia Freight, 2020 to 2023"
+                }
+              ],
+              "mine": [
+                {
+                  "kind": "same",
+                  "text": "Data engineer"
+                },
+                {
+                  "kind": "added",
+                  "text": " (logistics)"
+                },
+                {
+                  "kind": "same",
+                  "text": ", Corvia Freight, 2020 to 2023"
+                }
+              ],
+              "place": "Under 'Experience'",
+              "summary": "Both changed 'Data engineer, Corvia Freight, 2020 to 2023'"
+            }
+          ]
+        }
+      }
+    ],
+    "headline": "6 updates from the master"
+  }
+}

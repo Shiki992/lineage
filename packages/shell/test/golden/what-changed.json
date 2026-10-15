@@ -1,0 +1,73 @@
+{
+  "ok": true,
+  "value": {
+    "alreadyThere": [],
+    "byHand": [],
+    "changes": [
+      {
+        "byHand": null,
+        "choices": [],
+        "id": "cc7247e383f30a1e5",
+        "place": "Under 'Experience'",
+        "summary": "'Data engineer, Corvia Freight, 2020 to 2023' changed to 'Lead data engineer, Corvia Freight, 2020 to 2023'",
+        "text": [
+          {
+            "kind": "removed",
+            "text": "Data"
+          },
+          {
+            "kind": "added",
+            "text": "Lead data"
+          },
+          {
+            "kind": "same",
+            "text": " engineer, Corvia Freight, 2020 to 2023"
+          }
+        ]
+      },
+      {
+        "byHand": null,
+        "choices": [],
+        "id": "ceea73148df45704c",
+        "place": "Under 'Education'",
+        "summary": "Added under 'Education': 'References are available on request.'",
+        "text": [
+          {
+            "kind": "added",
+            "text": "References are available on request."
+          }
+        ]
+      },
+      {
+        "byHand": "This changes page layout or sections. Copy it in by hand for now.",
+        "choices": [],
+        "id": "c8cf8853631e6b595",
+        "place": "Under 'Education'",
+        "summary": "Added a section break under 'Education'",
+        "text": [
+          {
+            "kind": "added",
+            "text": ""
+          }
+        ]
+      }
+    ],
+    "formatting": [
+      {
+        "byHand": null,
+        "choices": [],
+        "id": "c38136802d67ebac4",
+        "place": null,
+        "summary": "'Avery Quinn' made bold",
+        "text": [
+          {
+            "kind": "reformatted",
+            "text": "Avery Quinn"
+          }
+        ]
+      }
+    ],
+    "headline": "4 changes since v2",
+    "overlaps": []
+  }
+}

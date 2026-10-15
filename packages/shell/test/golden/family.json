@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "value": {
+    "familyId": "119736279a3062acd1d1873c28a849ee",
+    "format": "docx",
+    "name": "Resume",
+    "nodes": [
+      {
+        "archived": false,
+        "displayName": "Resume.docx",
+        "followsMaster": false,
+        "id": "1fb55efa97c78be4f78ab7dc34ce3cad",
+        "latest": {
+          "id": "2f6f163638477c4f4d8a1995062f5eff",
+          "label": "v1",
+          "note": "Started tracking",
+          "when": "15 Oct"
+        },
+        "role": "master",
+        "storageRef": "Resume.docx"
+      },
+      {
+        "archived": false,
+        "displayName": "Resume – data roles.docx",
+        "followsMaster": true,
+        "id": "5c81cc14a997e2ba9928492bcc208f37",
+        "latest": {
+          "id": "5268704a6b2e9e6e2e87cc7a098e0701",
+          "label": "v1",
+          "note": "Made from master v1",
+          "when": "15 Oct"
+        },
+        "role": "variant",
+        "storageRef": "Resume – data roles.docx"
+      },
+      {
+        "archived": false,
+        "displayName": "Resume – platform roles.docx",
+        "followsMaster": true,
+        "id": "96657bd73b2c38fce315aedec0ac9486",
+        "latest": {
+          "id": "eb7e7b6d9125deafb0f8379dba9ddf7b",
+          "label": "v1",
+          "note": "Made from master v1",
+          "when": "15 Oct"
+        },
+        "role": "variant",
+        "storageRef": "Resume – platform roles.docx"
+      }
+    ]
+  }
+}

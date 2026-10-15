@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "value": {
+    "actions": [
+      "Make a tailored version",
+      "Save checkpoint",
+      "Send a copy"
+    ],
+    "callout": null,
+    "chip": "Master",
+    "fileName": "Resume.docx",
+    "follows": "No tailored versions yet",
+    "footer": "What I've sent",
+    "latest": {
+      "id": "2f6f163638477c4f4d8a1995062f5eff",
+      "label": "v1",
+      "note": "Started tracking",
+      "when": "15 Oct"
+    },
+    "nodeId": "1fb55efa97c78be4f78ab7dc34ce3cad",
+    "versions": []
+  }
+}

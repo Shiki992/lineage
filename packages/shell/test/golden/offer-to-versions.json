@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "value": {
+    "blobs": [],
+    "created": null,
+    "familyId": null,
+    "hasFile": false,
+    "ids": null,
+    "ledgerLines": "{\"v\":1,\"seq\":11,\"at\":1792056960000,\"event\":{\"type\":\"UpdateOffered\",\"offer_id\":\"8125fd93ffb66142c76b47912deaa809\",\"from_checkpoint_id\":\"dba4e15c49acf7b217146abba72211f7\",\"to_node_id\":\"5c81cc14a997e2ba9928492bcc208f37\",\"change_ids\":[\"cfffb39e145e80d8e\",\"c825eb43ff615ff8a\"]}}\n{\"v\":1,\"seq\":12,\"at\":1792056960000,\"event\":{\"type\":\"UpdateOffered\",\"offer_id\":\"bc67368270f15dddd1b4288aeb42f9e1\",\"from_checkpoint_id\":\"fb0cea28644ef1325935f077db54217a\",\"to_node_id\":\"5c81cc14a997e2ba9928492bcc208f37\",\"change_ids\":[\"c38136802d67ebac4\",\"cc7247e383f30a1e5\",\"ceea73148df45704c\",\"c8cf8853631e6b595\"]}}\n{\"v\":1,\"seq\":13,\"at\":1792056960000,\"event\":{\"type\":\"UpdateOffered\",\"offer_id\":\"52b642604bd4654c8916d5915120da90\",\"from_checkpoint_id\":\"dba4e15c49acf7b217146abba72211f7\",\"to_node_id\":\"96657bd73b2c38fce315aedec0ac9486\",\"change_ids\":[\"cfffb39e145e80d8e\",\"c825eb43ff615ff8a\"]}}\n{\"v\":1,\"seq\":14,\"at\":1792056960000,\"event\":{\"type\":\"UpdateOffered\",\"offer_id\":\"c3e950d579eb0b480b7fadada0b3621a\",\"from_checkpoint_id\":\"fb0cea28644ef1325935f077db54217a\",\"to_node_id\":\"96657bd73b2c38fce315aedec0ac9486\",\"change_ids\":[\"c38136802d67ebac4\",\"cc7247e383f30a1e5\",\"ceea73148df45704c\",\"c8cf8853631e6b595\"]}}\n",
+    "newFileName": null,
+    "nothingChanged": false,
+    "records": 4
+  }
+}

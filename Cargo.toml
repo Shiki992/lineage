@@ -50,7 +50,12 @@ unused_must_use = "deny"
 all = { level = "warn", priority = -1 }
 
 [profile.release]
-# Small wasm bundles for the task pane. Size budgets are set in Phase 2.
 opt-level = "s"
 lto = true
 codegen-units = 1
+
+# The task pane's engine (scripts/build-wasm.mjs). Smallest code: 907 KB raw and
+# 324 KB gzipped against budgets of 1.5 MB and 420 KB (decision 0010).
+[profile.wasm]
+inherits = "release"
+opt-level = "z"

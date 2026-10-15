@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "value": {
+    "actions": [
+      "Save checkpoint",
+      "Send a copy"
+    ],
+    "chip": "Tailored version",
+    "fileName": "Resume – data roles.docx",
+    "footer": "What I've sent",
+    "latest": {
+      "id": "34cf8035f2345f5a62f5541afccad074",
+      "label": "v3",
+      "note": "Brought in 3 changes from the master",
+      "when": "15 Oct"
+    },
+    "nodeId": "5c81cc14a997e2ba9928492bcc208f37",
+    "status": "Made from master v1 · has v3",
+    "updates": null
+  }
+}
