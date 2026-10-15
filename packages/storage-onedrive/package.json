@@ -1,0 +1,18 @@
+{
+  "name": "@lineage/storage-onedrive",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "The person's OneDrive behind the shell's storage interface: Microsoft Graph calls only.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../scripts/build-wasm.mjs && tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@lineage/shell": "workspace:*"
+  }
+}

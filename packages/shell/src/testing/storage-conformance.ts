@@ -68,7 +68,9 @@ export function storageConformance(name: string, make: () => Promise<Storage> | 
       );
       await storage.writeFile("version", name, text.encode("v2"), true);
       expect(new TextDecoder().decode(await storage.readFile(saved.ref))).toBe("v2");
-      expect(await storage.fileNames("version")).toEqual([name]);
+      // Versions may share a folder with other files (next to the master), so
+      // the list has at least this one.
+      expect(await storage.fileNames("version")).toContain(name);
       expect(await storage.fileNames("sent")).toEqual([]);
       await storage.writeFile("sent", "Resume (Northgate).docx", text.encode("copy"));
       expect(await storage.fileNames("sent")).toEqual(["Resume (Northgate).docx"]);

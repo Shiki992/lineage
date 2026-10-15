@@ -201,6 +201,12 @@ importers:
         specifier: 8.20.0
         version: 8.20.0
 
+  packages/storage-onedrive:
+    dependencies:
+      '@lineage/shell':
+        specifier: workspace:*
+        version: link:../shell
+
 packages:
 
   '@cacheable/memory@2.2.0':

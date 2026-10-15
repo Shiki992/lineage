@@ -1,0 +1,329 @@
+// Copyright 2026 Hrishikesh Vedantam
+// SPDX-License-Identifier: Apache-2.0
+
+// The person's OneDrive, behind the shell's Storage interface (which mirrors the
+// harness's): Microsoft Graph calls only.
+//
+// - Ledger appends are optimistic. The ledger is rewritten through an upload
+//   session with If-Match set to the eTag it was read at, so a ledger changed
+//   since gives 412, which becomes StorageConflict and a re-run.
+//   https://learn.microsoft.com/graph/api/driveitem-createuploadsession
+// - Downloads use @microsoft.graph.downloadUrl, because the /content redirect
+//   can't be followed under CORS.
+//   https://learn.microsoft.com/graph/api/driveitem-get-content
+// - Blobs are content-addressed, so one listing of a family's blobs folder says
+//   which already exist and gives their download URLs.
+
+import type { FileKind, FileLocation, LedgerVersion, Storage, StoredFile } from "@lineage/shell";
+import {
+  BadBlob,
+  FileExists,
+  NotFound,
+  StorageConflict,
+  StorageError,
+  checkFamily,
+  checkFileName,
+  checkHash,
+  sha256Hex,
+} from "@lineage/shell";
+import type { Graph } from "./graph.js";
+import { GRAPH, encodePath } from "./graph.js";
+import type { Layout } from "./layout.js";
+
+interface DriveItem {
+  id: string;
+  name: string;
+  eTag?: string;
+  webUrl?: string;
+  file?: unknown;
+  folder?: unknown;
+  "@microsoft.graph.downloadUrl"?: string;
+}
+
+interface Page {
+  value: DriveItem[];
+  "@odata.nextLink"?: string;
+}
+
+const ID = /^[0-9a-f]{32}$/;
+const EMPTY = new Uint8Array();
+
+function join(...parts: string[]): string {
+  return parts.filter((p) => p !== "").join("/");
+}
+
+function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
+
+export class OneDriveStorage implements Storage {
+  readonly label = "OneDrive";
+  private rootPath: Promise<string> | undefined;
+  /** The ledger last read or written, per family, so an append needs no re-read. */
+  private readonly ledgers = new Map<string, { eTag: string; bytes: Uint8Array }>();
+  /** Per family: blob hash → download URL (undefined once uploaded here). */
+  private readonly blobs = new Map<string, Promise<Map<string, string | undefined>>>();
+
+  constructor(
+    private readonly graph: Graph,
+    readonly layout: Layout,
+  ) {}
+
+  private root(): Promise<string> {
+    return (this.rootPath ??= this.layout.root(this.graph));
+  }
+
+  /** The Graph path of an item, by its path relative to the root. */
+  private async item(rel: string): Promise<string> {
+    const root = await this.root();
+    return rel === "" ? root : `${root}:/${encodePath(rel)}`;
+  }
+
+  /** The Graph path of an item's sub-resource, such as `content` or `children`. */
+  private async sub(rel: string, resource: string): Promise<string> {
+    const root = await this.root();
+    return rel === "" ? `${root}/${resource}` : `${root}:/${encodePath(rel)}:/${resource}`;
+  }
+
+  private history(family: string, ...rest: string[]): string {
+    return join(this.layout.history, checkFamily(family), ...rest);
+  }
+
+  /** An item's metadata, or undefined when it doesn't exist. */
+  private async meta(rel: string, select: string): Promise<DriveItem | undefined> {
+    const response = await this.graph.request("GET", `${await this.item(rel)}?$select=${select}`, {
+      allow: [404],
+    });
+    return response.status === 404 ? undefined : ((await response.json()) as DriveItem);
+  }
+
+  private async download(rel: string, item: DriveItem | undefined): Promise<Uint8Array> {
+    const url =
+      item?.["@microsoft.graph.downloadUrl"] ??
+      (await this.meta(rel, "id,@microsoft.graph.downloadUrl"))?.["@microsoft.graph.downloadUrl"];
+    if (!url) {
+      throw new NotFound(rel);
+    }
+    try {
+      return new Uint8Array(await (await this.graph.plain("GET", url)).arrayBuffer());
+    } catch (error) {
+      if (!item) {
+        throw error;
+      }
+      // Download URLs expire within minutes: ask for a fresh one, once.
+      return this.download(rel, undefined);
+    }
+  }
+
+  private async children(rel: string): Promise<DriveItem[]> {
+    const first = await this.graph.request(
+      "GET",
+      `${await this.sub(rel, "children")}?$select=id,name,file,folder,@microsoft.graph.downloadUrl&$top=200`,
+      { allow: [404] },
+    );
+    if (first.status === 404) {
+      return [];
+    }
+    const items: DriveItem[] = [];
+    let page = (await first.json()) as Page;
+    for (;;) {
+      items.push(...page.value);
+      const next = page["@odata.nextLink"];
+      if (!next?.startsWith(GRAPH)) {
+        return items;
+      }
+      page = await this.graph.json<Page>("GET", next.slice(GRAPH.length));
+    }
+  }
+
+  /** Uploads bytes through an upload session: the documented way to send If-Match. */
+  private async upload(
+    rel: string,
+    bytes: Uint8Array,
+    condition: { ifMatch: string } | "create",
+  ): Promise<DriveItem> {
+    const session = await this.graph.json<{ uploadUrl?: string }>(
+      "POST",
+      await this.sub(rel, "createUploadSession"),
+      {
+        headers: {
+          "Content-Type": "application/json",
+          ...(condition === "create" ? {} : { "If-Match": condition.ifMatch }),
+        },
+        body: JSON.stringify({
+          item: {
+            "@microsoft.graph.conflictBehavior": condition === "create" ? "fail" : "replace",
+          },
+        }),
+      },
+    );
+    if (!session.uploadUrl) {
+      throw new StorageError(
+        "OneDrive couldn't save Lineage's history just now. Try again.",
+        "no upload URL",
+      );
+    }
+    // One range is enough: the ledger stays far below the 60 MiB per-request limit.
+    const response = await this.graph.plain("PUT", session.uploadUrl, {
+      headers: { "Content-Range": `bytes 0-${String(bytes.length - 1)}/${String(bytes.length)}` },
+      body: bytes as Uint8Array<ArrayBuffer>,
+    });
+    return (await response.json()) as DriveItem;
+  }
+
+  private async put(rel: string, bytes: Uint8Array): Promise<DriveItem> {
+    return this.graph.json<DriveItem>("PUT", await this.sub(rel, "content"), {
+      headers: { "Content-Type": "application/octet-stream" },
+      body: bytes as Uint8Array<ArrayBuffer>,
+    });
+  }
+
+  refFor(kind: FileKind, name: string): string {
+    return join(this.layout.folder(kind), checkFileName(name));
+  }
+
+  async readFile(ref: string): Promise<Uint8Array> {
+    const item = await this.meta(ref, "id,@microsoft.graph.downloadUrl");
+    if (!item) {
+      throw new NotFound(ref);
+    }
+    return this.download(ref, item);
+  }
+
+  async writeFile(
+    kind: FileKind,
+    name: string,
+    bytes: Uint8Array,
+    replace = false,
+  ): Promise<StoredFile> {
+    const ref = this.refFor(kind, name);
+    if (!replace && (await this.meta(ref, "id"))) {
+      throw new FileExists(checkFileName(name));
+    }
+    await this.put(ref, bytes);
+    return { ref, name: checkFileName(name) };
+  }
+
+  async fileNames(kind: FileKind): Promise<string[]> {
+    return (await this.children(this.layout.folder(kind)))
+      .filter((i) => i.file !== undefined && /\.docx$/i.test(i.name))
+      .map((i) => i.name)
+      .sort();
+  }
+
+  async fileLocation(ref: string): Promise<FileLocation> {
+    const item = await this.meta(ref, "id,webUrl");
+    if (!item?.webUrl) {
+      throw new NotFound(ref);
+    }
+    return { webUrl: item.webUrl };
+  }
+
+  async readLedger(family: string): Promise<{ bytes: Uint8Array; version: LedgerVersion }> {
+    const rel = this.history(family, "ledger.jsonl");
+    const item = await this.meta(rel, "id,eTag,@microsoft.graph.downloadUrl");
+    if (!item?.eTag) {
+      this.ledgers.delete(family);
+      return { bytes: EMPTY, version: "" };
+    }
+    // Read the eTag first, then the bytes: if the ledger changes in between, the
+    // bytes are newer than the eTag and the next append is refused, never lost.
+    const bytes = await this.download(rel, item);
+    this.ledgers.set(family, { eTag: item.eTag, bytes });
+    return { bytes, version: item.eTag };
+  }
+
+  async appendLedger(
+    family: string,
+    expected: LedgerVersion,
+    lines: Uint8Array,
+  ): Promise<LedgerVersion> {
+    const rel = this.history(family, "ledger.jsonl");
+    let current: Uint8Array = EMPTY;
+    if (expected !== "") {
+      const cached = this.ledgers.get(family);
+      if (cached?.eTag === expected) {
+        current = cached.bytes;
+      } else {
+        const read = await this.readLedger(family);
+        if (read.version !== expected) {
+          throw new StorageConflict(`the ledger is at ${read.version}, not ${expected}`);
+        }
+        current = read.bytes;
+      }
+    }
+    const next = concat(current, lines);
+    const written = await this.upload(
+      rel,
+      next,
+      expected === "" ? "create" : { ifMatch: expected },
+    );
+    const eTag = written.eTag ?? (await this.meta(rel, "id,eTag"))?.eTag;
+    if (!eTag) {
+      throw new StorageError(
+        "OneDrive couldn't save Lineage's history just now. Try again.",
+        "no eTag",
+      );
+    }
+    this.ledgers.set(family, { eTag, bytes: next });
+    return eTag;
+  }
+
+  /** Every blob a family has, listed once per session. */
+  private blobIndex(family: string, refresh = false): Promise<Map<string, string | undefined>> {
+    const existing = refresh ? undefined : this.blobs.get(family);
+    if (existing) {
+      return existing;
+    }
+    const index = this.children(this.history(family, "blobs")).then(
+      (items) =>
+        new Map(
+          items
+            .filter((i) => i.file !== undefined)
+            .map((i) => [i.name, i["@microsoft.graph.downloadUrl"]]),
+        ),
+    );
+    this.blobs.set(family, index);
+    index.catch(() => this.blobs.delete(family));
+    return index;
+  }
+
+  async putBlob(family: string, hash: string, bytes: Uint8Array): Promise<void> {
+    if ((await sha256Hex(bytes)) !== checkHash(hash)) {
+      throw new BadBlob(hash);
+    }
+    const index = await this.blobIndex(family);
+    if (index.has(hash)) {
+      return;
+    }
+    await this.put(this.history(family, "blobs", hash), bytes);
+    index.set(hash, undefined);
+  }
+
+  async getBlob(family: string, hash: string): Promise<Uint8Array | undefined> {
+    checkHash(hash);
+    let index = await this.blobIndex(family);
+    if (!index.has(hash)) {
+      // Another device may have added it since the listing.
+      index = await this.blobIndex(family, true);
+      if (!index.has(hash)) {
+        return undefined;
+      }
+    }
+    const url = index.get(hash);
+    return this.download(
+      this.history(family, "blobs", hash),
+      url ? { id: "", name: hash, "@microsoft.graph.downloadUrl": url } : undefined,
+    );
+  }
+
+  async families(): Promise<string[]> {
+    return (await this.children(this.layout.history))
+      .filter((i) => i.folder !== undefined && ID.test(i.name))
+      .map((i) => i.name)
+      .sort();
+  }
+}
