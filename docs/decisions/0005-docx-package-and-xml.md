@@ -46,7 +46,7 @@ Errors carry a plain-language message for the panel and a structural detail for 
 
 ### Independent checks
 
-Tests read our output with the `zip` crate (`deflate-flate2` and `flate2`'s Rust backend, dev-only), which has its own inflater and CRC check, so a bug in our writer cannot hide behind the same bug in our reader. Fixtures are made by `crates/testkit`, which never uses the engine.
+Tests read our output with the `zip` crate (dev-only, with `deflate-flate2`), which has its own archive parsing and CRC check, so a bug in our container code cannot hide behind the same bug in our reader. Its inflater is flate2's Rust backend, which is miniz_oxide again, so deflate itself is checked independently only by Microsoft Word (`scripts/word-smoke.ps1`). Fixtures are made by `crates/testkit`, which never uses the engine.
 
 ## Alternatives
 

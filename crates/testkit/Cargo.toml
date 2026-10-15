@@ -12,6 +12,11 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[dependencies]
+# Deflate for the fixtures that are compressed the way Word saves.
+miniz_oxide.workspace = true
+
 [dev-dependencies]
 # An independent zip reader, so fixture tests don't trust our own writer.
-zip.workspace = true
+zip = { workspace = true, features = ["deflate-flate2"] }
+flate2.workspace = true

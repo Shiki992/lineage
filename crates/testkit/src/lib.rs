@@ -12,6 +12,8 @@
 
 pub mod checksum;
 pub mod docx;
+pub mod features;
 pub mod fixtures;
 pub mod png;
+pub mod resume;
 pub mod zip_writer;

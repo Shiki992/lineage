@@ -106,7 +106,60 @@ pub fn sect_pr(header_footer: bool, orientation: Orientation, next_page: bool) -
     out
 }
 
-/// One synthetic Word document. Optional parts are added only when set.
+/// How the fixture's zip archive is laid out.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Zip {
+    /// Stored entries, sizes in the local header (the default).
+    #[default]
+    Stored,
+    /// Deflated entries, the way Word saves.
+    Deflated,
+    /// Deflated entries with data descriptors and directory entries, the way
+    /// streaming zip writers (Java, some web exports) save.
+    Streamed,
+}
+
+/// An extra part added to the package as is.
+pub struct Part {
+    pub name: String,
+    /// Content type `Override`, if the part needs one.
+    pub content_type: Option<String>,
+    pub data: Vec<u8>,
+}
+
+/// An extra relationship. `rel_type` is the full type URI.
+#[derive(Clone)]
+pub struct Rel {
+    pub id: &'static str,
+    pub rel_type: String,
+    pub target: String,
+    pub external: bool,
+}
+
+impl Rel {
+    /// A relationship whose type is under the officeDocument relationships namespace.
+    pub fn office(id: &'static str, kind: &str, target: &str) -> Self {
+        Self {
+            id,
+            rel_type: format!("{REL}/{kind}"),
+            target: target.to_owned(),
+            external: false,
+        }
+    }
+
+    /// An external hyperlink.
+    pub fn hyperlink(id: &'static str, url: &str) -> Self {
+        Self {
+            id,
+            rel_type: format!("{REL}/hyperlink"),
+            target: url.to_owned(),
+            external: true,
+        }
+    }
+}
+
+/// One synthetic Word document. Optional parts are added only when set, so a
+/// fixture that uses none of the extras is byte-identical to Phase 0's.
 pub struct Package {
     pub title: &'static str,
     pub body: String,
@@ -114,8 +167,30 @@ pub struct Package {
     pub header: Option<String>,
     pub footer: Option<String>,
     pub footnotes: Option<String>,
+    pub endnotes: Option<String>,
     pub comments: Option<String>,
     pub image_png: Option<Vec<u8>>,
+    /// Extra namespace declarations on `w:document`, as (prefix, URI).
+    pub doc_ns: Vec<(&'static str, &'static str)>,
+    /// `mc:Ignorable` on `w:document`. The `mc` prefix must be in `doc_ns`.
+    pub ignorable: Option<&'static str>,
+    /// Extra `w:style` elements appended to styles.xml.
+    pub extra_styles: String,
+    /// Extra parts, after the standard ones.
+    pub parts: Vec<Part>,
+    /// Extra relationships of word/document.xml.
+    pub rels: Vec<Rel>,
+    /// Extra package relationships (`_rels/.rels`).
+    pub root_rels: Vec<Rel>,
+    /// Extra `Default` content types, as (extension, type).
+    pub defaults: Vec<(&'static str, &'static str)>,
+    /// `w:evenAndOddHeaders` in settings.
+    pub even_and_odd_headers: bool,
+    /// Raw settings after `w:compat`, such as `w:docVars` and `w:rsids`.
+    pub settings_tail: String,
+    /// Replaces the body's final `w:sectPr`.
+    pub body_sect: Option<String>,
+    pub zip: Zip,
 }
 
 impl Package {
@@ -127,8 +202,20 @@ impl Package {
             header: None,
             footer: None,
             footnotes: None,
+            endnotes: None,
             comments: None,
             image_png: None,
+            doc_ns: Vec::new(),
+            ignorable: None,
+            extra_styles: String::new(),
+            parts: Vec::new(),
+            rels: Vec::new(),
+            root_rels: Vec::new(),
+            defaults: Vec::new(),
+            even_and_odd_headers: false,
+            settings_tail: String::new(),
+            body_sect: None,
+            zip: Zip::Stored,
         }
     }
 
@@ -140,26 +227,38 @@ impl Package {
     pub fn parts(&self) -> Vec<(String, Vec<u8>)> {
         let mut overrides = vec![
             (
-                "/docProps/core.xml",
+                "/docProps/core.xml".to_owned(),
                 "application/vnd.openxmlformats-package.core-properties+xml".to_owned(),
             ),
             (
-                "/docProps/app.xml",
+                "/docProps/app.xml".to_owned(),
                 "application/vnd.openxmlformats-officedocument.extended-properties+xml".to_owned(),
             ),
-            ("/word/document.xml", format!("{CT_WML}.document.main+xml")),
-            ("/word/styles.xml", format!("{CT_WML}.styles+xml")),
-            ("/word/settings.xml", format!("{CT_WML}.settings+xml")),
+            (
+                "/word/document.xml".to_owned(),
+                format!("{CT_WML}.document.main+xml"),
+            ),
+            (
+                "/word/styles.xml".to_owned(),
+                format!("{CT_WML}.styles+xml"),
+            ),
+            (
+                "/word/settings.xml".to_owned(),
+                format!("{CT_WML}.settings+xml"),
+            ),
         ];
         let mut rels = vec![
-            ("rIdStyles", "styles", "styles.xml"),
-            ("rIdSettings", "settings", "settings.xml"),
+            Rel::office("rIdStyles", "styles", "styles.xml"),
+            Rel::office("rIdSettings", "settings", "settings.xml"),
         ];
         let mut extra: Vec<(String, Vec<u8>)> = Vec::new();
 
         if self.numbering {
-            overrides.push(("/word/numbering.xml", format!("{CT_WML}.numbering+xml")));
-            rels.push(("rIdNumbering", "numbering", "numbering.xml"));
+            overrides.push((
+                "/word/numbering.xml".to_owned(),
+                format!("{CT_WML}.numbering+xml"),
+            ));
+            rels.push(Rel::office("rIdNumbering", "numbering", "numbering.xml"));
             extra.push((
                 "word/numbering.xml".to_owned(),
                 numbering_xml().into_bytes(),
@@ -168,10 +267,16 @@ impl Package {
         if self.has_header_footer() {
             let header = self.header.as_deref().unwrap_or("");
             let footer = self.footer.as_deref().unwrap_or("");
-            overrides.push(("/word/header1.xml", format!("{CT_WML}.header+xml")));
-            overrides.push(("/word/footer1.xml", format!("{CT_WML}.footer+xml")));
-            rels.push(("rIdHeader1", "header", "header1.xml"));
-            rels.push(("rIdFooter1", "footer", "footer1.xml"));
+            overrides.push((
+                "/word/header1.xml".to_owned(),
+                format!("{CT_WML}.header+xml"),
+            ));
+            overrides.push((
+                "/word/footer1.xml".to_owned(),
+                format!("{CT_WML}.footer+xml"),
+            ));
+            rels.push(Rel::office("rIdHeader1", "header", "header1.xml"));
+            rels.push(Rel::office("rIdFooter1", "footer", "footer1.xml"));
             extra.push((
                 "word/header1.xml".to_owned(),
                 story("w:hdr", header).into_bytes(),
@@ -182,16 +287,33 @@ impl Package {
             ));
         }
         if let Some(notes) = &self.footnotes {
-            overrides.push(("/word/footnotes.xml", format!("{CT_WML}.footnotes+xml")));
-            rels.push(("rIdFootnotes", "footnotes", "footnotes.xml"));
+            overrides.push((
+                "/word/footnotes.xml".to_owned(),
+                format!("{CT_WML}.footnotes+xml"),
+            ));
+            rels.push(Rel::office("rIdFootnotes", "footnotes", "footnotes.xml"));
             extra.push((
                 "word/footnotes.xml".to_owned(),
-                footnotes_xml(notes).into_bytes(),
+                notes_xml("footnote", notes).into_bytes(),
+            ));
+        }
+        if let Some(notes) = &self.endnotes {
+            overrides.push((
+                "/word/endnotes.xml".to_owned(),
+                format!("{CT_WML}.endnotes+xml"),
+            ));
+            rels.push(Rel::office("rIdEndnotes", "endnotes", "endnotes.xml"));
+            extra.push((
+                "word/endnotes.xml".to_owned(),
+                notes_xml("endnote", notes).into_bytes(),
             ));
         }
         if let Some(comments) = &self.comments {
-            overrides.push(("/word/comments.xml", format!("{CT_WML}.comments+xml")));
-            rels.push(("rIdComments", "comments", "comments.xml"));
+            overrides.push((
+                "/word/comments.xml".to_owned(),
+                format!("{CT_WML}.comments+xml"),
+            ));
+            rels.push(Rel::office("rIdComments", "comments", "comments.xml"));
             extra.push((
                 "word/comments.xml".to_owned(),
                 format!(r#"{DECL}<w:comments xmlns:w="{NS_W}">{comments}</w:comments>"#)
@@ -199,16 +321,30 @@ impl Package {
             ));
         }
         if let Some(png) = &self.image_png {
-            rels.push(("rIdImage1", "image", "media/image1.png"));
+            rels.push(Rel::office("rIdImage1", "image", "media/image1.png"));
             extra.push(("word/media/image1.png".to_owned(), png.clone()));
         }
+        for part in &self.parts {
+            if let Some(content_type) = &part.content_type {
+                overrides.push((format!("/{}", part.name), content_type.clone()));
+            }
+            extra.push((part.name.clone(), part.data.clone()));
+        }
+        let mut defaults = self.defaults.clone();
+        if self.image_png.is_some() {
+            defaults.insert(0, ("png", "image/png"));
+        }
+        rels.extend(self.rels.iter().cloned());
 
         let mut parts = vec![
             (
                 "[Content_Types].xml".to_owned(),
-                content_types(&overrides, self.image_png.is_some()).into_bytes(),
+                content_types(&overrides, &defaults).into_bytes(),
             ),
-            ("_rels/.rels".to_owned(), root_rels().into_bytes()),
+            (
+                "_rels/.rels".to_owned(),
+                root_rels(&self.root_rels).into_bytes(),
+            ),
             (
                 "docProps/core.xml".to_owned(),
                 core_xml(self.title).into_bytes(),
@@ -222,10 +358,13 @@ impl Package {
                 "word/_rels/document.xml.rels".to_owned(),
                 document_rels(&rels).into_bytes(),
             ),
-            ("word/styles.xml".to_owned(), styles_xml().into_bytes()),
+            (
+                "word/styles.xml".to_owned(),
+                styles_xml(&self.extra_styles).into_bytes(),
+            ),
             (
                 "word/settings.xml".to_owned(),
-                settings_xml(self.footnotes.is_some()).into_bytes(),
+                settings_xml(self).into_bytes(),
             ),
         ];
         parts.extend(extra);
@@ -234,23 +373,40 @@ impl Package {
 
     /// The finished .docx bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
-        zip_writer::write_stored(&self.parts())
+        let parts = self.parts();
+        match self.zip {
+            Zip::Stored => zip_writer::write_stored(&parts),
+            Zip::Deflated => zip_writer::write_deflated(&parts, false),
+            Zip::Streamed => zip_writer::write_deflated(&parts, true),
+        }
     }
 
     fn document_xml(&self) -> String {
+        let mut extra_ns = String::new();
+        for (prefix, uri) in &self.doc_ns {
+            extra_ns.push_str(&format!(" xmlns:{prefix}=\"{uri}\""));
+        }
+        if let Some(ignorable) = self.ignorable {
+            extra_ns.push_str(&format!(" mc:Ignorable=\"{ignorable}\""));
+        }
+        let sect = self
+            .body_sect
+            .clone()
+            .unwrap_or_else(|| sect_pr(self.has_header_footer(), Orientation::Portrait, false));
         format!(
             concat!(
                 "{decl}<w:document xmlns:w=\"{w}\" xmlns:r=\"{r}\"",
                 " xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\"",
                 " xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"",
-                " xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">",
+                " xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"{extra_ns}>",
                 "<w:body>{body}{sect}</w:body></w:document>"
             ),
             decl = DECL,
             w = NS_W,
             r = NS_R,
+            extra_ns = extra_ns,
             body = self.body,
-            sect = sect_pr(self.has_header_footer(), Orientation::Portrait, false),
+            sect = sect,
         )
     }
 }
@@ -259,12 +415,14 @@ fn story(root: &str, content: &str) -> String {
     format!(r#"{DECL}<{root} xmlns:w="{NS_W}" xmlns:r="{NS_R}">{content}</{root}>"#)
 }
 
-fn content_types(overrides: &[(&str, String)], png: bool) -> String {
+fn content_types(overrides: &[(String, String)], defaults: &[(&str, &str)]) -> String {
     let mut out = format!(
         r#"{DECL}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>"#
     );
-    if png {
-        out.push_str(r#"<Default Extension="png" ContentType="image/png"/>"#);
+    for (ext, content_type) in defaults {
+        out.push_str(&format!(
+            r#"<Default Extension="{ext}" ContentType="{content_type}"/>"#
+        ));
     }
     for (part, content_type) in overrides {
         out.push_str(&format!(
@@ -275,28 +433,42 @@ fn content_types(overrides: &[(&str, String)], png: bool) -> String {
     out
 }
 
-fn root_rels() -> String {
+fn rel_xml(rel: &Rel) -> String {
+    let mode = if rel.external {
+        r#" TargetMode="External""#
+    } else {
+        ""
+    };
+    format!(
+        r#"<Relationship Id="{}" Type="{}" Target="{}"{mode}/>"#,
+        rel.id,
+        rel.rel_type,
+        esc(&rel.target)
+    )
+}
+
+fn root_rels(extra: &[Rel]) -> String {
+    let extra: String = extra.iter().map(rel_xml).collect();
     format!(
         concat!(
             "{decl}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">",
             "<Relationship Id=\"rId1\" Type=\"{rel}/officeDocument\" Target=\"word/document.xml\"/>",
             "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/>",
             "<Relationship Id=\"rId3\" Type=\"{rel}/extended-properties\" Target=\"docProps/app.xml\"/>",
-            "</Relationships>"
+            "{extra}</Relationships>"
         ),
         decl = DECL,
         rel = REL,
+        extra = extra,
     )
 }
 
-fn document_rels(rels: &[(&str, &str, &str)]) -> String {
+fn document_rels(rels: &[Rel]) -> String {
     let mut out = format!(
         r#"{DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#
     );
-    for (id, kind, target) in rels {
-        out.push_str(&format!(
-            r#"<Relationship Id="{id}" Type="{REL}/{kind}" Target="{target}"/>"#
-        ));
+    for rel in rels {
+        out.push_str(&rel_xml(rel));
     }
     out.push_str("</Relationships>");
     out
@@ -325,7 +497,7 @@ fn app_xml() -> String {
     )
 }
 
-fn styles_xml() -> String {
+fn styles_xml(extra: &str) -> String {
     let heading = |id: &str, name: &str, level: u32, size: u32| {
         format!(
             r#"<w:style w:type="paragraph" w:styleId="{id}"><w:name w:val="{name}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="240" w:after="80"/><w:outlineLvl w:val="{level}"/></w:pPr><w:rPr><w:b/><w:sz w:val="{size}"/></w:rPr></w:style>"#
@@ -349,31 +521,45 @@ fn styles_xml() -> String {
             "<w:bottom w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/><w:right w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>",
             "<w:insideH w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/><w:insideV w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\"/>",
             "</w:tblBorders></w:tblPr></w:style>",
-            "</w:styles>"
+            "{extra}</w:styles>"
         ),
         decl = DECL,
         w = NS_W,
         h1 = heading("Heading1", "heading 1", 0, 32),
         h2 = heading("Heading2", "heading 2", 1, 26),
+        extra = extra,
     )
 }
 
-fn settings_xml(footnotes: bool) -> String {
-    let footnote_pr = if footnotes {
+fn settings_xml(package: &Package) -> String {
+    let even_odd = if package.even_and_odd_headers {
+        "<w:evenAndOddHeaders/>"
+    } else {
+        ""
+    };
+    let footnote_pr = if package.footnotes.is_some() {
         r#"<w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr>"#
+    } else {
+        ""
+    };
+    let endnote_pr = if package.endnotes.is_some() {
+        r#"<w:endnotePr><w:endnote w:id="-1"/><w:endnote w:id="0"/></w:endnotePr>"#
     } else {
         ""
     };
     format!(
         concat!(
-            "{decl}<w:settings xmlns:w=\"{w}\"><w:defaultTabStop w:val=\"720\"/>",
-            "<w:characterSpacingControl w:val=\"doNotCompress\"/>{footnote_pr}",
+            "{decl}<w:settings xmlns:w=\"{w}\"><w:defaultTabStop w:val=\"720\"/>{even_odd}",
+            "<w:characterSpacingControl w:val=\"doNotCompress\"/>{footnote_pr}{endnote_pr}",
             "<w:compat><w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/></w:compat>",
-            "</w:settings>"
+            "{tail}</w:settings>"
         ),
         decl = DECL,
         w = NS_W,
+        even_odd = even_odd,
         footnote_pr = footnote_pr,
+        endnote_pr = endnote_pr,
+        tail = package.settings_tail,
     )
 }
 
@@ -401,17 +587,19 @@ fn numbering_xml() -> String {
     )
 }
 
-fn footnotes_xml(notes: &str) -> String {
+/// footnotes.xml or endnotes.xml, with the separator notes Word expects.
+fn notes_xml(kind: &str, notes: &str) -> String {
     format!(
         concat!(
-            "{decl}<w:footnotes xmlns:w=\"{w}\" xmlns:r=\"{r}\">",
-            "<w:footnote w:type=\"separator\" w:id=\"-1\"><w:p><w:pPr><w:spacing w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr><w:r><w:separator/></w:r></w:p></w:footnote>",
-            "<w:footnote w:type=\"continuationSeparator\" w:id=\"0\"><w:p><w:pPr><w:spacing w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>",
-            "{notes}</w:footnotes>"
+            "{decl}<w:{kind}s xmlns:w=\"{w}\" xmlns:r=\"{r}\">",
+            "<w:{kind} w:type=\"separator\" w:id=\"-1\"><w:p><w:pPr><w:spacing w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr><w:r><w:separator/></w:r></w:p></w:{kind}>",
+            "<w:{kind} w:type=\"continuationSeparator\" w:id=\"0\"><w:p><w:pPr><w:spacing w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:{kind}>",
+            "{notes}</w:{kind}s>"
         ),
         decl = DECL,
         w = NS_W,
         r = NS_R,
+        kind = kind,
         notes = notes,
     )
 }
