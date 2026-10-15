@@ -1,0 +1,6 @@
+target/
+**/wasm-pkg/
+node_modules/
+pnpm-lock.yaml
+test/
+fixtures/**/*.docx
