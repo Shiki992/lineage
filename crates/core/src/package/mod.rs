@@ -53,6 +53,29 @@ impl Package {
         })
     }
 
+    /// A package from parts, in this order. Used to rebuild a stored snapshot;
+    /// every part is compressed afresh when written.
+    #[must_use]
+    pub fn from_parts(parts: Vec<(String, Vec<u8>)>) -> Self {
+        let mut package = Self {
+            entries: Vec::new(),
+        };
+        for (name, data) in parts {
+            package.set_part(&name, data);
+        }
+        package
+    }
+
+    /// Every part as (name, bytes), in archive order.
+    #[must_use]
+    pub fn parts(&self) -> Vec<(String, Vec<u8>)> {
+        self.entries
+            .iter()
+            .filter(|entry| !entry.is_dir)
+            .map(|entry| (entry.name.clone(), entry.data.clone()))
+            .collect()
+    }
+
     /// Writes the package. Unchanged entries keep their original compressed
     /// bytes; changed and new entries are compressed afresh.
     ///
