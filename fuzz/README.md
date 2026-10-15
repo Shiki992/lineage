@@ -16,4 +16,6 @@ mkdir -p fuzz/corpus/docx_reader && cp fixtures/docx/synthetic/*.docx fuzz/corpu
 cargo +nightly fuzz run docx_reader -- -max_total_time=60
 ```
 
+Without `--target`, cargo-fuzz builds for the platform its own binary was built for. A cargo-fuzz built by `cargo install` matches your machine. A prebuilt one may be a musl build, like the one CI installs, and AddressSanitizer does not support musl, so pass `--target x86_64-unknown-linux-gnu` as CI does.
+
 On Windows, libFuzzer needs the MSVC AddressSanitizer runtime; Linux (or WSL) is simpler. The property test `the_reader_never_panics_on_damaged_files` in `crates/core/tests/properties.rs` covers the same ground on the stable toolchain in every `cargo test`.
