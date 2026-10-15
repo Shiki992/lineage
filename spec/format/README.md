@@ -4,9 +4,9 @@ A JSON format for "what changed" between two states of one document. The Lineage
 
 ## Versions
 
-| Version | Schema | Status |
-|---|---|---|
-| v0 | [`v0/change-list.schema.json`](v0/change-list.schema.json) (JSON Schema draft 2020-12) | Draft. Word (.docx) only |
+| Version | Schema                                                                                 | Status                   |
+| ------- | -------------------------------------------------------------------------------------- | ------------------------ |
+| v0      | [`v0/change-list.schema.json`](v0/change-list.schema.json) (JSON Schema draft 2020-12) | Draft. Word (.docx) only |
 
 ## v0 in brief
 

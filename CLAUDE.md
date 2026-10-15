@@ -25,21 +25,21 @@ Build only what the current phase needs. Do not build enterprise features (appro
 
 ## Glossary: code name → what users see
 
-| In code | In the UI |
-|---|---|
-| family | document family |
-| master | master (personal: "master resume", "master deck") |
-| checkpoint | checkpoint |
-| variant | tailored version (personal), variant (enterprise) |
-| working copy | working copy (enterprise only) |
-| suggestion | suggest changes (enterprise only) |
-| apply / merge | bring in, accept |
-| catch up | catch up. Implemented as a three-way merge, never a history rewrite |
-| copy change | copy this change to other versions |
-| milestone | milestone |
-| sent copy | sent copy, "what I've sent" |
-| returned file | "this file came back" |
-| diff | what changed |
+| In code       | In the UI                                                           |
+| ------------- | ------------------------------------------------------------------- |
+| family        | document family                                                     |
+| master        | master (personal: "master resume", "master deck")                   |
+| checkpoint    | checkpoint                                                          |
+| variant       | tailored version (personal), variant (enterprise)                   |
+| working copy  | working copy (enterprise only)                                      |
+| suggestion    | suggest changes (enterprise only)                                   |
+| apply / merge | bring in, accept                                                    |
+| catch up      | catch up. Implemented as a three-way merge, never a history rewrite |
+| copy change   | copy this change to other versions                                  |
+| milestone     | milestone                                                           |
+| sent copy     | sent copy, "what I've sent"                                         |
+| returned file | "this file came back"                                               |
+| diff          | what changed                                                        |
 
 ## Architecture
 
@@ -70,6 +70,7 @@ Dependencies point inward only: apps → packages → crates/wasm → lineage �
 Rust engine compiled to WebAssembly, with thin TypeScript shells.
 
 **Rust (crates/)**
+
 - Stable toolchain pinned in `rust-toolchain.toml`; one Cargo workspace.
 - `#![forbid(unsafe_code)]` in `core` and `lineage`.
 - Choose zip and XML crates that leave untouched XML exactly as it was, including unknown elements, attributes and namespaces. Record the choice and alternatives in `docs/decisions/`.
@@ -79,6 +80,7 @@ Rust engine compiled to WebAssembly, with thin TypeScript shells.
 - WebAssembly: `wasm-bindgen` (verify the current recommended toolchain before setting it up). Track bundle size and start-up time in `docs/STATUS.md`.
 
 **TypeScript (packages/, apps/)**
+
 - pnpm workspaces, strict TypeScript, Vitest, committed lockfile with exact versions.
 - React for task panes and the family app. Any other dependency needs a decision note.
 - Validate everything crossing the wasm boundary or arriving from a platform API against a schema.

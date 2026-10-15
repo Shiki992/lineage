@@ -3,6 +3,7 @@
 Paste one prompt per session, in order. Each phase ends with Claude Code updating `docs/STATUS.md` and stopping, so you review before the next one starts.
 
 **Model per phase**
+
 - Engine phases (1, 3, 4, 6): `/model opus` with `/effort high`. Switch to `/model fable` for the merge design, or whenever Opus gets stuck on a fidelity bug.
 - UI and integration phases (2, 5): `/model sonnet` is enough. Use Opus for the plan and the final review.
 
