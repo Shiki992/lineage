@@ -190,6 +190,10 @@ pub struct Package {
     pub settings_tail: String,
     /// Replaces the body's final `w:sectPr`.
     pub body_sect: Option<String>,
+    /// Whether `docProps/app.xml` is written (some exporters leave it out).
+    pub app_props: bool,
+    /// Replaces the whole of `word/styles.xml`, as another app would write it.
+    pub styles_xml: Option<String>,
     pub zip: Zip,
 }
 
@@ -215,6 +219,8 @@ impl Package {
             even_and_odd_headers: false,
             settings_tail: String::new(),
             body_sect: None,
+            app_props: true,
+            styles_xml: None,
             zip: Zip::Stored,
         }
     }
@@ -231,10 +237,6 @@ impl Package {
                 "application/vnd.openxmlformats-package.core-properties+xml".to_owned(),
             ),
             (
-                "/docProps/app.xml".to_owned(),
-                "application/vnd.openxmlformats-officedocument.extended-properties+xml".to_owned(),
-            ),
-            (
                 "/word/document.xml".to_owned(),
                 format!("{CT_WML}.document.main+xml"),
             ),
@@ -247,6 +249,16 @@ impl Package {
                 format!("{CT_WML}.settings+xml"),
             ),
         ];
+        if self.app_props {
+            overrides.insert(
+                1,
+                (
+                    "/docProps/app.xml".to_owned(),
+                    "application/vnd.openxmlformats-officedocument.extended-properties+xml"
+                        .to_owned(),
+                ),
+            );
+        }
         let mut rels = vec![
             Rel::office("rIdStyles", "styles", "styles.xml"),
             Rel::office("rIdSettings", "settings", "settings.xml"),
@@ -343,13 +355,17 @@ impl Package {
             ),
             (
                 "_rels/.rels".to_owned(),
-                root_rels(&self.root_rels).into_bytes(),
+                root_rels(&self.root_rels, self.app_props).into_bytes(),
             ),
             (
                 "docProps/core.xml".to_owned(),
                 core_xml(self.title).into_bytes(),
             ),
-            ("docProps/app.xml".to_owned(), app_xml().into_bytes()),
+        ];
+        if self.app_props {
+            parts.push(("docProps/app.xml".to_owned(), app_xml().into_bytes()));
+        }
+        parts.extend([
             (
                 "word/document.xml".to_owned(),
                 self.document_xml().into_bytes(),
@@ -360,13 +376,16 @@ impl Package {
             ),
             (
                 "word/styles.xml".to_owned(),
-                styles_xml(&self.extra_styles).into_bytes(),
+                self.styles_xml
+                    .clone()
+                    .unwrap_or_else(|| styles_xml(&self.extra_styles))
+                    .into_bytes(),
             ),
             (
                 "word/settings.xml".to_owned(),
                 settings_xml(self).into_bytes(),
             ),
-        ];
+        ]);
         parts.extend(extra);
         parts
     }
@@ -447,18 +466,25 @@ fn rel_xml(rel: &Rel) -> String {
     )
 }
 
-fn root_rels(extra: &[Rel]) -> String {
+fn root_rels(extra: &[Rel], app_props: bool) -> String {
     let extra: String = extra.iter().map(rel_xml).collect();
+    let app = if app_props {
+        format!(
+            r#"<Relationship Id="rId3" Type="{REL}/extended-properties" Target="docProps/app.xml"/>"#
+        )
+    } else {
+        String::new()
+    };
     format!(
         concat!(
             "{decl}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">",
             "<Relationship Id=\"rId1\" Type=\"{rel}/officeDocument\" Target=\"word/document.xml\"/>",
             "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/>",
-            "<Relationship Id=\"rId3\" Type=\"{rel}/extended-properties\" Target=\"docProps/app.xml\"/>",
-            "{extra}</Relationships>"
+            "{app}{extra}</Relationships>"
         ),
         decl = DECL,
         rel = REL,
+        app = app,
         extra = extra,
     )
 }

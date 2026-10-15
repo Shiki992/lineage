@@ -16,4 +16,5 @@ pub mod features;
 pub mod fixtures;
 pub mod png;
 pub mod resume;
+pub mod returned;
 pub mod zip_writer;

@@ -7,6 +7,8 @@
 //! - `check-fixtures`: fail if the committed fixtures differ from what the generator
 //!   produces now, or if the folder holds files the generator doesn't make.
 //! - `check-headers`: fail if any source file lacks the licence header.
+//! - `returned-inputs <folder>`: write the files `scripts/libreoffice-resave.ps1`
+//!   re-saves with LibreOffice into `fixtures/docx/returned/libreoffice/`.
 
 #![forbid(unsafe_code)]
 
@@ -16,7 +18,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use lineage_testkit::fixtures;
+use lineage_testkit::{fixtures, returned};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -58,6 +60,15 @@ fn check_fixtures(root: &Path) -> std::io::Result<Vec<String>> {
     Ok(problems)
 }
 
+fn write_returned_inputs(dir: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dir)?;
+    for input in &returned::LIBREOFFICE {
+        fs::write(dir.join(input.name), input.package().to_bytes())?;
+        println!("wrote {}", dir.join(input.name).display());
+    }
+    Ok(())
+}
+
 fn report(problems: &[String], fix: &str) -> ExitCode {
     if problems.is_empty() {
         return ExitCode::SUCCESS;
@@ -91,8 +102,17 @@ fn main() -> ExitCode {
                 ),
             )
         }),
+        Some("returned-inputs") => match std::env::args().nth(2) {
+            Some(dir) => write_returned_inputs(Path::new(&dir)).map(|()| ExitCode::SUCCESS),
+            None => {
+                eprintln!("usage: cargo xtask returned-inputs <folder>");
+                Ok(ExitCode::FAILURE)
+            }
+        },
         _ => {
-            eprintln!("usage: cargo xtask <fixtures | check-fixtures | check-headers>");
+            eprintln!(
+                "usage: cargo xtask <fixtures | check-fixtures | check-headers | returned-inputs <folder>>"
+            );
             Ok(ExitCode::FAILURE)
         }
     };
