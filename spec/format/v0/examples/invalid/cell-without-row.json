@@ -1,0 +1,23 @@
+{
+  "specVersion": "0",
+  "format": "docx",
+  "changes": [
+    {
+      "id": "cell-1",
+      "kind": "modify",
+      "location": {
+        "format": "docx",
+        "part": "word/document.xml",
+        "blockIndex": 2,
+        "cell": {
+          "column": 1,
+          "blockIndex": 0
+        }
+      },
+      "before": "$26k",
+      "after": "$31k",
+      "formattingOnly": false,
+      "confidence": 100
+    }
+  ]
+}

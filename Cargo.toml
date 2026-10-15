@@ -30,9 +30,11 @@ miniz_oxide = { version = "0.9.1", default-features = false, features = ["with-a
 roxmltree = { version = "0.21.1", default-features = false, features = ["std", "positions"] }
 # Content addressing and change ids. Justified in docs/decisions/0006-phase-1-dependencies.md.
 sha2 = { version = "0.11.1", default-features = false }
+# The change list (spec/format) and the ledger are JSON. Justified in 0006.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 # Dev-only: JSON Schema checks for spec/format and an independent zip reader for fixtures.
 boon = "0.6.1"
-serde_json = "1"
 zip = { version = "9.0.3", default-features = false }
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 

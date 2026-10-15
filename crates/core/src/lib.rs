@@ -9,6 +9,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod diff;
 pub mod docx;
 pub mod error;
 pub mod hash;

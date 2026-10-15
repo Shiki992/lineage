@@ -14,8 +14,8 @@ A change list is `{ specVersion: "0", format: "docx", changes: [...] }`. Each ch
 
 - `id`: stable within the list.
 - `kind`: one of `insert`, `delete`, `modify`, `move`, `format`.
-- `location`: depends on the format. For docx: `part`, `blockIndex`, plus optional `blockAnchor` and `charRange`.
-- `fromLocation`: only on `move`, and required there.
+- `location`: depends on the format. For docx: `part`, `blockIndex`, plus optional `blockAnchor`, `charRange` and `cell`. `cell` points inside the table at `blockIndex`: a `row`, then optionally a `column` and the `blockIndex` inside that cell (a nested table nests another `cell`). A `cell` with only a `row` means the whole row.
+- `fromLocation`: only on `move`, and required there. A moved block that was also edited has different `before` and `after` text.
 - `before` and `after`: text, with `null` for the side that doesn't exist (`before` on an insert, `after` on a delete).
 - `formattingOnly`: `true` when only formatting changed. It is always `true` for `format`.
 - `confidence`: a **whole** percentage from 0 to 100. Integers on purpose: the format never carries floats.
