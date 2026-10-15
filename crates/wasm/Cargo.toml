@@ -1,0 +1,20 @@
+[package]
+name = "lineage-wasm"
+description = "wasm-bindgen bindings exposing the Lineage engine and family logic to JavaScript."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+lineage.workspace = true
+wasm-bindgen.workspace = true
