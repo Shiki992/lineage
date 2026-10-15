@@ -3,6 +3,7 @@
 
 import js from "@eslint/js";
 import { defineConfig } from "eslint/config";
+import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 const nodeGlobals = {
@@ -13,7 +14,15 @@ const nodeGlobals = {
 
 export default defineConfig(
   {
-    ignores: ["**/target/**", "**/wasm-pkg/**", "**/node_modules/**", "test/**", "fixtures/**"],
+    ignores: [
+      "**/target/**",
+      "**/wasm-pkg/**",
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.dev-storage/**",
+      "test/**",
+      "fixtures/**",
+    ],
   },
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,
@@ -25,6 +34,10 @@ export default defineConfig(
         tsconfigRootDir: import.meta.dirname,
       },
     },
+  },
+  {
+    files: ["apps/office-addin/src/**/*.tsx"],
+    extends: [reactHooks.configs.flat["recommended-latest"]],
   },
   {
     files: ["**/*.js", "**/*.mjs"],

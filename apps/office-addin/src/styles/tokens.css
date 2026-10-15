@@ -1,0 +1,52 @@
+/*
+ * Copyright 2026 Hrishikesh Vedantam
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The Lineage design system (CLAUDE.md, from the blueprint canvas). Every
+ * colour pair used for text is checked for 4.5:1 contrast in tokens.test.ts.
+ */
+
+:root {
+  --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", Consolas, monospace;
+
+  --ink: #18212b;
+  --text-secondary: #4a5563;
+  --page: #f4f5f7;
+  --surface: #ffffff;
+  --border: #d5d9e0;
+  --border-strong: #aeb5c0;
+
+  --accent: #0e7c7b;
+  --accent-text: #0b4f4e;
+  --accent-tint: #e3f2f1;
+
+  --variant: #4f46b5;
+  --variant-text: #2e2880;
+  --variant-tint: #ecebfa;
+
+  --master: #5b6573;
+  --master-tint: #e9ecf1;
+
+  --milestone: #18212b;
+  --milestone-text: #ffffff;
+
+  --warning-tint: #fbf3e4;
+  --warning-border: #e7cf9f;
+  --warning-text: #6b3d06;
+
+  --destructive: #9a3412;
+
+  /* What changed: removed and added text, marked by more than colour. */
+  --removed-text: #9a3412;
+  --removed-tint: #fdeee8;
+  --added-text: #0b4f4e;
+  --added-tint: #e3f2f1;
+
+  --radius-control: 8px;
+  --radius-button: 10px;
+  --radius-panel: 12px;
+
+  --target: 44px;
+  --pane: 360px;
+}
