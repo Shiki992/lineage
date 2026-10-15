@@ -1,5 +1,40 @@
 # Status
 
+## Phase 1: Word engine and family logic (2026-10-15). In progress: engine, family logic and harness done; docs and two checks left.
+
+Branch `phase-1-word-core`, from `phase-0-foundations`. Not pushed. Decisions: [0005-docx-package-and-xml](decisions/0005-docx-package-and-xml.md); 0006 and 0007 still to write (see "Left to do").
+
+**Done**
+
+- **Package layer** (`crates/core/src/package`, `xml`): rawzip reader with size, name, CRC and compression checks; miniz_oxide inflate capped at the declared size; our own writer that copies unchanged entries as their original compressed bytes. XML is parsed with roxmltree and changed only by byte-range splices, so untouched XML stays byte-identical.
+- **Canonical model** (`docx/`): stories (body, headers and footers by section, footnotes, endnotes) → blocks (paragraphs, tables with rows and cells, section breaks, opaque) → text, atoms and markers, with byte spans. Styles and numbering are referenced. Accepted and rejected views of existing tracked changes.
+- **What changed** (`diff/`): patience LCS on content-and-formatting keys, formatting-only pairs, moves, similarity pairing (whole-percentage Dice), table rows and cells; token diff inside paragraphs; v0 change list with a new optional `cell` location (schema, examples, Rust and TypeScript tests updated).
+- **Three-way merge** (`merge/`): clean, already there, overlap (both edited, deleted vs edited, edited vs deleted, both added here, formatting vs text) or by hand, per paragraph, cell, row, section break or opaque block.
+- **Tracked-change writer** (`write/`): w:ins, w:del, w:rPrChange, w:pPrChange, row and table insertions and deletions, new external hyperlinks; attributed to "Lineage"; `Check` says in advance what can be written.
+- **Custom properties and clean copies** (`docx/props.rs`, `clean.rs`), **summaries** (`summary.rs`) and the **what-changed view model** (`view.rs`).
+- **Family logic** (`crates/lineage`): JSON Lines ledger with validated ids and hashes, FamilyState fold, content-addressed snapshots, change states and merge base (decision 0002), detection of text typed in by hand and of Lineage changes rejected in Word, fingerprints, pure commands for every button, panel views.
+- **Harness** (`crates/harness`): memory and local-folder storage, `Panel` with one method per button. **The Phase 1 "done when" scenario passes end to end** in memory and on disk (`tests/personal_resume.rs`), plus 8 more scenarios.
+- **Fixtures**: 38 synthetic .docx files (`crates/testkit`, moved out of xtask; the Phase 0 ten are byte-identical). All open in Word.
+- **Tests**: 116 core unit tests, 7 property tests (3000 cases each pass locally; they found and fixed an alignment ordering bug), 18 lineage tests, 11 harness tests, spec tests in Rust and TypeScript.
+- **Word smoke** (`scripts/word-smoke.ps1 -Compare`): all 47 engine outputs (writer outputs and clean copies of every fixture) open in Word, and the 43 that can be compared match Word's accept-all and reject-all text exactly. Files with DATE fields, maths, pictures or symbols are opened but not compared (Word shows those differently by design).
+- **Fuzzing**: `fuzz/` with `docx_reader` and `zip_reader`; CI job on a pinned nightly. Not yet run locally (nightly and cargo-fuzz were being installed when the session stopped).
+
+**Left to do for Phase 1**
+
+- Decision notes 0006 (sha2, serde, proptest, libfuzzer-sys, testkit; why not `similar` or a hand-rolled SHA-256) and 0007 (merge units, overlaps, by-hand reasons, what a clean copy removes, including hidden text and the thumbnail).
+- The local run over the maintainer's documents in `test/` (env-gated, counts only).
+- Run the fuzz targets locally once, and record the wasm size with the new crates (`pnpm build:wasm`).
+- Update the crate READMEs for core and lineage.
+
+**Known issues**
+
+- Word cannot delete a document's (or a cell's) last paragraph mark: deleting the last paragraph leaves it empty, and rejecting a paragraph added at the very end leaves an empty paragraph.
+- Moves are written as a deletion plus an insertion, not Word's moveFrom/moveTo.
+- Brought in by hand for now: footnote and endnote changes, section breaks, table column and merged-cell changes, new pictures or other parts, content in tables of contents and block content controls, and paragraphs that already have unaccepted tracked changes.
+- UTF-16 parts are read-only.
+
+**Not started**: Phase 2 (Word add-in) and Phase 3 (returned files). The user asked to continue into both; they start after the items above.
+
 ## Phase 0: repository foundations (2026-10-15). Done locally; CI result below.
 
 Branch `phase-0-foundations`. Decisions: [0004-stack](decisions/0004-stack.md).
@@ -68,4 +103,4 @@ Task-pane budgets are set in Phase 2.
 
 ## Next
 
-Phase 1 (Word engine and family logic), in plan mode, after Phase 0 is reviewed and merged.
+Finish the Phase 1 items above, then Phase 2 (Word add-in) and Phase 3 (returned files).
