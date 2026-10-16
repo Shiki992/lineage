@@ -619,3 +619,20 @@ details > summary {
   white-space: nowrap;
   border: 0;
 }
+
+.button,
+.tab {
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .masthead,
+  .content {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .tree {
+    grid-template-columns: 128px 1fr;
+  }
+}

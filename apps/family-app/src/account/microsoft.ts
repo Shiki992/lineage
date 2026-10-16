@@ -50,7 +50,6 @@ export class MicrosoftAccount implements AccountProvider {
         clientId,
         authority: "https://login.microsoftonline.com/common",
         redirectUri: `${origin}/redirect.html`,
-        postLogoutRedirectUri: `${origin}/`,
       },
       // Gone when the tab closes; signing out clears it at once.
       cache: { cacheLocation: "sessionStorage" },

@@ -8,6 +8,7 @@
 import type {
   DocumentView,
   FileHistory,
+  GraphEdge,
   GraphNode,
   SentRow,
   TimelineEntry,
@@ -884,6 +885,22 @@ function Legend() {
   );
 }
 
+/** One connection of a point, as a sentence: "Sent to Mentor", "Made from master v1". */
+export function linkText(edge: GraphEdge, here: string, name: (id: string) => string): string {
+  const outgoing = edge.from === here;
+  const other = name(outgoing ? edge.to : edge.from);
+  switch (edge.kind) {
+    case "sent":
+      return outgoing ? other : `Sent from ${other}`;
+    case "cameBack":
+      return outgoing
+        ? `Came back: ${other}`
+        : `Came back from ${other.replace(/^Copy sent to /, "")}`;
+    default:
+      return outgoing ? `${edge.label ?? ""} → ${other}` : `${edge.label ?? ""}, from ${other}`;
+  }
+}
+
 function Details({
   documents,
   view,
@@ -924,10 +941,7 @@ function Details({
       {links.length > 0 && (
         <ul className="list small">
           {links.map((e) => (
-            <li key={`${e.from}-${e.to}-${e.kind}`}>
-              {e.label ?? (e.kind === "sent" ? "Sent" : e.kind === "cameBack" ? "Came back" : "")}
-              {e.to === node.id ? ` (from ${label(e.from)})` : ` (to ${label(e.to)})`}
-            </li>
+            <li key={`${e.from}-${e.to}-${e.kind}`}>{linkText(e, node.id, label)}</li>
           ))}
         </ul>
       )}
