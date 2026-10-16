@@ -52,12 +52,8 @@ pub fn tokens(p: &Paragraph, source: Option<&str>) -> Vec<Token> {
     let mut start = 0;
     for (index, inline) in p.inlines.iter().enumerate() {
         match inline {
-            Inline::Text { text, run } => {
-                let run = &p.runs[*run];
-                let props = run_props_key(
-                    &run.props,
-                    container_key(p, run.container, source).as_deref(),
-                );
+            Inline::Text { text, .. } => {
+                let props = inline_props(p, index, source);
                 let chars: Vec<char> = text.chars().collect();
                 let mut k = 0;
                 while k < chars.len() {
@@ -94,9 +90,7 @@ pub fn tokens(p: &Paragraph, source: Option<&str>) -> Vec<Token> {
                 start += chars.len();
             }
             Inline::Atom(atom) => {
-                let props = atom
-                    .run
-                    .map_or(0, |r| run_props_key(&p.runs[r].props, None));
+                let props = inline_props(p, index, source);
                 out.push(Token {
                     text: atom.display.clone(),
                     key: Fnv::new().str("a").u64(atom.key).finish(),
@@ -112,6 +106,25 @@ pub fn tokens(p: &Paragraph, source: Option<&str>) -> Vec<Token> {
         }
     }
     out
+}
+
+/// The formatting key of one inline's tokens: its run properties, and for
+/// text the container (hyperlink) it sits in. Markers have none (0).
+#[must_use]
+pub fn inline_props(p: &Paragraph, inline: usize, source: Option<&str>) -> u64 {
+    match &p.inlines[inline] {
+        Inline::Text { run, .. } => {
+            let run = &p.runs[*run];
+            run_props_key(
+                &run.props,
+                container_key(p, run.container, source).as_deref(),
+            )
+        }
+        Inline::Atom(atom) => atom
+            .run
+            .map_or(0, |r| run_props_key(&p.runs[r].props, None)),
+        Inline::Marker(_) => 0,
+    }
 }
 
 fn joins(last: &Token, piece: &str, props: u64) -> bool {

@@ -89,9 +89,11 @@ A development tool only, never shipped. It makes the real re-save fixtures (`scr
 
 ## Consequences
 
-- **Not shown yet:**
-  - comments a mentor leaves are not part of "what changed". **Open what came back** opens the file exactly as it came, to read them;
-  - a paragraph's formatting comes with a kept change. A file re-saved by Google Docs therefore brings its fonts and spacing with the words, as tracked formatting changes the person can reject in Word. "Keep the words only" for files saved by other apps is a follow-up.
+- **Not shown yet:** comments a mentor leaves are not part of "what changed". **Open what came back** opens the file exactly as it came, to read them.
+- **Formatting of kept changes:** a paragraph's formatting came with a kept change, so a Google Docs download brought its fonts and spacing with the words. Since decision 0014, for a file another app saved (LibreOffice by name, an export without `docProps/app.xml`, or formatting changed almost everywhere), Keep brings only their words, in the master's formatting:
+  - the review says why;
+  - "Bring in their formatting too" brings theirs;
+  - links they added, inserted rows and tables, and new paragraphs with nothing alike in theirs still keep their own formatting.
 - **Known issue:** a file attached by hand (the master itself, not a sent copy) that comes back while the master is still at that checkpoint opens as the master. It carries the same checkpoint id, and no location check is made.
 - **The ledger changes shape:**
   - `FileReturned`, `ReturnReviewed` and `MatchedBy` are new in use;

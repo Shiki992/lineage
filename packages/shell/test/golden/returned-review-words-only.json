@@ -1,0 +1,68 @@
+{
+  "ok": true,
+  "value": {
+    "formatting": {
+      "formattingNote": "LibreOffice changes formatting when it saves a file, so these are probably not changes Northgate Analytics made.",
+      "note": "This file was saved in LibreOffice, which changes fonts and spacing. Lineage brings in their words in your formatting.",
+      "wordsOnly": true
+    },
+    "from": "You sent this to Northgate Analytics on 15 Oct, from Resume – data roles v3.",
+    "fromName": "Resume – data roles",
+    "fromNode": "5c81cc14a997e2ba9928492bcc208f37",
+    "headline": "1 change from Northgate Analytics",
+    "notes": [
+      "Your file has changed since this copy left (it's now v4). Only their changes are shown."
+    ],
+    "returned": "eef61db95aaa4aed1270edcd3c49c126",
+    "theirs": "Northgate Analytics",
+    "view": {
+      "alreadyThere": [],
+      "byHand": [],
+      "changes": [],
+      "formatting": [],
+      "headline": "1 change from Northgate Analytics",
+      "overlaps": [
+        {
+          "before": "Built the shipment data warehouse used by forty analysts.",
+          "choices": [
+            {
+              "decision": "keepMine",
+              "label": "Keep mine"
+            }
+          ],
+          "id": "cd6a85d6f35264ed0",
+          "masters": [
+            {
+              "kind": "same",
+              "text": "Built "
+            },
+            {
+              "kind": "added",
+              "text": "and ran "
+            },
+            {
+              "kind": "same",
+              "text": "the shipment data warehouse used by forty analysts."
+            }
+          ],
+          "mine": [
+            {
+              "kind": "removed",
+              "text": "Built"
+            },
+            {
+              "kind": "added",
+              "text": "Designed"
+            },
+            {
+              "kind": "same",
+              "text": " the shipment data warehouse used by forty analysts."
+            }
+          ],
+          "place": "Under 'Data engineer (logistics), Corvia Freight, 2020 to 2023'",
+          "summary": "You and Northgate Analytics both changed 'Built the shipment data warehouse used by forty analysts.'"
+        }
+      ]
+    }
+  }
+}

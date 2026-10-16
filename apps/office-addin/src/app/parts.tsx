@@ -74,13 +74,24 @@ export function LatestCheckpoint({ card }: { card: CheckpointCard }) {
   );
 }
 
-/** A paragraph with removed text (−, struck through) and added text (+, underlined). */
-export function Segments({ segments }: { segments: readonly Segment[] }) {
+/**
+ * A paragraph with removed text (−, struck through) and added text (+,
+ * underlined). `wordsOnly` draws reformatted text plainly, for changes that
+ * will bring their words but not their formatting.
+ */
+export function Segments({
+  segments,
+  wordsOnly = false,
+}: {
+  segments: readonly Segment[];
+  wordsOnly?: boolean;
+}) {
   return (
     <p className="what">
       {segments.map((s, i) => {
         const key = `${String(i)}-${s.kind}`;
-        switch (s.kind) {
+        const kind = wordsOnly && s.kind === "reformatted" ? "same" : s.kind;
+        switch (kind) {
           case "removed":
             return (
               <del key={key}>

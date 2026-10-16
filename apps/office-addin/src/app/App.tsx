@@ -354,9 +354,9 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
         onOpenReturned={() =>
           void run("Opening what came back", (l) => l.openReturned(family, review.returned))
         }
-        onApply={(cards: CardDecision[]) =>
+        onApply={(cards: CardDecision[], wordsOnly: boolean) =>
           void run("Keeping your choices", async (l) => {
-            const { wrote } = await l.decideReturned(review.returned, cards);
+            const { wrote } = await l.decideReturned(review.returned, cards, { wordsOnly });
             await refresh(l);
             setNotice({
               text: wrote

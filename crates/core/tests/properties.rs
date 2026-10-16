@@ -9,11 +9,13 @@
 //! - diff(x, x) is empty.
 //! - Edits to different paragraphs on both sides merge with no overlaps, and the
 //!   result has both.
+//! - Keeping the words of a file another app saved brings none of its
+//!   formatting into any paragraph that was already there (decision 0014).
 //! - Splices, zip writes and the reader on damaged input.
 
 use lineage_core::docx::{Block, Docx, NumRef, View};
 use lineage_core::merge::{self, Decision, Status};
-use lineage_core::write::{Revision, apply};
+use lineage_core::write::{Bring, Revision, apply, apply_with};
 use lineage_core::xml::Edits;
 use lineage_core::{Package, diff::diff};
 use lineage_testkit::docx::{Package as Builder, list_item, para, run, run_with, styled};
@@ -58,25 +60,55 @@ struct Para {
     bold: bool,
 }
 
+/// Run properties another app writes on every run (schema order: the font
+/// first, `w:rtl` after bold).
+const APP_FONT: &str = r#"<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>"#;
+const APP_RTL: &str = r#"<w:rtl w:val="0"/>"#;
+/// Paragraph spacing another app writes on every paragraph.
+const APP_SPACING: &str = r#"<w:spacing w:after="0" w:line="276" w:lineRule="auto"/>"#;
+
 impl Para {
     fn xml(&self) -> String {
+        self.saved(false)
+    }
+
+    /// As Word writes it, or (`app`) as another app saves the same paragraph:
+    /// every run in Arial with `w:rtl`, explicit spacing on the paragraph.
+    fn saved(&self, app: bool) -> String {
         let text = self.words.join(" ");
+        let rpr = |bold: bool| {
+            let b = if bold { "<w:b/>" } else { "" };
+            if app {
+                format!("{APP_FONT}{b}{APP_RTL}")
+            } else {
+                b.to_owned()
+            }
+        };
+        let r = |bold: bool, text: &str| {
+            let props = rpr(bold);
+            if props.is_empty() {
+                run(text)
+            } else {
+                run_with(&props, text)
+            }
+        };
         let runs = if self.bold && self.words.len() > 1 {
             let (first, rest) = text.split_once(' ').expect("two words");
-            [run_with("<w:b/>", first), run(&format!(" {rest}"))].concat()
-        } else if self.bold {
-            run_with("<w:b/>", &text)
+            [r(true, first), r(false, &format!(" {rest}"))].concat()
         } else {
-            run(&text)
+            r(self.bold, &text)
         };
+        let spacing = if app { APP_SPACING } else { "" };
         match self.style {
-            Style::Normal => para("", &runs),
-            Style::Heading1 => para(r#"<w:pStyle w:val="Heading1"/>"#, &runs),
-            Style::Heading2 => para(r#"<w:pStyle w:val="Heading2"/>"#, &runs),
+            Style::Normal => para(spacing, &runs),
+            Style::Heading1 => para(&format!(r#"<w:pStyle w:val="Heading1"/>{spacing}"#), &runs),
+            Style::Heading2 => para(&format!(r#"<w:pStyle w:val="Heading2"/>{spacing}"#), &runs),
             Style::Bullet => {
                 let _ = list_item;
                 para(
-                    r#"<w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>"#,
+                    &format!(
+                        r#"<w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>{spacing}"#
+                    ),
                     &runs,
                 )
             }
@@ -93,6 +125,22 @@ fn build(paras: &[Para]) -> Vec<u8> {
         .collect();
     let mut builder = Builder::new("Property test", body);
     builder.numbering = true;
+    builder.to_bytes()
+}
+
+/// The same document as another app saves it: its formatting on every
+/// paragraph and run, and no `docProps/app.xml`.
+fn build_by_another_app(paras: &[Para]) -> Vec<u8> {
+    let title = para(
+        &format!(r#"<w:pStyle w:val="Title"/>{APP_SPACING}"#),
+        &run_with(&format!("{APP_FONT}{APP_RTL}"), "Avery Quinn"),
+    );
+    let body: String = std::iter::once(title)
+        .chain(paras.iter().map(|p| p.saved(true)))
+        .collect();
+    let mut builder = Builder::new("Property test", body);
+    builder.numbering = true;
+    builder.app_props = false;
     builder.to_bytes()
 }
 
@@ -257,6 +305,57 @@ proptest! {
         let rejected = Docx::open_view(&out, View::Rejected).expect("opens");
         prop_assert_eq!(signature(&accepted), signature(&target));
         prop_assert_eq!(signature(&rejected), signature(&base));
+    }
+
+    #[test]
+    fn keeping_the_words_of_another_apps_file_brings_none_of_its_formatting(
+        paras in document(),
+        edits in proptest::collection::vec(edit(), 1..6),
+    ) {
+        let base_bytes = build(&paras);
+        let base = Docx::open(&base_bytes).expect("opens");
+        let theirs = Docx::open(&build_by_another_app(&apply_edits(paras, &edits))).expect("opens");
+        let plan = merge::plan(&base, &base, &theirs);
+        let decisions: Vec<(String, Decision)> = plan
+            .items
+            .iter()
+            .filter(|i| i.status == Status::Clean && !i.change.formatting_only)
+            .map(|i| (i.change.id.clone(), Decision::BringIn))
+            .collect();
+        let out = apply_with(
+            &plan,
+            &decisions,
+            &Revision::lineage("2026-10-15T09:30:00Z"),
+            Bring::WordsOnly,
+        )
+        .expect("writes");
+        let accepted = Docx::open_view(&out, View::Accepted).expect("opens");
+        let rejected = Docx::open_view(&out, View::Rejected).expect("opens");
+        // Their words, all of them; rejecting gives this file back.
+        prop_assert_eq!(accepted.body_lines(), theirs.body_lines());
+        prop_assert_eq!(signature(&rejected), signature(&base));
+        // Paragraph j of the result is paragraph j of theirs. Only a paragraph
+        // that is new here may keep their formatting (when nothing in theirs
+        // is formatted alike); every other one has none of it.
+        let new: Vec<usize> = plan
+            .items
+            .iter()
+            .filter(|i| i.change.kind == lineage_core::diff::ChangeKind::Insert)
+            .filter_map(|i| i.change.after.as_ref().map(|p| p.block))
+            .collect();
+        for (j, block) in accepted.body().blocks.iter().enumerate() {
+            let Block::Paragraph(p) = block else { continue };
+            if new.contains(&j) {
+                continue;
+            }
+            prop_assert!(p.props.direct.get("spacing").is_none(), "paragraph {}: {:?}", j, p.props);
+            for run in &p.runs {
+                prop_assert!(
+                    run.props.direct.get("rFonts").is_none() && run.props.direct.get("rtl").is_none(),
+                    "paragraph {}: {:?}", j, run.props
+                );
+            }
+        }
     }
 
     #[test]

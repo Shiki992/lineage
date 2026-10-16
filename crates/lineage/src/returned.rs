@@ -13,15 +13,18 @@
 //!    sent copy, or the checkpoint), judged against the open file as it is now,
 //!    even if it has moved on since.
 //! 4. [`decide`]: kept changes are written into the open file as tracked changes
-//!    by Lineage, and a checkpoint is saved (decision 0003).
+//!    by Lineage, and a checkpoint is saved (decision 0003). For a file another
+//!    app saved, only their words come in, in the file's own formatting, unless
+//!    the person asks for their formatting too (decision 0014).
 
 use std::collections::BTreeSet;
 
 use lineage_core::diff::diff;
 use lineage_core::docx::props::{LineageIds, read_ids};
 use lineage_core::merge::{self, Decision};
+use lineage_core::origin::{Unreliable, formatting_trust};
 use lineage_core::view::{Theirs, WhatChanged, from_plan_for};
-use lineage_core::write::{Revision, apply};
+use lineage_core::write::{Bring, Revision, apply_with};
 use lineage_core::{Docx, Package};
 
 use crate::blob::{Blob, BlobHash, BlobSource, restore};
@@ -551,6 +554,56 @@ pub fn record(
     Ok(builder.finish())
 }
 
+/// What kept changes bring with them (decision 0014).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct KeepFormatting {
+    /// Lineage brings in their words only, in your formatting: what it does
+    /// when the file's formatting can't be trusted. The person can still ask
+    /// for their formatting too.
+    pub words_only: bool,
+    /// Why, for the top of the review: "This file was saved in LibreOffice, …".
+    pub note: Option<String>,
+    /// About their formatting-only changes, for that step of the review.
+    pub formatting_note: Option<String>,
+}
+
+/// Words the review uses for a file whose formatting can't be trusted.
+fn keep_formatting(unreliable: Option<&Unreliable>, person: &str) -> KeepFormatting {
+    let Some(why) = unreliable else {
+        return KeepFormatting::default();
+    };
+    let words = "Lineage brings in their words in your formatting.";
+    let (note, formatting_note) = match why {
+        Unreliable::OtherApp(app) => (
+            format!("This file was saved in {app}, which changes fonts and spacing. {words}"),
+            format!(
+                "{app} changes formatting when it saves a file, so these are probably not changes {person} made."
+            ),
+        ),
+        Unreliable::Exported => (
+            format!(
+                "This file was saved by another app, such as Google Docs, which changes fonts and spacing. {words}"
+            ),
+            format!(
+                "Apps such as Google Docs change formatting when they save a file, so these are probably not changes {person} made."
+            ),
+        ),
+        Unreliable::ReformattedThroughout => (
+            format!(
+                "The formatting changed almost everywhere in this file, which usually means it was opened in another app. {words}"
+            ),
+            format!(
+                "The formatting changed almost everywhere, so some of these may not be changes {person} made."
+            ),
+        ),
+    };
+    KeepFormatting {
+        words_only: true,
+        note: Some(note),
+        formatting_note: Some(formatting_note),
+    }
+}
+
 /// The review of a returned file: their changes, judged against the open file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReturnReview {
@@ -568,6 +621,8 @@ pub struct ReturnReview {
     pub from_name: String,
     /// Their changes still to decide, and those the file already has.
     pub view: WhatChanged,
+    /// Whether kept changes bring only their words, and why.
+    pub formatting: KeepFormatting,
 }
 
 /// The three documents of a review: what left, the open file, what came back.
@@ -587,12 +642,16 @@ fn documents(
     Ok((Docx::open(&base)?, Docx::open(bytes)?, Docx::open(&theirs)?))
 }
 
-fn who(state: &FamilyState, returned: &Id) -> String {
+fn recipient(state: &FamilyState, returned: &Id) -> Option<String> {
     state
         .returned_file(returned)
         .and_then(|r| r.sent.as_ref())
         .and_then(|s| state.sent_copy(s))
-        .map_or_else(|| "the returned copy".to_owned(), |s| s.recipient.clone())
+        .map(|s| s.recipient.clone())
+}
+
+fn who(state: &FamilyState, returned: &Id) -> String {
+    recipient(state, returned).unwrap_or_else(|| "the returned copy".to_owned())
 }
 
 fn changes(n: usize) -> String {
@@ -643,6 +702,10 @@ pub fn review(
         &decided,
         &who,
     );
+    let formatting = keep_formatting(
+        formatting_trust(&base, &theirs, &plan.theirs_diff).as_ref(),
+        &recipient(state, returned).unwrap_or_else(|| "whoever sent it back".to_owned()),
+    );
     let from_node = state
         .checkpoint(&r.from)
         .and_then(|c| state.node(&c.node))
@@ -687,17 +750,20 @@ pub fn review(
         from_node: from_node.id.clone(),
         from_name: stem(&from_node.display_name).to_owned(),
         view,
+        formatting,
     })
 }
 
 /// "Apply" on a review: writes the kept changes into the open file as tracked
 /// changes by Lineage, saves a checkpoint, and records every decision. Changes
-/// not decided stay for later.
+/// not decided stay for later. `bring` says whether kept changes bring their
+/// formatting or only their words ([`ReturnReview::formatting`] has the default).
 ///
 /// # Errors
 /// [`Error::NotAllowed`] when a card isn't waiting for a decision or the
 /// decision isn't one of its choices; engine errors when a change can't be
 /// written safely (nothing is written).
+#[allow(clippy::too_many_arguments)]
 pub fn decide(
     ctx: &mut Context<'_>,
     state: &FamilyState,
@@ -705,6 +771,7 @@ pub fn decide(
     node: &Id,
     bytes: &[u8],
     cards: &[(String, Decision)],
+    bring: Bring,
     blobs: &dyn BlobSource,
 ) -> Result<Outcome> {
     if cards.is_empty() {
@@ -736,7 +803,7 @@ pub fn decide(
             )));
         }
     }
-    let written = apply(&plan, cards, &Revision::lineage(&ctx.now.iso()))?;
+    let written = apply_with(&plan, cards, &Revision::lineage(&ctx.now.iso()), bring)?;
     let (kept, skipped): (Vec<_>, Vec<_>) = cards.iter().partition(|(_, d)| d.brings_in());
     let kept: Vec<String> = kept.into_iter().map(|(c, _)| c.clone()).collect();
     let skipped: Vec<String> = skipped.into_iter().map(|(c, _)| c.clone()).collect();

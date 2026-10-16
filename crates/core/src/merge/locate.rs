@@ -151,6 +151,52 @@ pub fn map_path(story: Option<&StoryDiff>, path: &Path) -> Mapped {
     }
 }
 
+/// The earlier block a later block came from, through one sequence alignment.
+fn source_in(seq: &SeqDiff, block: usize, steps: &[CellStep]) -> Option<Path> {
+    let i = (*seq.alignment.from.get(block)?)?;
+    let Some(step) = steps.first() else {
+        return Some(Path::top(i));
+    };
+    let Some(table) = seq.tables.get(&i) else {
+        // A table with nothing changed inside: every cell is where it was.
+        return Some(Path {
+            block: i,
+            cells: steps.to_vec(),
+        });
+    };
+    if table.structural {
+        return None;
+    }
+    let row = (*table.row_from.get(step.row)?)?;
+    let column = step.column?;
+    let inner = step.block?;
+    let inside = match table.cells.get(&(row, column)) {
+        Some(cell_seq) => source_in(cell_seq, inner, &steps[1..])?,
+        None => Path {
+            block: inner,
+            cells: steps[1..].to_vec(),
+        },
+    };
+    let mut cells = vec![CellStep {
+        row,
+        column: Some(column),
+        block: Some(inside.block),
+    }];
+    cells.extend(inside.cells);
+    Some(Path { block: i, cells })
+}
+
+/// The reverse of [`map_path`]: the block of the earlier document a block of
+/// the later one came from, if it came from one (`None` for new content, or
+/// inside a table whose structure changed).
+#[must_use]
+pub fn source_of(story: Option<&StoryDiff>, path: &Path) -> Option<Path> {
+    match story {
+        None => Some(path.clone()),
+        Some(story) => source_in(story.blocks.as_ref()?, path.block, &path.cells),
+    }
+}
+
 /// The sequence (story or cell) a base path lives in, and the index in it.
 fn container_seq<'a>(story: &'a StoryDiff, path: &Path) -> Option<(Option<&'a SeqDiff>, usize)> {
     let mut seq = story.blocks.as_ref();

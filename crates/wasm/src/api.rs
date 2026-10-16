@@ -20,6 +20,7 @@ use lineage::views;
 use lineage::{Id, SeededIds, Timestamp};
 use lineage_core::Package;
 use lineage_core::docx::props;
+use lineage_core::write::Bring;
 use serde::Serialize;
 
 use crate::cache::{BlobCache, DEFAULT_LIMIT, Recording};
@@ -687,6 +688,8 @@ impl Session {
     }
 
     /// "Apply" on a review: `cards` is a JSON array of `{card, decision}`.
+    /// `words_only` brings their words in this file's formatting (decision 0014).
+    #[allow(clippy::too_many_arguments)]
     pub fn decide_returned(
         &mut self,
         ledger: &[u8],
@@ -694,6 +697,7 @@ impl Session {
         file: &[u8],
         returned: &str,
         cards: &str,
+        words_only: bool,
         now_ms: f64,
     ) -> Reply {
         let prepared = fold(ledger).and_then(|s| {
@@ -712,8 +716,13 @@ impl Session {
             Ok(p) => p,
             Err(e) => return Reply::failure(&e),
         };
+        let bring = if words_only {
+            Bring::WordsOnly
+        } else {
+            Bring::Everything
+        };
         self.command(now_ms, |ctx, source| {
-            returned::decide(ctx, &state, &back, &node, file, &cards, source)
+            returned::decide(ctx, &state, &back, &node, file, &cards, bring, source)
         })
     }
 

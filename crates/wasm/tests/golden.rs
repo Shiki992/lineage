@@ -361,10 +361,12 @@ fn golden_replies() {
         &data_after,
         &returned_id,
         &serde_json::to_string(&cards).expect("json"),
+        false,
         host.now,
     );
     golden.keep("decide-returned", &reply);
-    host.take(reply);
+    let (kept, _) = host.take(reply);
+    let kept = kept.expect("written");
     let reply = host.session.send_copy(
         &host.ledger,
         &versions[1].0,
@@ -392,6 +394,43 @@ fn golden_replies() {
             &resume::package("t", &lineage_testkit::returned::stranger_lines()).to_bytes(),
             &ledgers(&host),
         ),
+    );
+
+    // The same copy, saved again in LibreOffice: only their words would come in.
+    let resaved = {
+        let mut package = Package::read(&copy).expect("reads");
+        let doc = String::from_utf8(package.part("word/document.xml").expect("doc").to_vec())
+            .expect("utf-8")
+            .replace("Built the shipment", "Built and ran the shipment");
+        package.set_part("word/document.xml", doc.into_bytes());
+        package.set_part(
+            "docProps/app.xml",
+            br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>LibreOffice/26.8.1.1$Windows_X86_64</Application></Properties>"#
+                .to_vec(),
+        );
+        package.to_bytes().expect("bytes")
+    };
+    let reply = host.session.record_returned(
+        &host.ledger,
+        &resaved,
+        &serde_json::json!({
+            "name": "Resume - from LibreOffice.docx",
+            "checkpoint": candidate["checkpoint"],
+            "sent": candidate["sent"],
+            "matchedBy": "ids",
+        })
+        .to_string(),
+        host.now,
+    );
+    let resaved_id =
+        id(&serde_json::from_str::<Value>(&reply.json).expect("json")["value"]["created"]);
+    host.take(reply);
+    golden.keep(
+        "returned-review-words-only",
+        &host
+            .session
+            .returned_review(&host.ledger, &versions[0].0, &kept, &resaved_id),
     );
 
     // Errors.

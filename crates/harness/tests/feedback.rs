@@ -308,6 +308,26 @@ fn a_google_docs_export_without_ids_is_found_by_its_content() {
         .expect("records");
     let review = panel.returned_review(MASTER, &returned).expect("review");
     assert_eq!(review.view.changes.len(), 3, "the words they changed");
+
+    // Saved by another app: Keep brings their words in the master's formatting.
+    assert!(review.formatting.words_only);
+    let ids: Vec<&str> = review.view.changes.iter().map(|c| c.id.as_str()).collect();
+    let keep: Vec<(&str, Decision)> = ids.iter().map(|id| (*id, Decision::BringIn)).collect();
+    panel
+        .keep_and_skip(MASTER, &returned, &keep)
+        .expect("keeps");
+    let written = panel.storage.read_file(MASTER).expect("master");
+    let docx = Docx::open(&written).expect("opens");
+    let xml = docx.part_text(&docx.main_part).expect("text");
+    assert!(!xml.contains("Arial") && !xml.contains("rPrChange") && !xml.contains("pPrChange"));
+    assert_eq!(
+        Docx::open_view(&written, View::Accepted)
+            .expect("opens")
+            .body_lines(),
+        Docx::open(&resume::package("t", &light_edits(&resume::master_v1_lines())).to_bytes())
+            .expect("opens")
+            .body_lines()
+    );
 }
 
 #[test]

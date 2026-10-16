@@ -1,5 +1,115 @@
 # Status
 
+## Phase 3 follow-up: keep only the words for files saved by other apps (2026-10-15, clicked through in Word 2026-10-16). Built, checked with Word's accept/reject comparison and LibreOffice, and clicked through in the Word pane with real LibreOffice re-saves. Real Google Docs downloads are fixtures.
+
+Branch `returned-words-only`, from `phase-3-returned-files` at `69194fc`. Not pushed. Decision: [0014 Keeping only the words of a file another app saved](decisions/0014-words-only.md). Decision 0012's consequences updated.
+
+**Done**
+
+- **Detection** (`crates/core/src/origin.rs`). A returned file's formatting isn't trusted when:
+  - LibreOffice (or another app Lineage knows) saved it, by the `Application` in `docProps/app.xml`;
+  - it has no `app.xml` though the copy that left had one (a Google Docs download);
+  - or at least half the paragraphs whose text came back unchanged were reformatted.
+
+  Saved by Word with a few reformatted paragraphs: trusted.
+  - All six real LibreOffice re-saves are flagged by name.
+  - All six real Google Docs downloads (`fixtures/docx/returned/google/`) and the imitation are flagged as exports. In the real downloads, every paragraph whose text came back unchanged is reformatted too (8 of 8 to 14 of 14).
+  - The Word restyle (testkit) is flagged as formatting changed almost everywhere.
+  - Word edits are not flagged.
+
+- **Words-only writing** (`write::apply_with(.., Bring::WordsOnly)`):
+  - an edited paragraph keeps its formatting, and added words take a neighbouring run's;
+  - a new paragraph takes the formatting the nearest paragraph of theirs formatted alike has in the master: style, list, `numId`, and run formatting mapped run by run;
+  - a moved paragraph keeps its own;
+  - formatting-only changes are still written whole;
+  - `apply` and every existing output are unchanged.
+- **Review** (`returned::review`): `formatting` says whether only the words come in, and why.
+  - Example: "This file was saved in LibreOffice, which changes fonts and spacing. Lineage brings in their words in your formatting."
+  - `decide` takes the person's choice. No ledger change.
+- **Boundary and shell:**
+  - wasm `decideReturned(.., wordsOnly, nowMs)` and `ReturnReview.formatting`;
+  - golden replies, including a new words-only review;
+  - `Lineage.decideReturned(returned, cards, { wordsOnly })`;
+  - the harness `keep_and_skip` uses the review's default.
+- **Word pane:**
+  - the review shows the note at the top;
+  - it draws their reformatting plainly on the cards;
+  - the formatting step reads "The formatting changed in N places", with the app's sentence;
+  - **Bring in their formatting too** (a checkbox, unticked) sits above Apply.
+
+**Checked**
+
+- **Clicked through in the Word pane** (step 20 of `docs/testing/word-personal.md`). Word 16.0.20430, dev-folder storage, the pane driven through the DevTools protocol, no typing.
+  - A fresh master, "Words-only resume", sent three copies with Lineage IDs.
+  - Each came back edited and re-saved by LibreOffice 26.8.1.1, and was brought back with **A file came back**. Each was recognised by its Lineage ID, and its review opened with "This file was saved in LibreOffice, which changes fonts and spacing. Lineage brings in their words in your formatting."
+  1. **Northgate Analytics, box unticked.** Kept 3 changes (two word changes and a new bullet).
+     - Word lists only Added and Deleted revisions, all by Lineage, and no formatting revisions.
+     - Track Changes is back off.
+     - The new bullet is List Paragraph in Calibri 11, like its neighbours.
+     - v2 "Kept 3 changes from Northgate Analytics".
+  2. **Harbour Bank, box ticked.**
+     - The formatting step read "The formatting changed in 2 places. LibreOffice changes formatting when it saves a file, so these are probably not changes Harbour Bank made."
+     - Once the box was ticked, the summary read "Their formatting will come with their words, as you chose." Apply kept 3 (v3).
+     - LibreOffice's formatting on those paragraphs was only an explicit Normal style and empty run properties, so the result looks the same as words only.
+  3. **Eastwood Credit, box ticked, with a new bullet they set in italics.** The bullet came in italic (their formatting), in the master's list style and font, added by Lineage (v5).
+     - Their word change sat in a paragraph that still held Northgate's tracked change.
+     - Its card offered only Skip: "This part of your version has tracked changes. Accept or reject them in Word first." That is as designed.
+  - **Audit** (`dev_folder.rs`): 1 family, 5 checkpoints restore, 9 blobs match, the 3 sent copies on disk match the record, 3 files came back, 3 reviews.
+  - LibreOffice headless opens the final master.
+
+- **Real Google Docs downloads** (`fixtures/docx/returned/google/`): the six LibreOffice inputs, uploaded to Google Drive as Google Docs and downloaded as Word.
+  - The four edited ones, kept words only, look exactly like a Word save of the same words, with no `w:rtl` or `w14` from Google.
+  - A real download is reviewed words only, end to end (`returned/tests.rs`).
+  - They join the recognition report: 135 returned files, precision 100% (50 right, 0 wrong), automatic recall 80.6% (50 of 62), found 100% (99 of 99).
+  - Google keeps custom properties, so Lineage IDs survive a download.
+- **`scripts/word-smoke.ps1 -Compare`** (Word 16.0.20430) on all 38 write-test outputs, 18 of them words-only: every file opens, and Word's accept-all and reject-all match the engine.
+- **Word, asked directly** after accept-all on every words-only output:
+  - every word is in the master's font (Calibri, never the export's Arial);
+  - every revision is by Lineage;
+  - the only formatting revisions are the deliberate bold and the last paragraph mark at the end of the document.
+- **LibreOffice 26.8.1.1 headless** opens all 38 outputs.
+- **Round trips** (accept gives ours plus their words, reject gives ours):
+  - the Google imitation (light, heavy, moved, three end-of-document cases);
+  - all four edited LibreOffice re-saves, and the four edited real Google downloads;
+  - overlaps (both edited, edited vs deleted, both added);
+  - a table cell, the neighbour rules, the fallback, and a kept formatting change.
+
+  The Google and LibreOffice outputs match, character by character, a Word save of the same words.
+
+- **New proptest** (64 cases in CI, 4,096 run locally): keeping the words of another app's file gives all their words, rejecting gives the base, and no paragraph that was already there gets any of the app's formatting.
+
+**Tests:**
+
+- **Rust:** 244 pass, 3 ignored (as before).
+- **TypeScript:** 160 pass (shell 93, OneDrive 21, add-in 46).
+- Lint, typecheck, formatting, cargo-deny, licence headers and fixture checks pass.
+
+**Budgets:**
+
+- wasm 1,015,022 bytes raw and 354,113 gzipped (was 984,711 and 345,574);
+- JavaScript 158,562 gzipped.
+
+**Not done**
+
+- **Word on the web and OneDrive.** Step 20 ran in Word for Windows with the dev folder. The rest is the maintainer's run, as for Phase 3.
+- **A Google Docs download brought back in the pane.** Real downloads are covered by the engine and review tests; the pane run used LibreOffice files.
+
+**Known issues**
+
+- **An explicit Normal style reads as a formatting change.** Found in the Word run.
+  - Word leaves Normal paragraphs with no style. LibreOffice writes `Normal` out, and `read_para_props` compares style ids as written.
+  - So a card read "'SQL, Python, …': Normal changed to Normal".
+  - It is probably also behind the "Both changed … one the words, one the formatting" overlaps on a master made in Word.
+  - Follow-up: treat the default paragraph style as no style when comparing.
+
+- **Words they formatted on purpose lose it in words-only mode** (an italic title added to a re-saved file). "Bring in their formatting too" keeps it.
+- **Their own formatting is kept for:**
+  - links they added;
+  - inserted rows and whole tables;
+  - a new paragraph with nothing formatted alike in theirs (with its own list id, as before).
+- **Restyled in Word is flagged too:** "formatting changed almost everywhere" also fires when a person restyled the whole file in Word. The review says so; the box brings theirs.
+- **Formatting noise against your own edits is still an overlap.** Where their side of an overlap is formatting only (LibreOffice's noise against the master's own edit), it is still offered as an overlap. Follow-up.
+
 ## Phase 3: files that come back (2026-10-15). Built and checked in Word for Windows with the dev folder; OneDrive and Word on the web are the maintainer's run.
 
 Branch `phase-3-returned-files`, from `phase-2-word-addin` at `5118fd2`. Not pushed. Decisions:
@@ -99,7 +209,7 @@ Manual test script: [docs/testing/word-personal.md](testing/word-personal.md), s
 **Not done**
 
 - **The maintainer's run** on OneDrive and Word on the web (steps 12 to 19 added to the manual script). It is still waiting on the Entra app registration from Phase 2.
-- **Google Docs exports are imitations.** Real exports of the synthetic files can go in `fixtures/docx/returned/google/` and join the report.
+- **Google Docs exports were imitations.** Real downloads are now in `fixtures/docx/returned/google/` and in the report (follow-up above).
 - **Not checked in Word:**
   - dropping a file on the pane: the jsdom test covers the handler, but in Word only the file picker was used (through `DOM.setFileInputFiles`);
   - "Open what came back";
@@ -108,7 +218,7 @@ Manual test script: [docs/testing/word-personal.md](testing/word-personal.md), s
 **Known issues**
 
 - **Comments a mentor leaves are not shown in the review.** "Open what came back" opens the file exactly as it came.
-- **Kept changes bring their paragraph's formatting.** From a Google Docs export that means Arial and Google's spacing, as tracked formatting changes the person can reject in Word. Follow-up: keep only the words for files saved by other apps.
+- **Kept changes bring their paragraph's formatting.** From a Google Docs export that means Arial and Google's spacing, as tracked formatting changes the person can reject in Word. Addressed in the follow-up above (decision 0014): files saved by other apps bring only their words.
 - **LibreOffice and Google re-saves add formatting-only items,** and formatting-vs-words overlaps where the master also changed a paragraph. They are skippable (one "Skip all formatting" step), but noisy.
 - **"Use theirs" on an overlap takes their whole paragraph,** including undoing the master's own edit there. That is the paragraph rule in BLUEPRINT §4, and the card shows both sides.
 - **The master itself, attached by hand,** that comes back while the master is still at that checkpoint opens as the master (decision 0012).
