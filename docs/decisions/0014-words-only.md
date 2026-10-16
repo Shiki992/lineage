@@ -13,14 +13,15 @@ The Phase 3 Word run found a problem with files saved again in another app. Keep
 
 Comparing what left with what came back (body paragraphs whose text came back unchanged, and how many were reformatted):
 
-| Returned file                    | Reformatted / same text | `Application` in `docProps/app.xml`              |
-| -------------------------------- | ----------------------- | ------------------------------------------------ |
-| LibreOffice resume, light edits  | 3 / 12                  | `LibreOffice/26.8.1.1…`                          |
-| LibreOffice resume, heavy edits  | 1 / 9                   | `LibreOffice/…`                                  |
-| LibreOffice cover letter         | 7 / 8                   | `LibreOffice/…`                                  |
-| Google Docs imitation (any edit) | 12 / 12                 | no `app.xml` at all (the copy that left had one) |
-| Restyled in Word (testkit)       | 12 / 12                 | (the generator's name)                           |
-| Edited in Word (testkit)         | 0 / 12                  | (the generator's name)                           |
+| Returned file                                     | Reformatted / same text | `Application` in `docProps/app.xml`              |
+| ------------------------------------------------- | ----------------------- | ------------------------------------------------ |
+| LibreOffice resume, light edits                   | 3 / 12                  | `LibreOffice/26.8.1.1…`                          |
+| LibreOffice resume, heavy edits                   | 1 / 9                   | `LibreOffice/…`                                  |
+| LibreOffice cover letter                          | 7 / 8                   | `LibreOffice/…`                                  |
+| Google Docs imitation (any edit)                  | 12 / 12                 | no `app.xml` at all (the copy that left had one) |
+| Google Docs download, real (all six, added later) | all (8 / 8 to 14 / 14)  | no `app.xml` at all                              |
+| Restyled in Word (testkit)                        | 12 / 12                 | (the generator's name)                           |
+| Edited in Word (testkit)                          | 0 / 12                  | (the generator's name)                           |
 
 CLAUDE.md applies here:
 
@@ -102,7 +103,7 @@ The choice is not recorded:
 
 - **Words-only outputs look as if the same words had been typed into the master.** The tests check paragraph and run formatting, character by character, for:
   - the Google imitation's light, heavy, moved and end-of-document edits;
-  - all four edited LibreOffice re-saves.
+  - all four edited LibreOffice re-saves, and the four edited real Google Docs downloads.
 
   In Word, after accept-all, every words-only output is in the master's font, and every revision is by Lineage.
 

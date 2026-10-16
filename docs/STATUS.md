@@ -1,6 +1,6 @@
 # Status
 
-## Phase 3 follow-up: keep only the words for files saved by other apps (2026-10-15). Built and checked with Word's accept/reject comparison and LibreOffice; not yet clicked through in the Word pane.
+## Phase 3 follow-up: keep only the words for files saved by other apps (2026-10-15, clicked through in Word 2026-10-16). Built, checked with Word's accept/reject comparison and LibreOffice, and clicked through in the Word pane with real LibreOffice re-saves. Real Google Docs downloads are fixtures.
 
 Branch `returned-words-only`, from `phase-3-returned-files` at `69194fc`. Not pushed. Decision: [0014 Keeping only the words of a file another app saved](decisions/0014-words-only.md). Decision 0012's consequences updated.
 
@@ -13,7 +13,7 @@ Branch `returned-words-only`, from `phase-3-returned-files` at `69194fc`. Not pu
 
   Saved by Word with a few reformatted paragraphs: trusted.
   - All six real LibreOffice re-saves are flagged by name.
-  - The Google imitation is flagged as an export.
+  - All six real Google Docs downloads (`fixtures/docx/returned/google/`) and the imitation are flagged as exports. In the real downloads, every paragraph whose text came back unchanged is reformatted too (8 of 8 to 14 of 14).
   - The Word restyle (testkit) is flagged as formatting changed almost everywhere.
   - Word edits are not flagged.
 
@@ -39,6 +39,29 @@ Branch `returned-words-only`, from `phase-3-returned-files` at `69194fc`. Not pu
 
 **Checked**
 
+- **Clicked through in the Word pane** (step 20 of `docs/testing/word-personal.md`). Word 16.0.20430, dev-folder storage, the pane driven through the DevTools protocol, no typing.
+  - A fresh master, "Words-only resume", sent three copies with Lineage IDs.
+  - Each came back edited and re-saved by LibreOffice 26.8.1.1, and was brought back with **A file came back**. Each was recognised by its Lineage ID, and its review opened with "This file was saved in LibreOffice, which changes fonts and spacing. Lineage brings in their words in your formatting."
+  1. **Northgate Analytics, box unticked.** Kept 3 changes (two word changes and a new bullet).
+     - Word lists only Added and Deleted revisions, all by Lineage, and no formatting revisions.
+     - Track Changes is back off.
+     - The new bullet is List Paragraph in Calibri 11, like its neighbours.
+     - v2 "Kept 3 changes from Northgate Analytics".
+  2. **Harbour Bank, box ticked.**
+     - The formatting step read "The formatting changed in 2 places. LibreOffice changes formatting when it saves a file, so these are probably not changes Harbour Bank made."
+     - Once the box was ticked, the summary read "Their formatting will come with their words, as you chose." Apply kept 3 (v3).
+     - LibreOffice's formatting on those paragraphs was only an explicit Normal style and empty run properties, so the result looks the same as words only.
+  3. **Eastwood Credit, box ticked, with a new bullet they set in italics.** The bullet came in italic (their formatting), in the master's list style and font, added by Lineage (v5).
+     - Their word change sat in a paragraph that still held Northgate's tracked change.
+     - Its card offered only Skip: "This part of your version has tracked changes. Accept or reject them in Word first." That is as designed.
+  - **Audit** (`dev_folder.rs`): 1 family, 5 checkpoints restore, 9 blobs match, the 3 sent copies on disk match the record, 3 files came back, 3 reviews.
+  - LibreOffice headless opens the final master.
+
+- **Real Google Docs downloads** (`fixtures/docx/returned/google/`): the six LibreOffice inputs, uploaded to Google Drive as Google Docs and downloaded as Word.
+  - The four edited ones, kept words only, look exactly like a Word save of the same words, with no `w:rtl` or `w14` from Google.
+  - A real download is reviewed words only, end to end (`returned/tests.rs`).
+  - They join the recognition report: 135 returned files, precision 100% (50 right, 0 wrong), automatic recall 80.6% (50 of 62), found 100% (99 of 99).
+  - Google keeps custom properties, so Lineage IDs survive a download.
 - **`scripts/word-smoke.ps1 -Compare`** (Word 16.0.20430) on all 38 write-test outputs, 18 of them words-only: every file opens, and Word's accept-all and reject-all match the engine.
 - **Word, asked directly** after accept-all on every words-only output:
   - every word is in the master's font (Calibri, never the export's Arial);
@@ -47,7 +70,7 @@ Branch `returned-words-only`, from `phase-3-returned-files` at `69194fc`. Not pu
 - **LibreOffice 26.8.1.1 headless** opens all 38 outputs.
 - **Round trips** (accept gives ours plus their words, reject gives ours):
   - the Google imitation (light, heavy, moved, three end-of-document cases);
-  - all four edited LibreOffice re-saves;
+  - all four edited LibreOffice re-saves, and the four edited real Google downloads;
   - overlaps (both edited, edited vs deleted, both added);
   - a table cell, the neighbour rules, the fallback, and a kept formatting change.
 
@@ -57,7 +80,7 @@ Branch `returned-words-only`, from `phase-3-returned-files` at `69194fc`. Not pu
 
 **Tests:**
 
-- **Rust:** 241 pass, 3 ignored (as before).
+- **Rust:** 244 pass, 3 ignored (as before).
 - **TypeScript:** 160 pass (shell 93, OneDrive 21, add-in 46).
 - Lint, typecheck, formatting, cargo-deny, licence headers and fixture checks pass.
 
@@ -68,13 +91,16 @@ Branch `returned-words-only`, from `phase-3-returned-files` at `69194fc`. Not pu
 
 **Not done**
 
-- **Not clicked through in Word's pane.**
-  - The pane's screens are covered by jsdom tests.
-  - The engine's outputs were checked in Word as files.
-  - Step 20 in `docs/testing/word-personal.md` is the run.
-- **Real Google Docs exports** are still imitations. `fixtures/docx/returned/google/` would test the "exported" signal on real files.
+- **Word on the web and OneDrive.** Step 20 ran in Word for Windows with the dev folder. The rest is the maintainer's run, as for Phase 3.
+- **A Google Docs download brought back in the pane.** Real downloads are covered by the engine and review tests; the pane run used LibreOffice files.
 
 **Known issues**
+
+- **An explicit Normal style reads as a formatting change.** Found in the Word run.
+  - Word leaves Normal paragraphs with no style. LibreOffice writes `Normal` out, and `read_para_props` compares style ids as written.
+  - So a card read "'SQL, Python, …': Normal changed to Normal".
+  - It is probably also behind the "Both changed … one the words, one the formatting" overlaps on a master made in Word.
+  - Follow-up: treat the default paragraph style as no style when comparing.
 
 - **Words they formatted on purpose lose it in words-only mode** (an italic title added to a re-saved file). "Bring in their formatting too" keeps it.
 - **Their own formatting is kept for:**
@@ -183,7 +209,7 @@ Manual test script: [docs/testing/word-personal.md](testing/word-personal.md), s
 **Not done**
 
 - **The maintainer's run** on OneDrive and Word on the web (steps 12 to 19 added to the manual script). It is still waiting on the Entra app registration from Phase 2.
-- **Google Docs exports are imitations.** Real exports of the synthetic files can go in `fixtures/docx/returned/google/` and join the report.
+- **Google Docs exports were imitations.** Real downloads are now in `fixtures/docx/returned/google/` and in the report (follow-up above).
 - **Not checked in Word:**
   - dropping a file on the pane: the jsdom test covers the handler, but in Word only the file picker was used (through `DOM.setFileInputFiles`);
   - "Open what came back";
