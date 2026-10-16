@@ -37,6 +37,8 @@ export interface MissingFile {
 }
 
 const utf8 = new TextEncoder();
+/** Fetch rounds for a command: one per snapshot it may read, and a bound. */
+const PRESS_ROUNDS = 64;
 
 function docx(name: string): string {
   const trimmed = name.trim();
@@ -180,7 +182,13 @@ export class Library {
   ): Promise<CommandResult> {
     for (let attempt = 0; attempt < 2; attempt++) {
       const { bytes: ledger, version } = await this.storage.readLedger(family);
-      const result = await this.history.withBlobs(family, () => run(ledger));
+      // As the task pane does on open: every manifest and change list first, so
+      // a command that walks the family's history needs one round per snapshot
+      // at most, not one per record.
+      await this.history.fetchBlobs(family, this.engine.referencedBlobs(ledger));
+      // Restoring compares the new version with every master checkpoint after
+      // the one it follows, so allow a round for each of those snapshots.
+      const result = await this.history.withBlobs(family, () => run(ledger), PRESS_ROUNDS);
       if (result.outcome.records === 0) {
         return result;
       }

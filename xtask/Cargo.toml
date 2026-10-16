@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Repository tasks: generate synthetic fixtures, check fixtures are reproducible, check licence headers."
+description = "Repository tasks: generate synthetic fixtures and test accounts, check fixtures are reproducible, check licence headers."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,4 +13,5 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+lineage-harness.workspace = true
 lineage-testkit.workspace = true

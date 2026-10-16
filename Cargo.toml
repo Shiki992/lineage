@@ -24,6 +24,7 @@ publish = false
 lineage-core = { path = "crates/core" }
 lineage = { path = "crates/lineage" }
 lineage-testkit = { path = "crates/testkit" }
+lineage-harness = { path = "crates/harness" }
 # Exact pin: wasm-bindgen-cli must match this version exactly (see scripts/build-wasm.mjs).
 wasm-bindgen = "=0.2.129"
 # Engine: zip reading, deflate and XML. Chosen in docs/decisions/0005-docx-package-and-xml.md.

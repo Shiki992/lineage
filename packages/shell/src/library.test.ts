@@ -151,6 +151,38 @@ describe("My documents", () => {
     expect(listed.entries[0]?.tailored).toBe(2);
   });
 
+  it("restores with a fresh engine when the master has moved on many times", async () => {
+    const storage = new MemoryStorage();
+    const now = clock();
+    const e = engine();
+    const host = new FakeHost(e, fixture("resume-master.docx"), {
+      name: "Resume.docx",
+      url: "https://d.docs.live.net/0000000000000000/Documents/Resume.docx",
+    });
+    const master = new Lineage({ engine: e, storage, host, now });
+    await master.open();
+    const started = await master.startTracking();
+    const edits = [
+      "resume-master-new-job.docx",
+      "resume-master.docx",
+      "resume-master-new-job.docx",
+      "resume-master.docx",
+      "resume-master-new-job.docx",
+    ];
+    for (const [i, name] of edits.entries()) {
+      host.edit(fixture(name));
+      await master.saveCheckpoint(`Edit ${String(i + 1)}`);
+    }
+    await master.indexed();
+    const library = new Library({ engine: engine(), storage, now });
+    const family = started.kind === "master" ? started.file.familyId : "";
+    const { view } = await library.open(family);
+    const v1 = view.page.files[0]?.entries.at(-1);
+    expect(view.page.files[0]?.entries).toHaveLength(6);
+    const made = await library.restoreAsNewVersion(family, v1?.id ?? "", "From the start");
+    expect(made.name).toBe("From the start.docx");
+  });
+
   it("finds a moved version and relinks it only to its own file", async () => {
     const storage = new MemoryStorage();
     const now = clock();

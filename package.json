@@ -14,7 +14,7 @@
     "test": "pnpm --recursive --if-present test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "budgets": "pnpm --filter @lineage/office-addin build && node scripts/check-budgets.mjs"
+    "budgets": "pnpm --filter @lineage/office-addin --filter @lineage/family-app build && node scripts/check-budgets.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
