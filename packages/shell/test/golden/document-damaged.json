@@ -1,0 +1,417 @@
+{
+  "ok": true,
+  "value": {
+    "graph": {
+      "edges": [
+        {
+          "from": "2f6f163638477c4f4d8a1995062f5eff",
+          "kind": "madeFrom",
+          "label": "Made from master v1",
+          "to": "5268704a6b2e9e6e2e87cc7a098e0701"
+        },
+        {
+          "from": "2f6f163638477c4f4d8a1995062f5eff",
+          "kind": "madeFrom",
+          "label": "Made from master v1",
+          "to": "eb7e7b6d9125deafb0f8379dba9ddf7b"
+        },
+        {
+          "from": "5268704a6b2e9e6e2e87cc7a098e0701",
+          "kind": "next",
+          "label": null,
+          "to": "475b67ae8b7b0c7df81afe4ff23e08e7"
+        },
+        {
+          "from": "2f6f163638477c4f4d8a1995062f5eff",
+          "kind": "next",
+          "label": null,
+          "to": "dba4e15c49acf7b217146abba72211f7"
+        },
+        {
+          "from": "dba4e15c49acf7b217146abba72211f7",
+          "kind": "next",
+          "label": null,
+          "to": "fb0cea28644ef1325935f077db54217a"
+        },
+        {
+          "from": "475b67ae8b7b0c7df81afe4ff23e08e7",
+          "kind": "next",
+          "label": null,
+          "to": "34cf8035f2345f5a62f5541afccad074"
+        },
+        {
+          "from": "fb0cea28644ef1325935f077db54217a",
+          "kind": "broughtIn",
+          "label": "Brought in 1 change from master v3",
+          "to": "34cf8035f2345f5a62f5541afccad074"
+        },
+        {
+          "from": "34cf8035f2345f5a62f5541afccad074",
+          "kind": "next",
+          "label": null,
+          "to": "de9a9acd8795204ac608d7f201aa9a9a"
+        },
+        {
+          "from": "34cf8035f2345f5a62f5541afccad074",
+          "kind": "sent",
+          "label": null,
+          "to": "8b3fda26766265ccd1505e34fbf66ac1"
+        },
+        {
+          "from": "eb7e7b6d9125deafb0f8379dba9ddf7b",
+          "kind": "sent",
+          "label": null,
+          "to": "3ac578c033aafdade2dfa31941c1e615"
+        },
+        {
+          "from": "eb7e7b6d9125deafb0f8379dba9ddf7b",
+          "kind": "sent",
+          "label": null,
+          "to": "3019548e83ba906a5af5f4e53e8bda97"
+        },
+        {
+          "from": "8b3fda26766265ccd1505e34fbf66ac1",
+          "kind": "cameBack",
+          "label": null,
+          "to": "a2beee49a6c5af73f179373cdc04bdfe"
+        },
+        {
+          "from": "a2beee49a6c5af73f179373cdc04bdfe",
+          "kind": "keptInto",
+          "label": "Kept 1 change",
+          "to": "de9a9acd8795204ac608d7f201aa9a9a"
+        }
+      ],
+      "lanes": [
+        {
+          "archived": false,
+          "chip": "Master",
+          "id": "1fb55efa97c78be4f78ab7dc34ce3cad",
+          "kind": "master",
+          "title": "Resume.docx"
+        },
+        {
+          "archived": false,
+          "chip": "Tailored version",
+          "id": "5c81cc14a997e2ba9928492bcc208f37",
+          "kind": "version",
+          "title": "Resume – data roles.docx"
+        },
+        {
+          "archived": false,
+          "chip": "Tailored version",
+          "id": "96657bd73b2c38fce315aedec0ac9486",
+          "kind": "version",
+          "title": "Resume – platform roles.docx"
+        },
+        {
+          "archived": false,
+          "chip": null,
+          "id": "sent",
+          "kind": "sent",
+          "title": "Copies sent"
+        },
+        {
+          "archived": false,
+          "chip": null,
+          "id": "returned",
+          "kind": "returned",
+          "title": "Files that came back"
+        }
+      ],
+      "nodes": [
+        {
+          "archived": false,
+          "at": 1792056600000,
+          "detail": "Started tracking",
+          "id": "2f6f163638477c4f4d8a1995062f5eff",
+          "kind": "checkpoint",
+          "label": "v1",
+          "lane": "1fb55efa97c78be4f78ab7dc34ce3cad",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792056660000,
+          "detail": "Made from master v1",
+          "id": "5268704a6b2e9e6e2e87cc7a098e0701",
+          "kind": "checkpoint",
+          "label": "v1",
+          "lane": "5c81cc14a997e2ba9928492bcc208f37",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792056720000,
+          "detail": "Made from master v1",
+          "id": "eb7e7b6d9125deafb0f8379dba9ddf7b",
+          "kind": "checkpoint",
+          "label": "v1",
+          "lane": "96657bd73b2c38fce315aedec0ac9486",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792056780000,
+          "detail": "Tailored for data roles",
+          "id": "475b67ae8b7b0c7df81afe4ff23e08e7",
+          "kind": "checkpoint",
+          "label": "v2",
+          "lane": "5c81cc14a997e2ba9928492bcc208f37",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792056840000,
+          "detail": "New job",
+          "id": "dba4e15c49acf7b217146abba72211f7",
+          "kind": "checkpoint",
+          "label": "v2",
+          "lane": "1fb55efa97c78be4f78ab7dc34ce3cad",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792056900000,
+          "detail": "Corvia title",
+          "id": "fb0cea28644ef1325935f077db54217a",
+          "kind": "checkpoint",
+          "label": "v3",
+          "lane": "1fb55efa97c78be4f78ab7dc34ce3cad",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792057020000,
+          "detail": "Brought in 3 changes from the master",
+          "id": "34cf8035f2345f5a62f5541afccad074",
+          "kind": "checkpoint",
+          "label": "v3",
+          "lane": "5c81cc14a997e2ba9928492bcc208f37",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792057080000,
+          "detail": "Word · v3 · Lineage ID inside",
+          "id": "8b3fda26766265ccd1505e34fbf66ac1",
+          "kind": "sent",
+          "label": "Northgate Analytics",
+          "lane": "sent",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792057140000,
+          "detail": "1 change · reviewed",
+          "id": "a2beee49a6c5af73f179373cdc04bdfe",
+          "kind": "returned",
+          "label": "From Northgate Analytics",
+          "lane": "returned",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792057200000,
+          "detail": "Kept 1 change from Northgate Analytics",
+          "id": "de9a9acd8795204ac608d7f201aa9a9a",
+          "kind": "checkpoint",
+          "label": "v4",
+          "lane": "5c81cc14a997e2ba9928492bcc208f37",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792057260000,
+          "detail": "Word · v1 · no Lineage ID",
+          "id": "3ac578c033aafdade2dfa31941c1e615",
+          "kind": "sent",
+          "label": "Harbour Bank",
+          "lane": "sent",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792057320000,
+          "detail": "Word · v1 · no Lineage ID",
+          "id": "3019548e83ba906a5af5f4e53e8bda97",
+          "kind": "sent",
+          "label": "Pellow Ventures",
+          "lane": "sent",
+          "milestone": null,
+          "when": "15 Oct"
+        }
+      ]
+    },
+    "page": {
+      "canChange": false,
+      "familyId": "119736279a3062acd1d1873c28a849ee",
+      "files": [
+        {
+          "archived": false,
+          "chip": "Master",
+          "entries": [
+            {
+              "author": null,
+              "date": "15 Oct 2026",
+              "id": "fb0cea28644ef1325935f077db54217a",
+              "label": "v3",
+              "milestone": null,
+              "note": "Corvia title",
+              "sent": null
+            },
+            {
+              "author": null,
+              "date": "15 Oct 2026",
+              "id": "dba4e15c49acf7b217146abba72211f7",
+              "label": "v2",
+              "milestone": null,
+              "note": "New job",
+              "sent": null
+            },
+            {
+              "author": null,
+              "date": "15 Oct 2026",
+              "id": "2f6f163638477c4f4d8a1995062f5eff",
+              "label": "v1",
+              "milestone": null,
+              "note": "Started tracking",
+              "sent": null
+            }
+          ],
+          "name": "Resume.docx",
+          "node": "1fb55efa97c78be4f78ab7dc34ce3cad",
+          "role": "master",
+          "status": "The file your tailored versions follow",
+          "storageRef": "Resume.docx"
+        },
+        {
+          "archived": false,
+          "chip": "Tailored version",
+          "entries": [
+            {
+              "author": null,
+              "date": "15 Oct 2026",
+              "id": "de9a9acd8795204ac608d7f201aa9a9a",
+              "label": "v4",
+              "milestone": null,
+              "note": "Kept 1 change from Northgate Analytics",
+              "sent": null
+            },
+            {
+              "author": null,
+              "date": "15 Oct 2026",
+              "id": "34cf8035f2345f5a62f5541afccad074",
+              "label": "v3",
+              "milestone": null,
+              "note": "Brought in 3 changes from the master",
+              "sent": "Sent to Northgate Analytics"
+            },
+            {
+              "author": null,
+              "date": "15 Oct 2026",
+              "id": "475b67ae8b7b0c7df81afe4ff23e08e7",
+              "label": "v2",
+              "milestone": null,
+              "note": "Tailored for data roles",
+              "sent": null
+            },
+            {
+              "author": null,
+              "date": "15 Oct 2026",
+              "id": "5268704a6b2e9e6e2e87cc7a098e0701",
+              "label": "v1",
+              "milestone": null,
+              "note": "Made from master v1",
+              "sent": null
+            }
+          ],
+          "name": "Resume – data roles.docx",
+          "node": "5c81cc14a997e2ba9928492bcc208f37",
+          "role": "variant",
+          "status": "Made from master v1",
+          "storageRef": "Resume – data roles.docx"
+        },
+        {
+          "archived": false,
+          "chip": "Tailored version",
+          "entries": [
+            {
+              "author": null,
+              "date": "15 Oct 2026",
+              "id": "eb7e7b6d9125deafb0f8379dba9ddf7b",
+              "label": "v1",
+              "milestone": null,
+              "note": "Made from master v1",
+              "sent": "Sent 2 times"
+            }
+          ],
+          "name": "Resume – platform roles.docx",
+          "node": "96657bd73b2c38fce315aedec0ac9486",
+          "role": "variant",
+          "status": "Made from master v1",
+          "storageRef": "Resume – platform roles.docx"
+        }
+      ],
+      "format": "docx",
+      "kind": "Word document",
+      "name": "Resume",
+      "note": "Lineage could read this history up to 15 Oct. 1 later entry is damaged, so nothing will be added to it.",
+      "sent": {
+        "groups": [
+          {
+            "month": "October 2026",
+            "rows": [
+              {
+                "button": "Open",
+                "chip": null,
+                "date": "15 Oct",
+                "format": "Word",
+                "id": "3019548e83ba906a5af5f4e53e8bda97",
+                "purpose": null,
+                "recipient": "Pellow Ventures",
+                "returned": null,
+                "version": "Resume – platform roles · v1"
+              },
+              {
+                "button": "Open",
+                "chip": null,
+                "date": "15 Oct",
+                "format": "Word",
+                "id": "3ac578c033aafdade2dfa31941c1e615",
+                "purpose": null,
+                "recipient": "Harbour Bank",
+                "returned": null,
+                "version": "Resume – platform roles · v1"
+              },
+              {
+                "button": "Open",
+                "chip": "Reviewed",
+                "date": "15 Oct",
+                "format": "Word",
+                "id": "8b3fda26766265ccd1505e34fbf66ac1",
+                "purpose": "Data engineer",
+                "recipient": "Northgate Analytics",
+                "returned": "a2beee49a6c5af73f179373cdc04bdfe",
+                "version": "Resume – data roles · v3"
+              }
+            ]
+          }
+        ],
+        "note": "Each copy is kept exactly as sent.",
+        "title": "What I've sent"
+      }
+    }
+  }
+}

@@ -21,6 +21,9 @@ use lineage_core::merge::Decision;
 use lineage_core::view::{ChangeCard, Choice, OverlapCard, WhatChanged};
 use serde::{Deserialize, Serialize};
 
+mod history;
+pub use history::*;
+
 // ---------------------------------------------------------------- inputs
 
 /// A decision, as the panel sends it.

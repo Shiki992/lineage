@@ -284,6 +284,89 @@ impl Engine {
         Reply(self.0.open_returned(ledger, returned))
     }
 
+    #[wasm_bindgen(js_name = libraryFromIndex)]
+    #[must_use]
+    pub fn library_from_index(&self, index: &[u8]) -> Reply {
+        Reply(self.0.library_from_index(index))
+    }
+
+    #[wasm_bindgen(js_name = staleFamilies)]
+    #[must_use]
+    pub fn stale_families(&self, index: Option<Vec<u8>>, observed: &str) -> Reply {
+        Reply(self.0.stale_families(index.as_deref(), observed))
+    }
+
+    #[wasm_bindgen(js_name = refreshLibrary)]
+    #[must_use]
+    pub fn refresh_library(&self, index: Option<Vec<u8>>, observed: &str, ledgers: &str) -> Reply {
+        Reply(self.0.refresh_library(index.as_deref(), observed, ledgers))
+    }
+
+    #[wasm_bindgen(js_name = updateIndex)]
+    #[must_use]
+    pub fn update_index(
+        &self,
+        index: Option<Vec<u8>>,
+        family: &str,
+        version: &str,
+        ledger: &[u8],
+    ) -> Reply {
+        Reply(
+            self.0
+                .update_index(index.as_deref(), family, version, ledger),
+        )
+    }
+
+    #[must_use]
+    pub fn document(&self, ledger: &[u8]) -> Reply {
+        Reply(self.0.document(ledger))
+    }
+
+    #[must_use]
+    pub fn compare(&self, ledger: &[u8], a: &str, b: &str) -> Reply {
+        Reply(self.0.compare(ledger, a, b))
+    }
+
+    #[wasm_bindgen(js_name = restoreAsNewVersion)]
+    pub fn restore_as_new_version(
+        &mut self,
+        ledger: &[u8],
+        checkpoint: &str,
+        display_name: &str,
+        storage_ref: &str,
+        now_ms: f64,
+    ) -> Reply {
+        Reply(
+            self.0
+                .restore_as_new_version(ledger, checkpoint, display_name, storage_ref, now_ms),
+        )
+    }
+
+    #[wasm_bindgen(js_name = markMilestone)]
+    pub fn mark_milestone(
+        &mut self,
+        ledger: &[u8],
+        checkpoint: &str,
+        label: Option<String>,
+        now_ms: f64,
+    ) -> Reply {
+        Reply(
+            self.0
+                .mark_milestone(ledger, checkpoint, label.as_deref(), now_ms),
+        )
+    }
+
+    pub fn relink(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        storage_ref: &str,
+        file: &[u8],
+        now_ms: f64,
+    ) -> Reply {
+        Reply(self.0.relink(ledger, node, storage_ref, file, now_ms))
+    }
+
     #[wasm_bindgen(js_name = checkWritten)]
     #[must_use]
     pub fn check_written(&self, expected: &[u8], actual: &[u8]) -> Reply {

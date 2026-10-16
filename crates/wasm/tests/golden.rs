@@ -433,6 +433,74 @@ fn golden_replies() {
             .returned_review(&host.ledger, &versions[0].0, &kept, &resaved_id),
     );
 
+    // My documents: the library and its index, a document's page and tree.
+    let observed = serde_json::json!([
+        {"family": family_id, "version": host.ledger.len().to_string()},
+    ])
+    .to_string();
+    golden.keep(
+        "stale-families",
+        &host.session.stale_families(None, &observed),
+    );
+    let refreshed = host
+        .session
+        .refresh_library(None, &observed, &ledgers(&host));
+    golden.keep("refresh-library", &refreshed);
+    let index = refreshed.file.clone().expect("a new index");
+    golden.keep(
+        "library-from-index",
+        &host.session.library_from_index(&index),
+    );
+    golden.keep(
+        "library-from-index-untrusted",
+        &host.session.library_from_index(b"{}"),
+    );
+    let updated = host.session.update_index(
+        Some(&index),
+        &family_id,
+        &host.ledger.len().to_string(),
+        &host.ledger,
+    );
+    assert_eq!(updated.file.as_deref(), Some(index.as_slice()));
+    let document = golden.keep("document", &host.session.document(&host.ledger));
+    let master_entries = &document["value"]["page"]["files"][0]["entries"];
+    let newest = id(&master_entries[0]["id"]);
+    let oldest = id(&master_entries[2]["id"]);
+    let mut damaged = host.ledger.clone();
+    damaged.truncate(damaged.len() - 25);
+    golden.keep("document-damaged", &host.session.document(&damaged));
+    golden.keep(
+        "compare",
+        &host.session.compare(&host.ledger, &oldest, &newest),
+    );
+    let reply = host.session.restore_as_new_version(
+        &host.ledger,
+        &oldest,
+        "Resume – first draft.docx",
+        "Tailored versions/Resume – first draft.docx",
+        host.now,
+    );
+    golden.keep("restore-as-new-version", &reply);
+    let (_, restored) = host.take(reply);
+    assert!(restored.is_some());
+    let reply = host.session.mark_milestone(
+        &host.ledger,
+        &newest,
+        Some("Sent to ten companies"),
+        host.now,
+    );
+    golden.keep("mark-milestone", &reply);
+    host.take(reply);
+    let reply = host.session.relink(
+        &host.ledger,
+        &versions[0].0,
+        "Tailored versions/Resume – data roles (moved).docx",
+        &kept,
+        host.now,
+    );
+    golden.keep("relink", &reply);
+    host.take(reply);
+
     // Errors.
     let fresh = Session::new([7; 32]);
     golden.keep(

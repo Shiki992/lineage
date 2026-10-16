@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "value": {
+    "indexChanged": true,
+    "library": {
+      "empty": null,
+      "entries": [
+        {
+          "attention": "1 file came back with changes to review",
+          "canOpen": true,
+          "checkpoints": 8,
+          "damage": null,
+          "familyId": "119736279a3062acd1d1873c28a849ee",
+          "format": "docx",
+          "kind": "Word document",
+          "lastActivity": "Last change 15 Oct 2026",
+          "lastAt": 1792057380000,
+          "masterFile": "Resume.docx",
+          "name": "Resume",
+          "returned": 2,
+          "sent": 3,
+          "summary": "2 tailored versions · 8 checkpoints · 3 sent · 2 came back",
+          "tailored": 2,
+          "toReview": 1
+        }
+      ]
+    }
+  }
+}
