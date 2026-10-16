@@ -186,6 +186,30 @@ export class FakeGraph {
     return undefined;
   }
 
+  /** Requests inside $batch whose answer is a 429, by URL fragment (for tests). */
+  busyInBatch: string | undefined;
+
+  /** JSON batching: each GET answered as on its own, in a different order. */
+  private async batch(body: Uint8Array, headers: Record<string, string>): Promise<Response> {
+    const request = JSON.parse(new TextDecoder().decode(body)) as {
+      requests: { id: string; method: string; url: string }[];
+    };
+    if (request.requests.length > 20) {
+      return error(400, "tooManyRequestsInBatch");
+    }
+    const responses = [];
+    for (const r of [...request.requests].reverse()) {
+      if (this.busyInBatch !== undefined && r.url.includes(this.busyInBatch)) {
+        responses.push({ id: r.id, status: 429, headers: { "Retry-After": "1" }, body: {} });
+        continue;
+      }
+      const answer = await this.fetch(`${GRAPH}${r.url}`, { method: r.method, headers });
+      this.requests.pop();
+      responses.push({ id: r.id, status: answer.status, body: (await answer.json()) as unknown });
+    }
+    return json(200, { responses });
+  }
+
   /** The fetch function to hand to Graph. */
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -235,6 +259,9 @@ export class FakeGraph {
       return json(429, { error: { code: "tooManyRequests" } }, { "Retry-After": "1" });
     }
     const full = new URL(url);
+    if (method === "POST" && full.pathname === "/v1.0/$batch") {
+      return this.batch(body, headers);
+    }
     const target = this.resolve(full.pathname.slice("/v1.0".length));
     if (!target) {
       return error(404, "itemNotFound");

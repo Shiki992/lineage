@@ -5,10 +5,9 @@
 // AA for normal text), computed from tokens.css itself.
 
 import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync(path.resolve(process.cwd(), "src/styles/tokens.css"), "utf8");
+const css = readFileSync(new URL("./tokens.css", import.meta.url), "utf8");
 const tokens = new Map(
   [...css.matchAll(/--([a-z-]+):\s*(#[0-9a-fA-F]{6})/g)].map((m) => [m[1] ?? "", m[2] ?? ""]),
 );

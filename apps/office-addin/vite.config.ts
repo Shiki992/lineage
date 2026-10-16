@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import type { Plugin } from "vite";
-import { localFolderStorage } from "./dev/local-folder-plugin";
+import { localFolderStorage } from "@lineage/storage-local/plugin";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -80,6 +80,9 @@ export default defineConfig(({ command }) => ({
   },
   plugins: [
     contentSecurityPolicy(command === "serve"),
-    localFolderStorage(path.join(here, ".dev-storage")),
+    // Development only: history in a local folder, shared with My documents.
+    localFolderStorage(process.env["LINEAGE_DEV_STORAGE"] ?? path.join(here, ".dev-storage"), [
+      "https://localhost:3000",
+    ]),
   ],
 }));

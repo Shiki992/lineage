@@ -13,6 +13,10 @@
 //   https://learn.microsoft.com/graph/api/driveitem-get-content
 // - Blobs are content-addressed, so one listing of a family's blobs folder says
 //   which already exist and gives their download URLs.
+// - The library index (index.json beside the family folders) is written like the
+//   ledger, through an upload session with If-Match. Every ledger's eTag is
+//   asked for in $batch requests of up to 20, to check the index against.
+//   https://learn.microsoft.com/graph/json-batching
 
 import type { FileKind, FileLocation, LedgerVersion, Storage, StoredFile } from "@lineage/shell";
 import {
@@ -47,6 +51,12 @@ interface Page {
 
 const ID = /^[0-9a-f]{32}$/;
 const EMPTY = new Uint8Array();
+/** Graph takes at most 20 requests in one $batch. */
+const BATCH = 20;
+
+interface BatchResponse {
+  responses?: { id?: string; status?: number; body?: { eTag?: string } }[];
+}
 
 function join(...parts: string[]): string {
   return parts.filter((p) => p !== "").join("/");
@@ -368,5 +378,61 @@ export class OneDriveStorage implements Storage {
       .filter((i) => i.folder !== undefined && ID.test(i.name))
       .map((i) => i.name)
       .sort();
+  }
+
+  async readIndex(): Promise<{ bytes: Uint8Array; version: LedgerVersion } | undefined> {
+    const rel = join(this.layout.history, "index.json");
+    const item = await this.meta(rel, "id,eTag,@microsoft.graph.downloadUrl");
+    if (!item?.eTag) {
+      return undefined;
+    }
+    return { bytes: await this.download(rel, item), version: item.eTag };
+  }
+
+  async writeIndex(bytes: Uint8Array, expected: LedgerVersion | undefined): Promise<LedgerVersion> {
+    const rel = join(this.layout.history, "index.json");
+    const written = await this.upload(
+      rel,
+      bytes,
+      expected === undefined ? "create" : { ifMatch: expected },
+    );
+    const eTag = written.eTag ?? (await this.meta(rel, "id,eTag"))?.eTag;
+    if (!eTag) {
+      throw new StorageError("OneDrive couldn't save Lineage's list just now.", "no eTag");
+    }
+    return eTag;
+  }
+
+  async ledgerVersions(families: readonly string[]): Promise<Map<string, LedgerVersion>> {
+    const rels = families.map((f) => this.history(f, "ledger.jsonl"));
+    const versions = new Map<string, LedgerVersion>();
+    for (let start = 0; start < families.length; start += BATCH) {
+      const chunk = families.slice(start, start + BATCH);
+      const requests = await Promise.all(
+        chunk.map(async (_, i) => ({
+          id: String(i),
+          method: "GET",
+          url: `${await this.item(rels[start + i] ?? "")}?$select=id,eTag`,
+        })),
+      );
+      const reply = await this.graph.json<BatchResponse>("POST", "/$batch", {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requests }),
+      });
+      const byId = new Map((reply.responses ?? []).map((r) => [r.id, r]));
+      for (const [i, family] of chunk.entries()) {
+        const answer = byId.get(String(i));
+        if (answer?.status === 200 && answer.body?.eTag) {
+          versions.set(family, answer.body.eTag);
+        } else if (answer?.status === 404) {
+          versions.set(family, "");
+        } else {
+          // Throttled or failed inside the batch: ask on its own, with retries.
+          const item = await this.meta(rels[start + i] ?? "", "id,eTag");
+          versions.set(family, item?.eTag ?? "");
+        }
+      }
+    }
+    return versions;
   }
 }

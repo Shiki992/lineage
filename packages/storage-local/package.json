@@ -1,0 +1,19 @@
+{
+  "name": "@lineage/storage-local",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Development and tests only: Lineage's history in a folder on this computer, served by the dev server. Never in a production build.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./plugin": "./src/plugin.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../scripts/build-wasm.mjs && tsc --noEmit",
+    "test": "node ../../scripts/build-wasm.mjs && vitest run"
+  },
+  "dependencies": {
+    "@lineage/shell": "workspace:*"
+  }
+}

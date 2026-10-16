@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Storage } from "@lineage/shell";
-import { DevFolderStorage } from "./dev-folder";
+import { LocalFolderStorage } from "@lineage/storage-local";
 
 /** Where history goes: OneDrive after sign-in, or the dev folder in development. */
 export type StorageChoice =
@@ -10,7 +10,7 @@ export type StorageChoice =
 
 export function chooseStorage(): StorageChoice {
   if (import.meta.env.DEV && import.meta.env["VITE_LINEAGE_STORAGE"] !== "onedrive") {
-    return { kind: "ready", storage: new DevFolderStorage() };
+    return { kind: "ready", storage: new LocalFolderStorage() };
   }
   return { kind: "signIn" };
 }
