@@ -51,7 +51,8 @@ The same paths. The add-on is installed from the Workspace Marketplace, sign-in 
 
 ### Ledger and snapshots
 
-- One append-only event log per family (JSON Lines). Examples: `FamilyStarted`, `CheckpointSaved`, `VariantMade`, `UpdateOffered`, `UpdateApplied`, `CopySent`, `FileReturned`. Current state is derived from the events.
+- One append-only event log per family (JSON Lines). Examples: `FamilyStarted`, `CheckpointSaved`, `VariantMade`, `UpdateOffered`, `UpdateApplied`, `CopySent`, `FileReturned`, `MilestoneMarked`, `NodeRelinked`. Current state is derived from the events.
+- A library index (`index.json`, beside the family folders) lists every family for "My documents". It is only a copy: each entry names the ledger version it was read from, and where they disagree the ledgers win and the index is rebuilt (decision 0015).
 - Appends to cloud storage use optimistic concurrency (ETag / revision check) and retry.
 - Snapshots are content-addressed blobs (SHA-256) of package parts, so images and fonts are stored once across all versions.
 - Storage layout, per family: `Lineage/<familyId>/ledger.jsonl`, `Lineage/<familyId>/blobs/<sha256>`.

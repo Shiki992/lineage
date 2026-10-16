@@ -1,5 +1,119 @@
 # Status
 
+## Phase 3B: My documents (2026-10-16). Built and checked in a browser on invented test accounts. The Microsoft sign-in and Word runs are the maintainer's.
+
+Branch `phase-3b-my-documents`, from `phase-3-returned-files` at `7e52eb5` (PR #5 merged). Not pushed.
+
+Decisions:
+
+- [0015 My documents](decisions/0015-my-documents.md): accounts, the library index, damaged histories, restore, milestones and relinking;
+- [0016 dependencies](decisions/0016-phase-3b-dependencies.md).
+
+Manual test script: [docs/testing/my-documents.md](testing/my-documents.md).
+
+Before the work, the uncommitted edits were sorted with the maintainer:
+
+- the Phase 3B prompt and BLUEPRINT screen 5 were kept, and the reverted content was restored (`97f4d98`);
+- the 100 MB size check was kept as edited (`71c9869`; see Known issues).
+
+**Done**
+
+- **Engine** (`crates/lineage`):
+  - `read::read_lenient`: as much of a damaged ledger as can be trusted, and what was lost;
+  - `library::build_library`: name, format, master file, tailored versions, checkpoints, sent copies, files that came back and those still to review, last activity;
+  - `index`: the rebuildable library index, `stale` and `refresh` (the ledgers win), `update`;
+  - `graph::family_graph`: lanes, nodes and edges, including what each version brought in;
+  - `views::document_page`;
+  - commands `compare`, `restore_as_new_version`, `mark_milestone`, `relink`;
+  - new records `MilestoneMarked` and `NodeRelinked`.
+- **Boundary and shell:**
+  - wasm methods with DTOs, valibot schemas and golden replies;
+  - `Storage` gains `readIndex`, `writeIndex` and `ledgerVersions` in every adapter, in the harness's trait and in the conformance suite. OneDrive uses If-Match upload sessions, and `$batch` of up to 20 for eTags;
+  - `History` (shared blob and index work) and `Library`;
+  - the task pane updates the index after every append.
+- **Harness:**
+  - a button for each My documents action;
+  - `accounts` (three families, damaged, large) and `tests/my_documents.rs`, the journey in memory and on disk;
+  - `cargo xtask accounts <folder>`.
+- **`apps/family-app`** (React, the design system):
+  - sign-in (MSAL standard client, redirect bridge, app folder permission, the add-in's client ID), and sign-out that clears Lineage's cache only;
+  - My documents with search, format filter, sorting and an empty state;
+  - a document page with ARIA tabs:
+    - Versions: compare any two, restore as a new version, milestones, "File not found" and relinking;
+    - Sent copies: open exactly as sent;
+    - Family tree: one tab stop, arrow keys along and between lanes, details and actions per point, archived behind a toggle.
+  - Damaged histories and decks are shown, with nothing offered to change.
+  - Development builds read the Word pane's dev folder, or `LINEAGE_DEV_STORAGE`.
+- **Word pane:**
+  - **My documents** in the footer (`openBrowserWindow`);
+  - a master opened from a new address of the same kind is relinked.
+- **Packages:** `@lineage/storage-local` (the dev folder, moved out of the add-in, now with a conformance run against a real server) and `@lineage/design` (the tokens and their contrast test).
+- **CI:** a Playwright job on the runner's Chrome; My documents' JavaScript has its own budget.
+
+**Checked**
+
+- **Playwright, 12 runs on Microsoft Edge** (`pnpm --filter @lineage/family-app e2e`, invented accounts from `cargo xtask accounts`). Each account is served by its own dev server.
+  1. **The library:** three families, newest first, after an out-of-date index (the deck missing, the letter at an old version); the index is rewritten. Search, format filter and sort.
+  2. **Resume:** v4 to v1 with the milestone; archived behind the toggle.
+  3. **Compare** v1 with v3: removed and added text marked.
+  4. **Open as sent:** the download's SHA-256 equals the copy that left.
+  5. **The family tree by keyboard:** one tab stop, Home, arrows between lanes, Enter for details.
+  6. **The deck:** "Comes with PowerPoint support", nothing to compare, Open disabled.
+  7. **"File not found":** relinked to the renamed file, and only that.
+  8. **Restore:** a new version "Restored from Resume v1"; every other file's bytes unchanged.
+  9. **Milestone** marked.
+  10. **Damaged ledger:** the readable part, the note, no actions.
+  11. **300 checkpoints and 50 copies:** the versions list in about 1.5 to 2 s from the click (reading the ledger, checking 5 files, drawing 300 rows); the 350-point tree in about 0.4 s.
+  12. **Keyboard only:** list, tabs and tree, focus outlined.
+- **The built-in browser pane** on a fresh three-family account: the list, Versions, compare, the tree and its details as screenshots, and phone width (no sideways scroll).
+- **Audit** (`dev_folder.rs` with `LINEAGE_DEV_STORAGE`) of the account the Playwright run wrote to, after a restore, a relink and a milestone: 3 families (the deck skipped: its snapshots are invented and not stored), 12 checkpoints restore, 16 blobs match, 3 tailored versions on disk are their nodes' checkpoints.
+- **LibreOffice 26.8.1 headless** opens the restored version and the relinked one.
+- **The Word pane's own dev folder** lists its 5 families in My documents (counts only: some look like the maintainer's own documents).
+- **Production builds:** My documents leaves out the dev-folder storage; both pages carry the CSP.
+
+**Tests:**
+
+- **Rust:** 272 pass, 3 ignored (was 244). New tests:
+  - read, index (with a proptest: any damage to the index refreshes to a rebuild), graph, library and the page;
+  - compare, restore, milestones, relink;
+  - the boundary, golden replies;
+  - the harness journey, damaged and large.
+- **TypeScript:** 218 pass (was 160):
+  - shell 112, OneDrive 26, storage-local 7, design 15;
+  - add-in 32;
+  - My documents 26 (every screen state: loading, empty, normal, missing file, damaged, error);
+  - plus 12 Playwright runs.
+- **All checks pass:** fmt, clippy, cargo-deny, licence headers, fixtures, lint, typecheck, Prettier and budgets.
+
+**Bug found and fixed**
+
+- **Restoring with a fresh engine ran out of fetch rounds** on a master with several checkpoints (found by Playwright). `Library` now fetches manifests and change lists first, as the task pane does, and allows a round per snapshot (with a test).
+
+**Budgets:**
+
+- wasm 1,159,791 bytes raw and 388,922 gzipped (was 1,015,022 and 354,113): 31 KB under the 420 KB gzip budget.
+- JavaScript: task pane 159,861 gzipped, My documents 157,172.
+
+**Not done**
+
+- **Signing in with a Microsoft account, and OneDrive.** These need the maintainer's Entra registration, plus the redirect URI `http://localhost:3001/redirect.html` (`docs/setup/microsoft-app-registration.md`, step 3b). That is Part B of the test script. Not yet checked:
+  - MSAL's redirect bridge against the real login page;
+  - `$batch` eTags matching single requests;
+  - personal OneDrive's download host names (the CSP allows `*.1drv.com` and `*.microsoftpersonalcontent.com`).
+- **In Word:** the footer link and relinking a renamed master.
+  - Word was open with the maintainer's own document, and Word must be started afresh, with remote debugging, to drive the pane.
+  - Both are covered by jsdom and shell tests.
+- **A real deck family.** Decks can be made only from Phase 4. The deck in the test account is an invented history.
+- **Production hosting** of My documents, like the add-in's.
+
+**Known issues**
+
+- **The open-document size check is 100 MB** (`71c9869`, the maintainer's choice), but Microsoft's `Word.Document` reference says `insertFileFromBase64` takes at most 4 MB. Between 4 and 100 MB, Word itself may refuse the write. That hasn't been tried. Decision 0008 and the Phase 2 known issue still say 4 MB.
+- **Only a master's same-kind move is followed.** Word on the web and Word for Windows report one file with different addresses, so moving the master and then opening it only on the web isn't recorded. The page still shows the old address.
+- **"Open as sent" downloads the copy;** it doesn't open in Word on the web.
+- **The tree is one column per event,** so a family with hundreds of events scrolls sideways (350 points: about 20,000 px).
+- **CLAUDE.md's architecture list** still calls `apps/family-app` enterprise-only, and doesn't name `packages/storage-local` or `packages/design`. Left for the maintainer.
+
 ## Phase 3 follow-up: keep only the words for files saved by other apps (2026-10-15, clicked through in Word 2026-10-16). Built, checked with Word's accept/reject comparison and LibreOffice, and clicked through in the Word pane with real LibreOffice re-saves. Real Google Docs downloads are fixtures.
 
 Branch `returned-words-only`, from `phase-3-returned-files` at `69194fc`. Not pushed. Decision: [0014 Keeping only the words of a file another app saved](decisions/0014-words-only.md). Decision 0012's consequences updated.
@@ -471,6 +585,7 @@ Task-pane budgets are set in Phase 2.
 
 ## Next
 
-1. The maintainer registers the app and runs `docs/testing/word-personal.md` on Word for Windows and Word on the web, with OneDrive, now including steps 12 to 19 (files that come back).
-2. Fix whatever that run finds.
-3. Phase 4 (PowerPoint deck variants), when the maintainer starts it.
+1. The maintainer registers the app and runs `docs/testing/word-personal.md` on Word for Windows and Word on the web, with OneDrive, now including steps 12 to 20.
+2. Then Part B of `docs/testing/my-documents.md`: My documents with the same registration (one more redirect URI), and the Word footer link.
+3. Fix whatever those runs find.
+4. Phase 4 (PowerPoint deck variants), when the maintainer starts it.
