@@ -13,7 +13,13 @@ const ID = /^[0-9a-f]{32}$/;
 /** getFileAsync slices: at most 4 MB on Windows, Mac and the web. */
 const SLICE = 4 * 1024 * 1024;
 /** Document.insertFileFromBase64 refuses anything larger. */
-export const MAX_REPLACE_BYTES = 4 * 1024 * 1024;
+export const MAX_REPLACE_BYTES = 100 * 1024 * 1024;
+/**
+ * Testing only: VITE_LINEAGE_LIFT_SIZE_LIMIT=1 in .env.local skips the check above in
+ * development builds, so Word's own limit decides. Production builds ignore it.
+ */
+const LIFT_SIZE_LIMIT =
+  import.meta.env.DEV && import.meta.env["VITE_LINEAGE_LIFT_SIZE_LIMIT"] === "1";
 
 function base64(bytes: Uint8Array): string {
   let binary = "";
@@ -134,9 +140,9 @@ export class WordHost implements DocumentHost {
    * https://learn.microsoft.com/javascript/api/word/word.insertfileoptions
    */
   async replaceContents(bytes: Uint8Array): Promise<void> {
-    if (bytes.length > MAX_REPLACE_BYTES) {
+    if (bytes.length > MAX_REPLACE_BYTES && !LIFT_SIZE_LIMIT) {
       throw new LineageError(
-        "This file is over 4 MB, which is too large for Lineage to change while it's open in Word.",
+        "This file is over 100 MB, which is too large for Lineage to change while it's open in Word.",
         `${String(bytes.length)} bytes`,
       );
     }
