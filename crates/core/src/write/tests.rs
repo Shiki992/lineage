@@ -774,27 +774,27 @@ fn the_end_of_the_document_changes_words_only() {
     }
 }
 
-#[test]
-fn real_libreoffice_saves_bring_only_their_words() {
+/// Keeps every change to the words in each edited real re-save in `folder`
+/// (made from the inputs in `kit::LIBREOFFICE`), words only: none of `traces`
+/// arrive, and the result looks exactly as if the same words had been typed
+/// into the file that left.
+fn real_resaves_bring_only_their_words(folder: &str, traces: &[&str]) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/docx/returned/libreoffice");
+        .join("../../fixtures/docx/returned")
+        .join(folder);
     let mut kept = 0;
     for input in LIBREOFFICE.iter().filter(|i| i.edits != kit::Edits::None) {
         let base = open(&resume::package("t", &input.source.lines()).to_bytes());
         let theirs = open(&std::fs::read(root.join(input.name)).expect("fixture"));
-        let name = format!("words-libreoffice-{}", input.name.trim_end_matches(".docx"));
+        let expected = input.edits.apply(&input.source.lines());
+        // The real app kept every word that went in.
+        assert_eq!(theirs.body_lines(), lines_of(&expected), "{}", input.name);
+        let name = format!("words-{folder}-{}", input.name.trim_end_matches(".docx"));
         let bytes = keep_words(&name, &base, &base, &theirs);
         let xml = main_xml(&bytes);
-        for trace in [
-            r#"w:val="Normal""#,
-            "widowControl",
-            "w:bidi",
-            "pPrChange",
-            "rPrChange",
-        ] {
+        for trace in traces.iter().chain(&["pPrChange", "rPrChange"]) {
             assert!(!xml.contains(trace), "{name}: {trace}");
         }
-        let expected = input.edits.apply(&input.source.lines());
         assert_eq!(
             looks(&open(&bytes)),
             looks(&open_lines(&expected)),
@@ -803,6 +803,20 @@ fn real_libreoffice_saves_bring_only_their_words() {
         kept += 1;
     }
     assert_eq!(kept, 4);
+}
+
+#[test]
+fn real_libreoffice_saves_bring_only_their_words() {
+    real_resaves_bring_only_their_words(
+        "libreoffice",
+        &[r#"w:val="Normal""#, "widowControl", "w:bidi"],
+    );
+}
+
+#[test]
+fn real_google_docs_exports_bring_only_their_words() {
+    // Google writes `w:rtl` on every run and `w14:paraId` on every paragraph.
+    real_resaves_bring_only_their_words("google", &["w:rtl", "w14:"]);
 }
 
 /// A paragraph of runs, each `(rpr, text)`.

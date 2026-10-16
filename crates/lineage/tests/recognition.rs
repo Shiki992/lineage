@@ -256,6 +256,10 @@ fn libreoffice_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/docx/returned/libreoffice")
 }
 
+fn google_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/docx/returned/google")
+}
+
 fn rewrite_ids(bytes: &[u8], family: &Id, sent: &Id) -> Vec<u8> {
     let mut package = Package::read(bytes).expect("reads");
     write_ids(
@@ -409,36 +413,42 @@ fn build() -> (World, Vec<Case>) {
         }
     }
 
-    // The real LibreOffice re-saves.
-    for input in &LIBREOFFICE {
-        let bytes = std::fs::read(libreoffice_dir().join(input.name)).expect("fixture exists");
-        let sent = match input.source {
-            Source::MasterV1 => &s_mentor,
-            Source::TailoredData => &s_northgate,
-            Source::CoverLetterV1 => &s_letter_ng,
-        };
-        let truth = |ids_inside: bool| {
-            Some(Truth {
-                family: sent.family.clone(),
-                checkpoint: sent.checkpoint.clone(),
-                sent: sent.sent.clone(),
-                ambiguous: !ids_inside && twins(sent),
-            })
-        };
-        if input.ids {
+    // The real LibreOffice re-saves and Google Docs downloads (made from the
+    // same inputs; both apps keep the custom properties, so the ids survive).
+    for (app, dir) in [
+        ("LibreOffice", libreoffice_dir()),
+        ("Google Docs", google_dir()),
+    ] {
+        for input in &LIBREOFFICE {
+            let bytes = std::fs::read(dir.join(input.name)).expect("fixture exists");
+            let sent = match input.source {
+                Source::MasterV1 => &s_mentor,
+                Source::TailoredData => &s_northgate,
+                Source::CoverLetterV1 => &s_letter_ng,
+            };
+            let truth = |ids_inside: bool| {
+                Some(Truth {
+                    family: sent.family.clone(),
+                    checkpoint: sent.checkpoint.clone(),
+                    sent: sent.sent.clone(),
+                    ambiguous: !ids_inside && twins(sent),
+                })
+            };
+            if input.ids {
+                cases.push(Case {
+                    kind: format!("{app}, ids kept"),
+                    edits: input.edits,
+                    bytes: rewrite_ids(&bytes, &sent.family, &sent.sent),
+                    truth: truth(true),
+                });
+            }
             cases.push(Case {
-                kind: "LibreOffice, ids kept".into(),
+                kind: format!("{app}, no ids"),
                 edits: input.edits,
-                bytes: rewrite_ids(&bytes, &sent.family, &sent.sent),
-                truth: truth(true),
+                bytes: strip(&bytes),
+                truth: truth(false),
             });
         }
-        cases.push(Case {
-            kind: "LibreOffice, no ids".into(),
-            edits: input.edits,
-            bytes: strip(&bytes),
-            truth: truth(false),
-        });
     }
 
     // Negatives: files Lineage has never seen.
@@ -640,16 +650,21 @@ fn re_saving_elsewhere_changes_no_words() {
     let lo =
         std::fs::read(libreoffice_dir().join("resume-unchanged-with-ids.docx")).expect("fixture");
     assert_eq!(content(&lo), Vec::<String>::new(), "LibreOffice");
+    let google =
+        std::fs::read(google_dir().join("resume-unchanged-with-ids.docx")).expect("fixture");
+    assert_eq!(content(&google), Vec::<String>::new(), "Google Docs");
     for saved in [Saved::GoogleExport, Saved::Reformatted] {
         let bytes = kit::package("t", &resume::master_v1_lines(), saved).to_bytes();
         assert_eq!(content(&bytes), Vec::<String>::new(), "{saved:?}");
     }
-    // LibreOffice keeps custom properties, so the ids survive a re-save.
-    let ids = lineage_core::docx::props::read_ids(&Package::read(&lo).expect("reads"))
-        .expect("reads ids")
-        .expect("has ids");
-    assert_eq!(
-        (ids.family.as_str(), ids.checkpoint.as_str()),
-        (LIBREOFFICE_FAMILY, LIBREOFFICE_SENT)
-    );
+    // LibreOffice and Google Docs keep custom properties, so the ids survive.
+    for file in [&lo, &google] {
+        let ids = lineage_core::docx::props::read_ids(&Package::read(file).expect("reads"))
+            .expect("reads ids")
+            .expect("has ids");
+        assert_eq!(
+            (ids.family.as_str(), ids.checkpoint.as_str()),
+            (LIBREOFFICE_FAMILY, LIBREOFFICE_SENT)
+        );
+    }
 }

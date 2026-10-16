@@ -653,6 +653,41 @@ fn a_google_docs_export_brings_only_its_words_unless_asked() {
 }
 
 #[test]
+fn a_real_google_docs_download_is_reviewed_words_only() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/docx/returned/google/resume-light-edits-with-ids.docx");
+    let back = std::fs::read(fixture).expect("fixture");
+    let mut host = Host::new();
+    let file = host.start(&resume::package("t", &resume::master_v1_lines()).to_bytes());
+    let master = host.master();
+    host.send(&master, &file, "Northgate Analytics", false);
+    let found = host.recognise(&back);
+    assert_eq!(found.verdict, Verdict::Certain, "{found:?}");
+    let returned = host.record(&back, &found, MatchedBy::Content);
+    let (review, written) = keep_all(&mut host, &returned, &file, Bring::WordsOnly);
+    assert!(review.formatting.words_only);
+    assert!(
+        review.formatting.note.as_deref().is_some_and(
+            |n| n.starts_with("This file was saved by another app, such as Google Docs,")
+        ),
+        "{:?}",
+        review.formatting
+    );
+    assert_eq!(review.view.changes.len(), 3, "the words they changed");
+    let xml = main_part(&written);
+    assert!(
+        !xml.contains("w:rtl") && !xml.contains("Calibri") && !xml.contains("pPrChange"),
+        "{xml}"
+    );
+    assert_eq!(
+        Docx::open_view(&written, View::Accepted)
+            .expect("opens")
+            .body_lines(),
+        lines(&resume::package("t", &light_edits(&resume::master_v1_lines())).to_bytes())
+    );
+}
+
+#[test]
 fn a_libreoffice_save_is_reviewed_words_only() {
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/docx/returned/libreoffice/resume-light-edits-with-ids.docx");

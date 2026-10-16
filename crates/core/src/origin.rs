@@ -221,6 +221,25 @@ mod tests {
     }
 
     #[test]
+    fn real_google_docs_exports_are_exports() {
+        // Downloaded from Google Docs (File > Download > Microsoft Word, here
+        // through the Drive API's export): no docProps/app.xml at all.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/docx/returned/google");
+        for input in &LIBREOFFICE {
+            let base = open(&resume::package("t", &input.source.lines()).to_bytes());
+            let theirs = open(&std::fs::read(root.join(input.name)).expect("fixture"));
+            assert!(!has_app_properties(&theirs.package), "{}", input.name);
+            assert_eq!(
+                trust(&base, &theirs),
+                Some(Unreliable::Exported),
+                "{}",
+                input.name
+            );
+        }
+    }
+
+    #[test]
     fn exports_and_restyles_are_not_trusted_word_edits_are() {
         let lines = resume::master_v1_lines();
         for edits in [
