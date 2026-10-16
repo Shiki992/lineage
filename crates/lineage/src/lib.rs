@@ -11,7 +11,8 @@
 //! - [`state`]: the family folded from it.
 //! - [`commands`]: one function per panel button.
 //! - [`changes`]: change states, the merge base, detection.
-//! - [`identity`]: ids in files, and fingerprints.
+//! - [`identity`]: fingerprints and content matching.
+//! - [`returned`]: files that come back: recognising, reviewing, keeping.
 //! - [`blob`]: content-addressed blobs and snapshots.
 //! - [`views`]: the panels.
 
@@ -24,6 +25,7 @@ pub mod error;
 pub mod event;
 pub mod identity;
 pub mod ids;
+pub mod returned;
 pub mod state;
 pub mod views;
 

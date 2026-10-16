@@ -61,15 +61,15 @@ pub struct Outcome {
 
 /// Accumulates events against a working copy of the state, so every record is
 /// checked by the same rules as a ledger read back from storage.
-struct Builder<'s> {
-    state: FamilyState,
+pub(crate) struct Builder<'s> {
+    pub(crate) state: FamilyState,
     now: Timestamp,
-    out: Outcome,
+    pub(crate) out: Outcome,
     stored: &'s dyn BlobSource,
 }
 
 impl<'s> Builder<'s> {
-    fn new(state: &FamilyState, now: Timestamp, stored: &'s dyn BlobSource) -> Self {
+    pub(crate) fn new(state: &FamilyState, now: Timestamp, stored: &'s dyn BlobSource) -> Self {
         Self {
             state: state.clone(),
             now,
@@ -78,7 +78,7 @@ impl<'s> Builder<'s> {
         }
     }
 
-    fn push(&mut self, event: Event) -> Result<()> {
+    pub(crate) fn push(&mut self, event: Event) -> Result<()> {
         let record = Record {
             v: RECORD_VERSION,
             seq: self.state.next_seq(),
@@ -90,7 +90,7 @@ impl<'s> Builder<'s> {
         Ok(())
     }
 
-    fn blobs(&mut self, blobs: Vec<Blob>) {
+    pub(crate) fn blobs(&mut self, blobs: Vec<Blob>) {
         for blob in blobs {
             if !self.out.blobs.iter().any(|b| b.hash == blob.hash) {
                 self.out.blobs.push(blob);
@@ -105,7 +105,7 @@ impl<'s> Builder<'s> {
         }
     }
 
-    fn finish(self) -> Outcome {
+    pub(crate) fn finish(self) -> Outcome {
         self.out
     }
 }
@@ -123,7 +123,7 @@ fn with_ids(bytes: &[u8], ids: &LineageIds) -> Result<Vec<u8>> {
 /// bytes alone would make a checkpoint every time a file went through Word.
 /// Edits that live only outside the stories, such as a style's definition,
 /// are picked up with the next change to the text.
-fn same_content(a: &[u8], b: &[u8]) -> Result<bool> {
+pub(crate) fn same_content(a: &[u8], b: &[u8]) -> Result<bool> {
     let (pa, pb) = (Package::read(a)?, Package::read(b)?);
     let strip = |p: &Package| -> Vec<(String, Vec<u8>)> {
         let custom = lineage_core::docx::props::custom_part(p);
@@ -144,14 +144,21 @@ fn same_content(a: &[u8], b: &[u8]) -> Result<bool> {
     Ok(true)
 }
 
-/// Checks the file is a checkpoint of `node` in this family.
-fn check_file(state: &FamilyState, node: &Id, bytes: &[u8]) -> Result<LineageIds> {
+/// Checks the file is a checkpoint of `node` in this family. A copy that was
+/// sent carries the sent copy's id instead (decision 0012), so a file that came
+/// back can never be taken for its node.
+pub(crate) fn check_file(state: &FamilyState, node: &Id, bytes: &[u8]) -> Result<LineageIds> {
     let package = Package::read(bytes)?;
     let ids = read_ids(&package)?
         .ok_or_else(|| Error::WrongFile("the file has no Lineage ids".to_owned()))?;
     if ids.family != state.family_id.as_str() {
         return Err(Error::WrongFile(
             "the file belongs to another family".to_owned(),
+        ));
+    }
+    if state.sent.iter().any(|s| s.id.as_str() == ids.checkpoint) {
+        return Err(Error::WrongFile(
+            "the file is a copy that was sent".to_owned(),
         ));
     }
     let belongs = state
@@ -167,7 +174,7 @@ fn check_file(state: &FamilyState, node: &Id, bytes: &[u8]) -> Result<LineageIds
 
 /// Saves a checkpoint of `bytes` for `node` into the builder. Returns the new
 /// checkpoint and the file with its ids.
-fn checkpoint_into(
+pub(crate) fn checkpoint_into(
     builder: &mut Builder<'_>,
     ids_source: &mut dyn IdSource,
     author: Option<String>,
@@ -654,7 +661,8 @@ pub fn decide_cards(
 
 /// "Save copy and record it": saves a checkpoint if the file has unsaved
 /// changes, makes a clean copy, and records it as sent. The copy carries the
-/// two Lineage ids unless `embed_id` is false.
+/// family's id and its own sent-copy id (decision 0012) unless `embed_id` is
+/// false, so a copy that comes back names exactly who it was sent to.
 ///
 /// # Errors
 /// When the file is not the node's, or the clean copy cannot be made safely.
@@ -694,15 +702,15 @@ pub fn send_copy(
         builder.out.file = Some(file.clone());
         (checkpoint, file)
     };
+    let sent = ctx.ids.next_id();
     let ids = embed_id.then(|| LineageIds {
         family: state.family_id.to_string(),
-        checkpoint: from.to_string(),
+        checkpoint: sent.to_string(),
     });
     let (copy, report) = clean_copy(&from_bytes, ids.as_ref())?;
     let blob = Blob::new(copy.clone());
     let file = blob.hash.clone();
     builder.blobs(vec![blob]);
-    let sent = ctx.ids.next_id();
     builder.push(Event::CopySent {
         sent_copy_id: sent.clone(),
         from_checkpoint_id: from,

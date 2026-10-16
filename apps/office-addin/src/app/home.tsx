@@ -6,8 +6,9 @@
 // tracked. Every label comes from the engine (glossary words), except the few
 // that only exist here.
 
-import type { MasterPanel, VersionPanel } from "@lineage/shell";
+import type { MasterPanel, Recognition, VersionPanel } from "@lineage/shell";
 import { Button, Header, LatestCheckpoint, LinkButton } from "./parts";
+import { ReturnedCallout } from "./returned";
 
 export type Action = "makeVersion" | "saveCheckpoint" | "sendCopy";
 
@@ -48,6 +49,24 @@ function Actions({
   );
 }
 
+/** The footer: "What I've sent" and "A file came back". */
+function Footer({
+  label,
+  onSent,
+  onCameBack,
+}: {
+  label: string;
+  onSent: () => void;
+  onCameBack: (() => void) | undefined;
+}) {
+  return (
+    <footer className="row" style={{ flexWrap: "wrap" }}>
+      <LinkButton onClick={onSent}>{label}</LinkButton>
+      {onCameBack && <LinkButton onClick={onCameBack}>A file came back</LinkButton>}
+    </footer>
+  );
+}
+
 export function MasterHome({
   panel,
   busy,
@@ -55,6 +74,8 @@ export function MasterHome({
   onOpen,
   onAction,
   onSent,
+  onCameBack,
+  onReviewReturned,
 }: {
   panel: MasterPanel;
   busy: boolean;
@@ -62,10 +83,15 @@ export function MasterHome({
   onOpen: (storageRef: string) => void;
   onAction: (action: Action) => void;
   onSent: () => void;
+  onCameBack?: () => void;
+  onReviewReturned?: (returned: string) => void;
 }) {
   return (
     <div className="stack">
       <Header name={panel.fileName} chip={panel.chip} kind="master" line={panel.follows} />
+      {onReviewReturned && (
+        <ReturnedCallout rows={panel.returned} busy={busy} onReview={onReviewReturned} />
+      )}
       <LatestCheckpoint card={panel.latest} />
       {panel.callout && (
         <section className="callout stack" style={{ gap: 8 }} aria-label="Changes to offer">
@@ -106,9 +132,7 @@ export function MasterHome({
         </section>
       )}
       <Actions labels={panel.actions} busy={busy} onAction={onAction} />
-      <footer>
-        <LinkButton onClick={onSent}>{panel.footer}</LinkButton>
-      </footer>
+      <Footer label={panel.footer} onSent={onSent} onCameBack={onCameBack} />
     </div>
   );
 }
@@ -119,16 +143,23 @@ export function VersionHome({
   onReview,
   onAction,
   onSent,
+  onCameBack,
+  onReviewReturned,
 }: {
   panel: VersionPanel;
   busy: boolean;
   onReview: () => void;
   onAction: (action: Action) => void;
   onSent: () => void;
+  onCameBack?: () => void;
+  onReviewReturned?: (returned: string) => void;
 }) {
   return (
     <div className="stack">
       <Header name={panel.fileName} chip={panel.chip} kind="variant" line={panel.status} />
+      {onReviewReturned && (
+        <ReturnedCallout rows={panel.returned} busy={busy} onReview={onReviewReturned} />
+      )}
       {panel.updates && (
         <section className="callout stack" style={{ gap: 8 }} aria-label="Updates from the master">
           <p>{panel.updates}</p>
@@ -139,9 +170,7 @@ export function VersionHome({
       )}
       <LatestCheckpoint card={panel.latest} />
       <Actions labels={panel.actions} busy={busy} onAction={onAction} />
-      <footer>
-        <LinkButton onClick={onSent}>{panel.footer}</LinkButton>
-      </footer>
+      <Footer label={panel.footer} onSent={onSent} onCameBack={onCameBack} />
     </div>
   );
 }
@@ -152,16 +181,38 @@ export function StartTracking({
   storage,
   busy,
   onStart,
+  cameBack,
+  onCameBack,
 }: {
   name: string;
   saved: boolean;
   storage: string;
   busy: boolean;
   onStart: () => void;
+  /** Set when this file looks like a copy that came back. */
+  cameBack?: Recognition | null;
+  onCameBack?: () => void;
 }) {
+  const looksReturned = cameBack && cameBack.verdict !== "unknown";
   return (
     <div className="stack">
       <h1>{name}</h1>
+      {looksReturned && (
+        <section className="callout stack" style={{ gap: 8 }} aria-label="This file came back">
+          <p style={{ fontWeight: 600 }}>
+            {cameBack.verdict === "certain"
+              ? `This looks like a copy that came back: ${cameBack.headline.replace(/^This came back from /, "from ")}.`
+              : "This looks like a copy you sent that came back."}
+          </p>
+          <p className="small">
+            Review its changes instead of tracking it as a new file. Lineage shows only what changed
+            since it left.
+          </p>
+          <Button primary disabled={busy} onClick={onCameBack}>
+            Review it as a file that came back
+          </Button>
+        </section>
+      )}
       <p>
         Lineage keeps a history of this file and lets you make tailored versions that follow it.
         When you change this file, each version is offered the change, and you choose what to bring
@@ -174,7 +225,7 @@ export function StartTracking({
         </p>
       )}
       <Button
-        primary
+        primary={!looksReturned}
         wide
         disabled={busy || !saved}
         aria-describedby={saved ? undefined : "save-first"}

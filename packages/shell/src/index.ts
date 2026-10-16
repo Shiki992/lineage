@@ -2,28 +2,35 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export { EngineBoundaryError, EngineError, loadEngine, loadEngineAsync } from "./engine.js";
-export type { CommandResult, Engine } from "./engine.js";
+export type { CommandResult, Engine, FamilyLedger } from "./engine.js";
 export type { DocumentHost } from "./host.js";
 export { Lineage, LineageError, userMessage } from "./lineage.js";
-export type { LineageOptions, Opened } from "./lineage.js";
+export type { LineageOptions, Opened, Returning } from "./lineage.js";
 export * as schemas from "./schemas.js";
 export type {
+  Candidate,
   CardDecision,
   ChangeCard,
   CheckpointCard,
   Choice,
+  CopyOf,
   Decision,
   Family,
   Ids,
   MasterPanel,
+  MatchedBy,
   Node,
   OpenFile,
   OverlapCard,
+  Recognition,
+  ReturnReview,
+  ReturnedRow,
   Segment,
   SendArgs,
   SentList,
   SentRow,
   Updates,
+  Verdict,
   VersionPanel,
   VersionRow,
   WhatChanged,

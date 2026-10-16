@@ -75,20 +75,62 @@ impl WhatChanged {
     }
 }
 
-/// The label for a decision.
+/// The label for a decision on a master's change.
 #[must_use]
 pub fn label(decision: Decision) -> &'static str {
-    match decision {
-        Decision::BringIn => "Bring in",
-        Decision::Decline => "Decline",
-        Decision::KeepMine => "Keep mine",
-        Decision::UseMasters => "Use the master's",
-        Decision::KeepBoth {
-            masters_first: false,
-        } => "Keep both, mine first",
-        Decision::KeepBoth {
-            masters_first: true,
-        } => "Keep both, master's first",
+    Theirs::Master.label(decision)
+}
+
+/// Whose changes are on offer, for the words on the cards.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Theirs {
+    /// The master's changes, offered to a tailored version.
+    Master,
+    /// The changes in a file that came back, made by `who` ("Northgate
+    /// Analytics", or "the returned copy" when nobody was recorded).
+    Returned { who: String },
+}
+
+impl Theirs {
+    /// The label for a decision.
+    #[must_use]
+    pub fn label(&self, decision: Decision) -> &'static str {
+        let returned = matches!(self, Self::Returned { .. });
+        match decision {
+            Decision::BringIn if returned => "Keep",
+            Decision::BringIn => "Bring in",
+            Decision::Decline if returned => "Skip",
+            Decision::Decline => "Decline",
+            Decision::KeepMine => "Keep mine",
+            Decision::UseMasters if returned => "Use theirs",
+            Decision::UseMasters => "Use the master's",
+            Decision::KeepBoth {
+                masters_first: false,
+            } => "Keep both, mine first",
+            Decision::KeepBoth {
+                masters_first: true,
+            } if returned => "Keep both, theirs first",
+            Decision::KeepBoth {
+                masters_first: true,
+            } => "Keep both, master's first",
+        }
+    }
+
+    /// Who made the changes, in the middle of a sentence.
+    fn they(&self) -> &str {
+        match self {
+            Self::Master => "the master",
+            Self::Returned { who } => who,
+        }
+    }
+
+    /// Who made the changes, at the start of a sentence.
+    fn who(&self) -> String {
+        let they = self.they();
+        let mut chars = they.chars();
+        chars.next().map_or_else(String::new, |first| {
+            first.to_uppercase().chain(chars).collect()
+        })
     }
 }
 
@@ -169,31 +211,23 @@ pub fn from_diff(diff: &DocDiff, after: &Docx) -> WhatChanged {
     view
 }
 
-fn overlap_summary(item: &Item) -> String {
+fn overlap_summary(item: &Item, theirs: &Theirs) -> String {
     let before = item.change.before_text.as_deref().map(quote);
+    let before = before.unwrap_or_default();
+    let (who, they) = (theirs.who(), theirs.they());
     match item.status {
-        Status::Overlap(OverlapKind::BothAdded) => {
-            "You and the master both added text here".to_owned()
-        }
+        Status::Overlap(OverlapKind::BothAdded) => format!("You and {they} both added text here"),
         Status::Overlap(OverlapKind::DeletedVsEdited) => {
-            format!(
-                "The master removed {} and you changed it",
-                before.unwrap_or_default()
-            )
+            format!("{who} removed {before} and you changed it")
         }
         Status::Overlap(OverlapKind::EditedVsDeleted) => {
-            format!(
-                "The master changed {} and you removed it",
-                before.unwrap_or_default()
-            )
+            format!("{who} changed {before} and you removed it")
         }
         Status::Overlap(OverlapKind::FormattingVsText) => {
-            format!(
-                "Both changed {}: one the words, one the formatting",
-                before.unwrap_or_default()
-            )
+            format!("Both changed {before}: one the words, one the formatting")
         }
-        _ => format!("Both changed {}", before.unwrap_or_default()),
+        _ if *theirs == Theirs::Master => format!("Both changed {before}"),
+        _ => format!("You and {they} both changed {before}"),
     }
 }
 
@@ -217,6 +251,13 @@ fn mine_segments(item: &Item) -> Vec<Segment> {
 /// "What changed" for an offer: the master's changes, judged against this version.
 #[must_use]
 pub fn from_plan(plan: &Plan<'_>) -> WhatChanged {
+    from_plan_for(plan, &Theirs::Master)
+}
+
+/// "What changed" for `theirs`' changes, judged against this file: an offer
+/// from the master, or the changes in a file that came back.
+#[must_use]
+pub fn from_plan_for(plan: &Plan<'_>, theirs: &Theirs) -> WhatChanged {
     let mut view = WhatChanged::default();
     for item in &plan.items {
         let choices: Vec<Choice> = item
@@ -224,7 +265,7 @@ pub fn from_plan(plan: &Plan<'_>) -> WhatChanged {
             .into_iter()
             .map(|decision| Choice {
                 decision,
-                label: label(decision).to_owned(),
+                label: theirs.label(decision).to_owned(),
             })
             .collect();
         match &item.status {
@@ -244,7 +285,7 @@ pub fn from_plan(plan: &Plan<'_>) -> WhatChanged {
             }
             Status::Overlap(_) => view.overlaps.push(OverlapCard {
                 id: item.change.id.clone(),
-                summary: overlap_summary(item),
+                summary: overlap_summary(item, theirs),
                 place: place(&item.change),
                 before: item.change.before_text.clone(),
                 mine: mine_segments(item),
@@ -255,10 +296,11 @@ pub fn from_plan(plan: &Plan<'_>) -> WhatChanged {
     }
     let offered =
         view.changes.len() + view.formatting.len() + view.overlaps.len() + view.by_hand.len();
-    view.headline = if offered == 0 {
-        "You're up to date with the master".to_owned()
-    } else {
-        format!("{} from the master", count(offered, "update", "updates"))
+    view.headline = match theirs {
+        Theirs::Master if offered == 0 => "You're up to date with the master".to_owned(),
+        Theirs::Master => format!("{} from the master", count(offered, "update", "updates")),
+        Theirs::Returned { .. } if offered == 0 => "Nothing left to review".to_owned(),
+        Theirs::Returned { who } => format!("{} from {who}", count(offered, "change", "changes")),
     };
     view
 }
@@ -347,6 +389,60 @@ mod tests {
             assert_eq!(labels, ["Decline"], "{}", card.summary);
             assert!(card.by_hand.is_some());
         }
+    }
+
+    #[test]
+    fn a_returned_file_is_worded_as_theirs() {
+        let base = open_lines(&resume::master_v1_lines());
+        let ours = open_lines(&resume::tailored_same_para_lines());
+        let theirs = open_lines(&resume::master_v3_lines());
+        let plan = merge::plan(&base, &ours, &theirs);
+        let who = Theirs::Returned {
+            who: "Northgate Analytics".to_owned(),
+        };
+        let view = from_plan_for(&plan, &who);
+        assert_eq!(view.headline, "4 changes from Northgate Analytics");
+        assert!(
+            view.overlaps[0]
+                .summary
+                .starts_with("You and Northgate Analytics both changed 'Data engineer"),
+            "{}",
+            view.overlaps[0].summary
+        );
+        let labels: Vec<&str> = view.overlaps[0]
+            .choices
+            .iter()
+            .map(|c| c.label.as_str())
+            .collect();
+        assert_eq!(labels, ["Keep mine", "Use theirs"]);
+        let clean: Vec<&str> = view.changes[0]
+            .choices
+            .iter()
+            .map(|c| c.label.as_str())
+            .collect();
+        assert_eq!(clean, ["Keep", "Skip"]);
+        // The master's wording is unchanged.
+        assert_eq!(from_plan(&plan).headline, "4 updates from the master");
+
+        let deleted = open_lines(&resume::tailored_deleted_job_lines());
+        let plan = merge::plan(&base, &deleted, &theirs);
+        let unnamed = Theirs::Returned {
+            who: "the returned copy".to_owned(),
+        };
+        let view = from_plan_for(&plan, &unnamed);
+        assert!(
+            view.overlaps
+                .iter()
+                .any(|o| o.summary.starts_with("The returned copy changed")),
+            "{:?}",
+            view.overlaps.iter().map(|o| &o.summary).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            unnamed.label(Decision::KeepBoth {
+                masters_first: true
+            }),
+            "Keep both, theirs first"
+        );
     }
 
     #[test]

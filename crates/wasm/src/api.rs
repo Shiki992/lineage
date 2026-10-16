@@ -14,6 +14,7 @@
 use lineage::blob::{Blob, BlobHash};
 use lineage::commands::{self, Context, Outcome};
 use lineage::event;
+use lineage::returned;
 use lineage::state::FamilyState;
 use lineage::views;
 use lineage::{Id, SeededIds, Timestamp};
@@ -23,8 +24,9 @@ use serde::Serialize;
 
 use crate::cache::{BlobCache, DEFAULT_LIMIT, Recording};
 use crate::dto::{
-    CardDecision, FamilyDto, IdsDto, MasterPanelDto, OpenFileDto, OutcomeDto, SendArgs,
-    SentListDto, UpdatesDto, VersionPanelDto, WhatChangedDto, WrittenDto, ledger_lines,
+    CardDecision, CopyOfDto, FamilyDto, IdsDto, LedgerDto, MasterPanelDto, OpenFileDto, OutcomeDto,
+    RecognitionDto, RecordArgs, ReturnReviewDto, SendArgs, SentListDto, UpdatesDto,
+    VersionPanelDto, WhatChangedDto, WrittenDto, ledger_lines,
 };
 
 /// What a call returns: the JSON envelope and any bytes.
@@ -64,6 +66,10 @@ impl Reply {
             detail: String,
             #[serde(skip_serializing_if = "Vec::is_empty")]
             hashes: Vec<&'a str>,
+            /// The family the missing blobs are in, when the call looked in more
+            /// than one.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            family: Option<&'a str>,
         }
         #[derive(Serialize)]
         struct Envelope<'a> {
@@ -81,18 +87,21 @@ impl Reply {
                 user_message: e.user_message(),
                 detail: e.to_string(),
                 hashes: Vec::new(),
+                family: None,
             },
-            Failure::Missing(hashes) => Error {
+            Failure::Missing(hashes, family) => Error {
                 kind: "missingBlobs",
                 user_message: "Lineage is still fetching this file's history.",
                 detail: format!("{} blobs to fetch", hashes.len()),
                 hashes: hashes.iter().map(BlobHash::as_str).collect(),
+                family: family.as_ref().map(Id::as_str),
             },
             Failure::BadInput(detail) => Error {
                 kind: "badInput",
                 user_message: "Lineage couldn't understand that request. Nothing was changed.",
                 detail: detail.clone(),
                 hashes: Vec::new(),
+                family: None,
             },
         };
         let json = serde_json::to_string(&Envelope { ok: false, error }).unwrap_or_else(|_| {
@@ -109,8 +118,9 @@ impl Reply {
 #[derive(Debug)]
 enum Failure {
     Lineage(lineage::Error),
-    /// Blobs the cache lacks; the host fetches them and calls again.
-    Missing(Vec<BlobHash>),
+    /// Blobs the cache lacks; the host fetches them (from this family, when
+    /// named) and calls again.
+    Missing(Vec<BlobHash>, Option<Id>),
     BadInput(String),
 }
 
@@ -226,7 +236,7 @@ impl Session {
                 if missed.is_empty() {
                     Err(e)
                 } else {
-                    Err(Failure::Missing(missed))
+                    Err(Failure::Missing(missed, None))
                 }
             }
         }
@@ -323,7 +333,11 @@ impl Session {
     #[must_use]
     pub fn open_file(&self, ledger: &[u8], checkpoint: &str) -> Reply {
         let found = fold(ledger).and_then(|state| {
-            let checkpoint = id(checkpoint)?;
+            let named = id(checkpoint)?;
+            // A sent copy carries its own id (decision 0012): the file is a copy
+            // that came back, made from that checkpoint.
+            let copy = state.sent_copy(&named);
+            let checkpoint = copy.map_or(named, |s| s.from.clone());
             let saved = state.checkpoint(&checkpoint).ok_or_else(|| {
                 Failure::Lineage(lineage::Error::WrongFile(
                     "the checkpoint is not in this family".to_owned(),
@@ -341,7 +355,12 @@ impl Session {
                 display_name: node.display_name.clone(),
                 storage_ref: node.storage_ref.clone(),
                 checkpoint_label: state.label(&checkpoint),
-                is_latest: node.checkpoints.last() == Some(&checkpoint),
+                is_latest: node.checkpoints.last() == Some(&checkpoint) && copy.is_none(),
+                copy_of: copy.map(|s| CopyOfDto {
+                    sent_copy_id: s.id.clone(),
+                    recipient: s.recipient.clone(),
+                    date: s.at.day_label(),
+                }),
             })
         });
         found.map_or_else(|e| Reply::failure(&e), |v| Reply::ok(&v))
@@ -568,6 +587,146 @@ impl Session {
         };
         let source = Recording::new(&self.cache);
         let result = commands::open_sent_copy(&state, &sent, &source).map_err(Failure::from);
+        match Self::finish(result, &source) {
+            Ok(bytes) => {
+                let mut reply = Reply::ok(&serde_json::Value::Null);
+                reply.file = Some(bytes);
+                reply
+            }
+            Err(e) => Reply::failure(&e),
+        }
+    }
+
+    /// "A file came back": which copy `file` is. `ledgers` is a JSON array of
+    /// `{family, ledger}`, every family in storage, the ledger as text.
+    #[must_use]
+    pub fn recognise(&self, file: &[u8], ledgers: &str) -> Reply {
+        let result = (|| -> Result<RecognitionDto> {
+            let ledgers: Vec<LedgerDto> = json(ledgers)?;
+            let mut states = Vec::with_capacity(ledgers.len());
+            for l in &ledgers {
+                let state = fold(l.ledger.as_bytes())?;
+                if state.family_id != l.family {
+                    return Err(Failure::BadInput(
+                        "a ledger is not the family it was given as".to_owned(),
+                    ));
+                }
+                states.push(state);
+            }
+            let refs: Vec<&FamilyState> = states.iter().collect();
+            let prepared = returned::prepare(file)?;
+            let found = match returned::by_ids(&prepared, &refs) {
+                Some(found) => found,
+                None => {
+                    let mut all = Vec::new();
+                    for (family, checkpoints) in returned::shortlist(&prepared, &refs) {
+                        let Some(state) = refs.iter().find(|s| s.family_id == family) else {
+                            continue;
+                        };
+                        let source = Recording::new(&self.cache);
+                        match returned::score(&prepared, state, &checkpoints, &source) {
+                            Ok(found) => all.extend(found),
+                            Err(e) => {
+                                let missed = source.missed();
+                                return Err(if missed.is_empty() {
+                                    Failure::Lineage(e)
+                                } else {
+                                    Failure::Missing(missed, Some(family))
+                                });
+                            }
+                        }
+                    }
+                    returned::verdict(all)
+                }
+            };
+            Ok(RecognitionDto::from(&returned::describe(&found, &refs)))
+        })();
+        result.map_or_else(|e| Reply::failure(&e), |v| Reply::ok(&v))
+    }
+
+    /// "Review the changes" on a recognised file: keeps it exactly as it came
+    /// back. `args` is `{name, checkpoint, sent, matchedBy}`.
+    pub fn record_returned(
+        &mut self,
+        ledger: &[u8],
+        file: &[u8],
+        args: &str,
+        now_ms: f64,
+    ) -> Reply {
+        let prepared = fold(ledger).and_then(|s| Ok((s, json::<RecordArgs>(args)?)));
+        let (state, args) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        let name = args.name.trim().chars().take(200).collect::<String>();
+        self.command(now_ms, |ctx, source| {
+            returned::record(
+                ctx,
+                &state,
+                file,
+                &name,
+                &args.checkpoint,
+                args.sent.as_ref(),
+                args.matched_by.into(),
+                source,
+            )
+        })
+    }
+
+    /// The review of a returned file, judged against the open file of `node`.
+    #[must_use]
+    pub fn returned_review(&self, ledger: &[u8], node: &str, file: &[u8], returned: &str) -> Reply {
+        let prepared = fold(ledger).and_then(|s| Ok((s, id(node)?, id(returned)?)));
+        let (state, node, back) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.view(|source| {
+            returned::review(&state, &back, &node, file, source).map(|r| ReturnReviewDto::from(&r))
+        })
+    }
+
+    /// "Apply" on a review: `cards` is a JSON array of `{card, decision}`.
+    pub fn decide_returned(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        file: &[u8],
+        returned: &str,
+        cards: &str,
+        now_ms: f64,
+    ) -> Reply {
+        let prepared = fold(ledger).and_then(|s| {
+            let cards: Vec<CardDecision> = json(cards)?;
+            Ok((
+                s,
+                id(node)?,
+                id(returned)?,
+                cards
+                    .into_iter()
+                    .map(|c| (c.card, c.decision.into()))
+                    .collect::<Vec<_>>(),
+            ))
+        });
+        let (state, node, back, cards) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.command(now_ms, |ctx, source| {
+            returned::decide(ctx, &state, &back, &node, file, &cards, source)
+        })
+    }
+
+    /// "Open what came back": the exact bytes, in `file`.
+    #[must_use]
+    pub fn open_returned(&self, ledger: &[u8], returned: &str) -> Reply {
+        let prepared = fold(ledger).and_then(|s| Ok((s, id(returned)?)));
+        let (state, back) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        let source = Recording::new(&self.cache);
+        let result = returned::open(&state, &back, &source).map_err(Failure::from);
         match Self::finish(result, &source) {
             Ok(bytes) => {
                 let mut reply = Reply::ok(&serde_json::Value::Null);

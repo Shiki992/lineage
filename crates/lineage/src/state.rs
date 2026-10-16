@@ -9,7 +9,9 @@ use std::collections::BTreeMap;
 
 use crate::blob::BlobHash;
 use crate::error::{Error, Result};
-use crate::event::{ChangeState, CleanSummary, Event, How, RECORD_VERSION, Record, Role};
+use crate::event::{
+    ChangeState, CleanSummary, Event, How, MatchedBy, RECORD_VERSION, Record, Role,
+};
 use crate::identity::Fingerprint;
 use crate::ids::{Id, Timestamp};
 
@@ -72,6 +74,7 @@ pub struct SentCopy {
     pub cleaned: CleanSummary,
 }
 
+/// A file that came back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Returned {
     pub id: Id,
@@ -79,11 +82,28 @@ pub struct Returned {
     pub from: Id,
     pub display_name: String,
     pub file: BlobHash,
-    pub matched_by: String,
+    pub matched_by: MatchedBy,
     pub confidence: u8,
     pub change_count: usize,
+    pub formatting_count: usize,
     pub at: Timestamp,
-    pub reviewed: Option<Reviewed>,
+    /// Each sitting in which the person kept or skipped its changes.
+    pub reviews: Vec<Reviewed>,
+}
+
+impl Returned {
+    /// Every change already kept or skipped.
+    pub fn decided(&self) -> impl Iterator<Item = &String> {
+        self.reviews
+            .iter()
+            .flat_map(|r| r.kept.iter().chain(&r.skipped))
+    }
+
+    /// True once nothing is left to decide.
+    #[must_use]
+    pub fn finished(&self) -> bool {
+        self.reviews.iter().any(|r| r.finished)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -92,6 +112,7 @@ pub struct Reviewed {
     pub result_checkpoint: Option<Id>,
     pub kept: Vec<String>,
     pub skipped: Vec<String>,
+    pub finished: bool,
     pub at: Timestamp,
 }
 
@@ -359,14 +380,26 @@ impl FamilyState {
                 matched_by,
                 confidence,
                 change_count,
+                formatting_count,
             } => {
                 if self.checkpoint(from_checkpoint_id).is_none() {
                     return Err(bad("a returned file from an unknown checkpoint"));
                 }
                 if let Some(sent) = sent_copy_id
-                    && !self.sent.iter().any(|s| &s.id == sent)
+                    && !self
+                        .sent
+                        .iter()
+                        .any(|s| &s.id == sent && &s.from == from_checkpoint_id)
                 {
-                    return Err(bad("a returned file for an unknown sent copy"));
+                    return Err(bad(
+                        "a returned file for an unknown sent copy, or not the copy's checkpoint",
+                    ));
+                }
+                if self.returned.iter().any(|r| &r.id == returned_id) {
+                    return Err(bad("a returned file id is used twice"));
+                }
+                if *confidence > 100 {
+                    return Err(bad("a match above 100%"));
                 }
                 self.returned.push(Returned {
                     id: returned_id.clone(),
@@ -374,11 +407,12 @@ impl FamilyState {
                     from: from_checkpoint_id.clone(),
                     display_name: display_name.clone(),
                     file: file.clone(),
-                    matched_by: matched_by.clone(),
+                    matched_by: *matched_by,
                     confidence: *confidence,
                     change_count: *change_count,
+                    formatting_count: *formatting_count,
                     at,
-                    reviewed: None,
+                    reviews: Vec::new(),
                 });
             }
             Event::ReturnReviewed {
@@ -387,20 +421,29 @@ impl FamilyState {
                 result_checkpoint_id,
                 kept,
                 skipped,
+                finished,
             } => {
                 if self.node(into_node_id).is_none() {
                     return Err(bad("a review into an unknown node"));
+                }
+                if let Some(result) = result_checkpoint_id
+                    && self
+                        .checkpoint(result)
+                        .is_none_or(|c| &c.node != into_node_id)
+                {
+                    return Err(bad("a review's checkpoint is not of the file it went into"));
                 }
                 let returned = self
                     .returned
                     .iter_mut()
                     .find(|r| &r.id == returned_id)
                     .ok_or_else(|| bad("a review of an unknown returned file"))?;
-                returned.reviewed = Some(Reviewed {
+                returned.reviews.push(Reviewed {
                     into: into_node_id.clone(),
                     result_checkpoint: result_checkpoint_id.clone(),
                     kept: kept.clone(),
                     skipped: skipped.clone(),
+                    finished: *finished,
                     at,
                 });
             }
@@ -480,6 +523,16 @@ impl FamilyState {
     pub fn change_state(&self, node: &Id, checkpoint: &Id, change: &str) -> Option<&ChangeRecord> {
         self.change_states
             .get(&(node.clone(), checkpoint.clone(), change.to_owned()))
+    }
+
+    #[must_use]
+    pub fn sent_copy(&self, id: &Id) -> Option<&SentCopy> {
+        self.sent.iter().find(|s| &s.id == id)
+    }
+
+    #[must_use]
+    pub fn returned_file(&self, id: &Id) -> Option<&Returned> {
+        self.returned.iter().find(|r| &r.id == id)
     }
 
     /// Sent copies made from any checkpoint of this node.

@@ -238,6 +238,50 @@ impl Engine {
         Reply(self.0.open_sent_copy(ledger, sent))
     }
 
+    #[must_use]
+    pub fn recognise(&self, file: &[u8], ledgers: &str) -> Reply {
+        Reply(self.0.recognise(file, ledgers))
+    }
+
+    #[wasm_bindgen(js_name = recordReturned)]
+    pub fn record_returned(
+        &mut self,
+        ledger: &[u8],
+        file: &[u8],
+        args: &str,
+        now_ms: f64,
+    ) -> Reply {
+        Reply(self.0.record_returned(ledger, file, args, now_ms))
+    }
+
+    #[wasm_bindgen(js_name = returnedReview)]
+    #[must_use]
+    pub fn returned_review(&self, ledger: &[u8], node: &str, file: &[u8], returned: &str) -> Reply {
+        Reply(self.0.returned_review(ledger, node, file, returned))
+    }
+
+    #[wasm_bindgen(js_name = decideReturned)]
+    pub fn decide_returned(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        file: &[u8],
+        returned: &str,
+        cards: &str,
+        now_ms: f64,
+    ) -> Reply {
+        Reply(
+            self.0
+                .decide_returned(ledger, node, file, returned, cards, now_ms),
+        )
+    }
+
+    #[wasm_bindgen(js_name = openReturned)]
+    #[must_use]
+    pub fn open_returned(&self, ledger: &[u8], returned: &str) -> Reply {
+        Reply(self.0.open_returned(ledger, returned))
+    }
+
     #[wasm_bindgen(js_name = checkWritten)]
     #[must_use]
     pub fn check_written(&self, expected: &[u8], actual: &[u8]) -> Reply {

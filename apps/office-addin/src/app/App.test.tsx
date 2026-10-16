@@ -6,7 +6,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { MemoryStorage, loadEngine } from "@lineage/shell";
+import { Lineage, MemoryStorage, loadEngine } from "@lineage/shell";
 import { FakeHost } from "@lineage/shell/testing";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -58,6 +58,92 @@ describe("the task pane", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open what Mentor received" }));
     await waitFor(() => {
       expect(host.copies).toHaveLength(1);
+    });
+  });
+
+  it("brings back a mentor's copy, one change at a time", async () => {
+    const engine = loadEngine(wasm, new Uint8Array(32).fill(11));
+    const storage = new MemoryStorage();
+    const host = new FakeHost(engine, fixture("resume-master.docx"), {
+      name: "Resume.docx",
+      url: "https://d.docs.live.net/0/Documents/Resume.docx",
+    });
+    render(<App engine={engine} host={host} storage={{ kind: "ready", storage }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start tracking" }));
+    await screen.findByText("Lineage is tracking this file. This is v1.");
+    fireEvent.click(screen.getByRole("button", { name: "Send a copy" }));
+    fireEvent.change(await screen.findByLabelText("Who it's for"), { target: { value: "Mentor" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save copy and record it" }));
+    await screen.findByText(/Saved “Resume \(Mentor\)\.docx”/);
+
+    // The mentor's edits, in a file that kept the copy's ids.
+    const copy = await storage.readFile(storage.refFor("sent", "Resume (Mentor).docx"));
+    const ids = engine.readIds(copy);
+    expect(ids).not.toBeNull();
+    const back = engine.writeIds(
+      fixture("resume-tailored-data.docx"),
+      ids ?? { family: "", checkpoint: "" },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "A file came back" }));
+    fireEvent.change(await screen.findByTestId("returned-file"), {
+      target: {
+        files: [new File([back as Uint8Array<ArrayBuffer>], "Resume - comments from Sam.docx")],
+      },
+    });
+    expect(await screen.findByRole("heading", { name: "This came back from Mentor" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review their changes" }));
+    expect(await screen.findByText("Change 1 of 4")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    for (let i = 0; i < 3; i++) {
+      fireEvent.click(await screen.findByRole("button", { name: "Skip" }));
+    }
+    fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+    expect(await screen.findByText(/^Done\. The changes you kept are in your file/)).toBeTruthy();
+    expect(host.replaced).toBe(1);
+    expect(screen.getByText("Kept 1 change from Mentor")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "What I've sent" }));
+    expect(await screen.findByText("Reviewed")).toBeTruthy();
+  });
+
+  it("offers to review an untracked file that is a copy sent without its ids", async () => {
+    const engine = loadEngine(wasm, new Uint8Array(32).fill(12));
+    const storage = new MemoryStorage();
+    const masterHost = new FakeHost(engine, fixture("resume-master.docx"), {
+      name: "Resume.docx",
+      url: "C:/Users/someone/Resume.docx",
+    });
+    const master = new Lineage({ engine, storage, host: masterHost });
+    await master.open();
+    const started = await master.startTracking();
+    if (started.kind !== "master") {
+      throw new Error("not tracking");
+    }
+    const sent = await master.sendCopy(started.file.nodeId, {
+      recipient: "Northgate Analytics",
+      purpose: null,
+      embedId: false,
+    });
+    const copy = await storage.readFile(sent.ref);
+
+    // The copy comes back without ids and is opened in Word.
+    const host = new FakeHost(engine, copy, {
+      name: "Avery Quinn - Northgate notes.docx",
+      url: "C:/Users/someone/Downloads/Avery Quinn - Northgate notes.docx",
+    });
+    render(<App engine={engine} host={host} storage={{ kind: "ready", storage }} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review it as a file that came back" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "This came back from Northgate Analytics" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review their changes" }));
+    expect(await screen.findByRole("heading", { name: "Lineage kept the file" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open “Resume”" }));
+    await waitFor(() => {
+      expect(host.opened).toEqual([{ path: "C:/Users/someone/Resume.docx" }]);
     });
   });
 

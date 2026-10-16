@@ -200,8 +200,13 @@ impl<'d> Check<'d> {
                 }
             }
         }
+        // The writer never copies theirs' own `w:p` start tag (a rewrite keeps
+        // ours', an insertion writes a bare one), so only what follows it must
+        // use prefixes that mean the same in ours. Found in Phase 3: a Google
+        // Docs export puts `w14:paraId` on every paragraph, and a version
+        // that doesn't declare `w14` had every change marked "by hand".
         let src = self.theirs.part_text(part_t).map_err(|_| ByHand::Markup)?;
-        self.prefixes_ok(&src[p.span.clone()], part_t, part_o)
+        self.prefixes_ok(&src[p.start_tag.end..p.span.end], part_t, part_o)
     }
 
     /// Can ours' block be deleted as a tracked change?

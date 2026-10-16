@@ -1,5 +1,120 @@
 # Status
 
+## Phase 3: files that come back (2026-10-15). Built and checked in Word for Windows with the dev folder; OneDrive and Word on the web are the maintainer's run.
+
+Branch `phase-3-returned-files`, from `phase-2-word-addin` at `5118fd2`. Not pushed. Decisions:
+
+- [0012 Files that come back](decisions/0012-returned-files.md)
+- [0013 When a file without ids is recognised](decisions/0013-fingerprint-threshold.md) (BLUEPRINT open decision 3)
+
+Manual test script: [docs/testing/word-personal.md](testing/word-personal.md), steps 12 to 19.
+
+**Done**
+
+- **Engine** (`crates/lineage/src/returned.rs`):
+  - **Recognition across every family in storage.**
+    - By ids first.
+    - Otherwise by content: stored sketches shortlist the checkpoints, then each candidate is compared word by word with what actually left (the sent copy, or the snapshot).
+    - Automatic only when one recorded copy clearly fits (decision 0013); otherwise "Which copy is this?", never a silent guess.
+  - **Recording:** the file is kept exactly as it came back, deduplicated by hash.
+  - **Review:** only the outside person's changes (base = what left, judged against the open file now), so a master that moved on is fine. Where both changed a paragraph, it is an overlap with both sides.
+  - **Keep and skip:**
+    - kept changes are written as tracked changes by Lineage, with the same read-back check as `decide`;
+    - a checkpoint "Kept N changes from Mentor" is saved;
+    - each sitting is recorded, and a review can be finished later.
+  - **What I've sent chips:** Came back with N changes, formatting changes only, unchanged, Partly reviewed, Reviewed. The master and version panels list files that came back.
+- **Sent copies carry their own id** in `LineageCheckpointId` (decision 0012). A returned copy names exactly whose copy it is, and can never be saved as a checkpoint of its master.
+- **Core:**
+  - `view::from_plan_for` words cards for a returned file: Keep / Skip / Keep mine / Use theirs, "You and Mentor both changed …";
+  - `identity::content_match` (changed words and a percentage).
+- **Harness:** five new buttons on `Panel`, and `tests/feedback.rs`, the BLUEPRINT "Asking for feedback" journey, in memory and on disk:
+  - send to a mentor, and the master moves on;
+  - the copy comes back renamed and edited, and is recognised by ids, "Came back with 4 changes";
+  - keep two, skip one, use their side of an overlap; tracked changes by Lineage, checkpoint, "Reviewed".
+  - Also: a Google export without ids (certain by content), two copies of one checkpoint (a choice), and a stranger's file (not recognised).
+- **wasm and shell:**
+  - `recognise` (every ledger as text), `recordReturned`, `returnedReview`, `decideReturned`, `openReturned`;
+  - `openFile` resolves sent-copy ids; missing-blob errors name their family;
+  - golden replies for each, valibot schemas;
+  - `Lineage` methods mirroring the harness. `open()` returns "cameBack" for a returned or older copy.
+- **Word pane:**
+  - "A file came back" (file picker and drop zone) on the panels and in What I've sent;
+  - "Which copy is this?";
+  - the review one change at a time ("Change 2 of 5", Keep / Skip, Decide later), then one step for formatting ("Skip all formatting"), and Apply;
+  - returned call-outs, chips and Review buttons;
+  - "This file came back" when the returned copy itself is opened;
+  - "This looks like a copy that came back" above Start tracking for an untracked copy.
+- **Fixtures:**
+  - testkit builders for light and heavy edits, an **imitation** Google Docs export, heavy reformatting, a cover letter, meeting notes and a stranger's resume;
+  - six **real LibreOffice 26.8.1** re-saves in `fixtures/docx/returned/libreoffice/` (`scripts/libreoffice-resave.ps1`). LibreOffice keeps custom properties, so ids survive it.
+- **Recognition report** (`crates/lineage/tests/recognition.rs`, 126 returned files, runs in CI):
+  - **precision of automatic matches 100%** (44 right, 0 wrong, none on the 36 files never sent);
+  - **automatic recall 80%** where no other copy has nearly the same text: every unedited or lightly edited copy is automatic, every heavy rewrite is a choice;
+  - **found (automatic or among the choices) 100%** (90 of 90).
+  - Table in decision 0013.
+
+**Checked in Word** (Word 16.0.20430, Windows 11, dev-folder storage, Word started with remote debugging for that launch and the panes driven through the DevTools protocol; Office.js for every edit, no typing):
+
+1. Started tracking a fresh synthetic master. Its untracked panel first said "This looks like a copy you sent that came back". That is right: the Phase 2 family in the same folder had sent copies of the same synthetic text.
+2. Sent a copy to "Mentor" (id on) and one to "Northgate Analytics" (id off); changed the master (v2).
+3. **The mentor's copy, opened in Word under a new name:** "This came back from Mentor", recognised by its Lineage ID, not the master's panel.
+   - Edited it with Track Changes on, plus a comment, and saved; "Review their changes" kept it; "Open 'Feedback resume'" opened the master (after Word's own confirmation).
+4. **In the master:**
+   - "Mentor sent back your copy from 15 Oct · 4 changes" › Review: one change at a time. Kept two, skipped one, and used the mentor's side of the summary both had changed.
+   - Word's tracked-changes API lists only **Lineage** revisions; Track Changes is back off; the master's own edit stayed; the skipped change wasn't written. v3 "Kept 3 changes from Mentor".
+5. **The Northgate copy (no id):**
+   - opened in Word, its panel said it looks like a copy that came back, and "Which copy is this?" listed the two copies sent from v1 and two in the Phase 2 family;
+   - edited, saved and re-saved by LibreOffice;
+   - in the master, **A file came back** with the file set on the file input took it as a choice, Northgate was picked, and the two real edits were kept. LibreOffice's re-save added five noise items (two formatting-only, two formatting-vs-words overlaps offering "Keep mine", one page-layout change), all skipped. v4 "Kept 2 changes from Northgate Analytics".
+6. What I've sent: both copies "Reviewed".
+7. **Audit** (`dev_folder.rs`): 3 families, 11 checkpoints restore, every blob matches, 4 sent copies on disk match, 2 files came back, 2 reviews.
+   - `word-smoke.ps1 -Compare` on both review checkpoints: Word's accept-all and reject-all match the engine.
+8. **LibreOffice headless** (now installed, CLAUDE.md's smoke test): all 38 synthetic fixtures, all 58 engine outputs and both review checkpoints open; Word's comparison over the 58 found no differences.
+
+**Timings in Word** (dev log):
+
+- recognising a chosen file 0.4 s with two families in storage;
+- the background check on an untracked file 0.13 to 0.5 s;
+- recording 0.1 to 0.3 s; review 0.2 to 0.3 s;
+- keep and apply 1.1 to 1.3 s (Word's write, read-back and save included, like bringing changes in).
+
+**Budgets** (decision 0010): all inside.
+
+- wasm 984,711 bytes raw and 345,574 gzipped (was 907,598 and 324,081);
+- JavaScript 158,261 gzipped.
+
+**Bugs found and fixed** (each with a test):
+
+- **A Google Docs export's paragraphs carry `w14:paraId`.** A version that doesn't declare `w14` had every change marked "copy by hand", though the writer never copies theirs' paragraph tag (core).
+- **Content match by whole percentages couldn't separate copies a word apart.** Decisions now use changed words (found by the recognition report).
+- **"Review it as a file that came back" did nothing on an untracked file** (screen order), found in Word.
+- **A file recorded from another window showed on the master's panel only after reopening the panel.** It now refreshes when it regains focus. Found in Word; the focus refresh itself is untested in Word.
+
+**Tests:**
+
+- **Rust:** 224 pass, 3 ignored (local fidelity, dev-folder audit, Word read-back).
+- **TypeScript:** 156 pass (shell 91, OneDrive 21, add-in 44).
+- Lint, typecheck, formatting, cargo-deny, licence headers and fixture checks pass.
+
+**Not done**
+
+- **The maintainer's run** on OneDrive and Word on the web (steps 12 to 19 added to the manual script). It is still waiting on the Entra app registration from Phase 2.
+- **Google Docs exports are imitations.** Real exports of the synthetic files can go in `fixtures/docx/returned/google/` and join the report.
+- **Not checked in Word:**
+  - dropping a file on the pane: the jsdom test covers the handler, but in Word only the file picker was used (through `DOM.setFileInputFiles`);
+  - "Open what came back";
+  - the focus refresh.
+
+**Known issues**
+
+- **Comments a mentor leaves are not shown in the review.** "Open what came back" opens the file exactly as it came.
+- **Kept changes bring their paragraph's formatting.** From a Google Docs export that means Arial and Google's spacing, as tracked formatting changes the person can reject in Word. Follow-up: keep only the words for files saved by other apps.
+- **LibreOffice and Google re-saves add formatting-only items,** and formatting-vs-words overlaps where the master also changed a paragraph. They are skippable (one "Skip all formatting" step), but noisy.
+- **"Use theirs" on an overlap takes their whole paragraph,** including undoing the master's own edit there. That is the paragraph rule in BLUEPRINT §4, and the card shows both sides.
+- **The master itself, attached by hand,** that comes back while the master is still at that checkpoint opens as the master (decision 0012).
+- **The background check flags any untracked file** whose text matches something already sent, including a fresh copy of a tracked file. Start tracking stays available.
+- **Word opens email attachments in Protected View,** where add-ins don't run; Enable Editing first.
+
 ## Phase 2: Word add-in for personal users (2026-10-15). Built and checked in Word for Windows; the OneDrive and Word-on-the-web run is the maintainer's.
 
 Branch `phase-2-word-addin`, from `phase-1-word-core` at `125f18d`. Not pushed. Decisions:
@@ -177,10 +292,6 @@ The committed wasm crate still exports only the Phase 0 bridge (21,855 bytes). T
 - Fuzzing has only run in CI, not locally.
 - A sent copy drops the document title with the other metadata. Make it an option if people want titles kept.
 
-## Phase 3
-
-Not started. It comes after the maintainer's OneDrive and Word-on-the-web run of Phase 2.
-
 ## Phase 0: repository foundations (2026-10-15). Done locally; CI result below.
 
 Branch `phase-0-foundations`. Decisions: [0004-stack](decisions/0004-stack.md).
@@ -236,7 +347,8 @@ Task-pane budgets are set in Phase 2.
 
 ## Open questions (carried forward)
 
-- BLUEPRINT open decision 5 (start from files made by hand): which phase.
+- BLUEPRINT open decision 5 (start from files made by hand): which phase. Phase 3's recognition (sketch shortlist, word-by-word match) is the matching it needs.
+- Files that come back: whether kept changes should keep only the words for files saved by another app, and whether Lineage's tracked changes should name the recipient as author (decision 0012).
 - Whether a change left pending (never clicked) should also go quiet after the master moves on by a set number of checkpoints, like the undetected case in decision 0002.
 - Canvas mismatches still to fix on the canvas or in BLUEPRINT:
   - solid dark boxes used for both "offered change" and milestone,
@@ -249,6 +361,6 @@ Task-pane budgets are set in Phase 2.
 
 ## Next
 
-1. The maintainer registers the app and runs `docs/testing/word-personal.md` on Word for Windows and Word on the web, with OneDrive.
+1. The maintainer registers the app and runs `docs/testing/word-personal.md` on Word for Windows and Word on the web, with OneDrive, now including steps 12 to 19 (files that come back).
 2. Fix whatever that run finds.
-3. Phase 3 (returned files).
+3. Phase 4 (PowerPoint deck variants), when the maintainer starts it.

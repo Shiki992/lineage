@@ -1,0 +1,15 @@
+{
+  "error": {
+    "detail": "4 blobs to fetch",
+    "family": "119736279a3062acd1d1873c28a849ee",
+    "hashes": [
+      "e1d8279da4dec1b2d0fe045aebf8178174f4c1d1ed2df5f086f162c1721df696",
+      "768a3537e7c5df1f6906ddd58527a94cb67dbe7bf0e54c7bc9ada0f98447de2c",
+      "41aff40d4887cdd28f275a2e205e7e39002c6234784411b2bb48f60b161ca134",
+      "315a29fc7d7230cac74372b8b9d9909d0ccae3b8119afcb2fc94b5387e2b311f"
+    ],
+    "kind": "missingBlobs",
+    "userMessage": "Lineage is still fetching this file's history."
+  },
+  "ok": false
+}

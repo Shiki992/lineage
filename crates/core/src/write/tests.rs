@@ -428,6 +428,67 @@ fn keeping_both_additions() {
 }
 
 #[test]
+fn a_paragraph_tag_with_a_prefix_ours_lacks_is_still_written() {
+    // Found in Phase 3: a Google Docs export puts `w14:paraId` on every
+    // paragraph. The tag itself is never copied, so the change is writable.
+    let w14 = |text: &str, n: u32| {
+        format!(
+            r#"<w:p w14:paraId="{n:08X}"><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>{}</w:p>"#,
+            run(text)
+        )
+    };
+    let base_lines = resume::master_v1_lines();
+    let base = open_lines(&base_lines);
+    let mut theirs_pkg = resume::package("t", &base_lines);
+    theirs_pkg.doc_ns = vec![
+        (
+            "mc",
+            "http://schemas.openxmlformats.org/markup-compatibility/2006",
+        ),
+        (
+            "w14",
+            "http://schemas.microsoft.com/office/word/2010/wordml",
+        ),
+    ];
+    theirs_pkg.ignorable = Some("w14");
+    theirs_pkg.body = theirs_pkg.body.replacen(
+        &resume::package(
+            "t",
+            &[Line::Bullet(
+                "Built the shipment data warehouse used by forty analysts.".into(),
+            )],
+        )
+        .body,
+        &w14(
+            "Designed the shipment data warehouse used by forty analysts.",
+            7,
+        ),
+        1,
+    );
+    assert!(theirs_pkg.body.contains("w14:paraId"));
+    let theirs = open(&theirs_pkg.to_bytes());
+    let plan = merge::plan(&base, &base, &theirs);
+    assert!(
+        plan.items.iter().all(|i| i.status == Status::Clean),
+        "{:?}",
+        plan.items.iter().map(|i| &i.status).collect::<Vec<_>>()
+    );
+    let bytes = bring_in_all("w14-tag", &base, &base, &theirs);
+    let docx = open(&bytes);
+    assert!(
+        !docx
+            .part_text(&docx.main_part)
+            .expect("text")
+            .contains("w14:")
+    );
+    assert!(
+        open_view(&bytes, View::Accepted)
+            .body_lines()
+            .contains(&"Designed the shipment data warehouse used by forty analysts.".to_owned())
+    );
+}
+
+#[test]
 fn declining_writes_nothing() {
     let base = open_lines(&resume::master_v1_lines());
     let ours_bytes = resume_bytes(&resume::tailored_data_lines());

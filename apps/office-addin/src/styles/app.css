@@ -286,3 +286,44 @@ details > summary {
   cursor: pointer;
   font-weight: 600;
 }
+
+/* A file came back: the drop zone and the "which copy is this?" choice. */
+.drop {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+
+.drop--over {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.choices {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.choice {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-height: var(--target);
+  cursor: pointer;
+}
+
+.choice input {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}

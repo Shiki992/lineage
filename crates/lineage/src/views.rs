@@ -10,7 +10,7 @@ use crate::changes::variant_status;
 use crate::error::Result;
 use crate::event::Role;
 use crate::ids::Id;
-use crate::state::FamilyState;
+use crate::state::{FamilyState, Returned};
 
 /// The latest checkpoint, as a card.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +43,60 @@ pub struct VersionRow {
     pub button: String,
 }
 
+/// A file that came back with changes still to review.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReturnedRow {
+    pub id: Id,
+    /// "Northgate Analytics sent back your copy from 2 Oct".
+    pub text: String,
+    /// "3 changes", "Formatting changes only", with "· partly reviewed".
+    pub detail: String,
+    /// "Review".
+    pub button: String,
+}
+
+fn count_changes(r: &Returned) -> String {
+    match (r.change_count, r.formatting_count) {
+        (0, 0) => "No changes".to_owned(),
+        (0, _) => "Formatting changes only".to_owned(),
+        (1, _) => "1 change".to_owned(),
+        (n, _) => format!("{n} changes"),
+    }
+}
+
+/// Files that came back from copies of `node`, with something left to review.
+fn returned_rows(state: &FamilyState, node: &Id) -> Vec<ReturnedRow> {
+    state
+        .returned
+        .iter()
+        .filter(|r| {
+            !r.finished()
+                && r.change_count + r.formatting_count > 0
+                && state.checkpoint(&r.from).is_some_and(|c| &c.node == node)
+        })
+        .map(|r| {
+            let text = match r.sent.as_ref().and_then(|s| state.sent_copy(s)) {
+                Some(sent) => format!(
+                    "{} sent back your copy from {}",
+                    sent.recipient,
+                    sent.at.day_label()
+                ),
+                None => format!("A copy of {} came back", state.label(&r.from)),
+            };
+            let mut detail = count_changes(r);
+            if !r.reviews.is_empty() {
+                detail.push_str(" · partly reviewed");
+            }
+            ReturnedRow {
+                id: r.id.clone(),
+                text,
+                detail,
+                button: "Review".to_owned(),
+            }
+        })
+        .collect()
+}
+
 /// The master panel.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MasterPanel {
@@ -53,6 +107,8 @@ pub struct MasterPanel {
     pub follows: String,
     pub latest: CheckpointCard,
     pub callout: Option<Callout>,
+    /// Files that came back from copies of the master, still to review.
+    pub returned: Vec<ReturnedRow>,
     pub versions: Vec<VersionRow>,
     /// "Make a tailored version", "Save checkpoint", "Send a copy".
     pub actions: Vec<String>,
@@ -71,6 +127,8 @@ pub struct VersionPanel {
     pub latest: CheckpointCard,
     /// "2 updates from the master", if any were offered.
     pub updates: Option<String>,
+    /// Files that came back from copies of this version, still to review.
+    pub returned: Vec<ReturnedRow>,
     pub actions: Vec<String>,
     pub footer: String,
 }
@@ -172,6 +230,7 @@ pub fn master_panel(state: &FamilyState, blobs: &dyn BlobSource) -> Result<Maste
         latest: card(state, &master.id)
             .ok_or_else(|| crate::Error::Ledger("the master has no checkpoint".to_owned()))?,
         callout,
+        returned: returned_rows(state, &master.id),
         versions,
         actions: vec![
             "Make a tailored version".to_owned(),
@@ -212,6 +271,7 @@ pub fn version_panel(
             1 => Some("1 update from the master".to_owned()),
             n => Some(format!("{n} updates from the master")),
         },
+        returned: returned_rows(state, node),
         actions: vec!["Save checkpoint".to_owned(), "Send a copy".to_owned()],
         footer: "What I've sent".to_owned(),
     })
@@ -231,6 +291,9 @@ pub struct SentRow {
     pub date: String,
     /// "Came back with 5 changes", once a returned file is matched to it.
     pub chip: Option<String>,
+    /// The latest file that came back from this copy.
+    pub returned: Option<Id>,
+    /// "Review" while a returned file has changes to decide, else "Open".
     pub button: String,
 }
 
@@ -286,12 +349,22 @@ pub fn sent_list(state: &FamilyState, search: Option<&str>) -> SentList {
             .returned
             .iter()
             .rfind(|r| r.sent.as_ref() == Some(&copy.id));
-        let chip = returned.map(|r| match (r.change_count, &r.reviewed) {
-            (_, Some(_)) => "Reviewed".to_owned(),
-            (0, None) => "Came back unchanged".to_owned(),
-            (1, None) => "Came back with 1 change".to_owned(),
-            (n, None) => format!("Came back with {n} changes"),
+        let chip = returned.map(|r| {
+            if r.finished() {
+                "Reviewed".to_owned()
+            } else if !r.reviews.is_empty() {
+                "Partly reviewed".to_owned()
+            } else {
+                match (r.change_count, r.formatting_count) {
+                    (0, 0) => "Came back unchanged".to_owned(),
+                    (0, _) => "Came back with formatting changes only".to_owned(),
+                    (1, _) => "Came back with 1 change".to_owned(),
+                    (n, _) => format!("Came back with {n} changes"),
+                }
+            }
         });
+        let to_review =
+            returned.is_some_and(|r| !r.finished() && r.change_count + r.formatting_count > 0);
         let row = SentRow {
             id: copy.id.clone(),
             recipient: copy.recipient.clone(),
@@ -299,15 +372,9 @@ pub fn sent_list(state: &FamilyState, search: Option<&str>) -> SentList {
             purpose: copy.purpose.clone(),
             format: if copy.format == "pdf" { "PDF" } else { "Word" }.to_owned(),
             date: copy.at.day_label(),
-            button: if chip
-                .as_deref()
-                .is_some_and(|c| c.starts_with("Came back with"))
-            {
-                "Review".to_owned()
-            } else {
-                "Open".to_owned()
-            },
             chip,
+            returned: returned.map(|r| r.id.clone()),
+            button: if to_review { "Review" } else { "Open" }.to_owned(),
         };
         let month = copy.at.month_label();
         match groups.last_mut() {

@@ -282,15 +282,124 @@ fn golden_replies() {
         host.now,
     );
     golden.keep("send-copy", &reply);
-    host.take(reply);
+    let (_, copy) = host.take(reply);
+    let copy = copy.expect("the copy");
     golden.keep("sent-list", &host.session.sent_list(&host.ledger, None));
     golden.keep(
         "sent-list-empty",
         &host.session.sent_list(&host.ledger, Some("nobody")),
     );
 
+    // A file comes back, edited: recognised, recorded, reviewed, kept.
+    let family_id = id(&family["value"]["familyId"]);
+    let sent_id = {
+        let ids = serde_json::from_str::<Value>(&host.session.read_ids(&copy).json).expect("json");
+        id(&ids["value"]["checkpoint"])
+    };
+    golden.keep(
+        "open-file-copy",
+        &host.session.open_file(&host.ledger, &sent_id),
+    );
+    let back = {
+        let mut package = Package::read(&copy).expect("reads");
+        let doc = String::from_utf8(package.part("word/document.xml").expect("doc").to_vec())
+            .expect("utf-8")
+            .replace("Built the shipment", "Designed the shipment");
+        package.set_part("word/document.xml", doc.into_bytes());
+        package.to_bytes().expect("bytes")
+    };
+    let ledgers = |host: &Host| {
+        serde_json::json!([{
+            "family": family_id,
+            "ledger": String::from_utf8(host.ledger.clone()).expect("utf-8"),
+        }])
+        .to_string()
+    };
+    let found = golden.keep(
+        "recognise-certain",
+        &host.session.recognise(&back, &ledgers(&host)),
+    );
+    let candidate = &found["value"]["candidates"][0];
+    let reply = host.session.record_returned(
+        &host.ledger,
+        &back,
+        &serde_json::json!({
+            "name": "Resume - comments.docx",
+            "checkpoint": candidate["checkpoint"],
+            "sent": candidate["sent"],
+            "matchedBy": "ids",
+        })
+        .to_string(),
+        host.now,
+    );
+    let recorded = golden.keep("record-returned", &reply);
+    let returned_id = id(&recorded["value"]["created"]);
+    host.take(reply);
+    golden.keep(
+        "version-panel-returned",
+        &host.session.version_panel(&host.ledger, &versions[0].0),
+    );
+    golden.keep(
+        "sent-list-returned",
+        &host.session.sent_list(&host.ledger, None),
+    );
+    let review = golden.keep(
+        "returned-review",
+        &host
+            .session
+            .returned_review(&host.ledger, &versions[0].0, &data_after, &returned_id),
+    );
+    let cards: Vec<Value> = review["value"]["view"]["changes"]
+        .as_array()
+        .expect("changes")
+        .iter()
+        .map(|c| serde_json::json!({"card": c["id"], "decision": "bringIn"}))
+        .collect();
+    let reply = host.session.decide_returned(
+        &host.ledger,
+        &versions[0].0,
+        &data_after,
+        &returned_id,
+        &serde_json::to_string(&cards).expect("json"),
+        host.now,
+    );
+    golden.keep("decide-returned", &reply);
+    host.take(reply);
+    let reply = host.session.send_copy(
+        &host.ledger,
+        &versions[1].0,
+        &versions[1].1,
+        r#"{"recipient":"Harbour Bank","purpose":null,"embedId":false}"#,
+        host.now,
+    );
+    host.take(reply);
+    let reply = host.session.send_copy(
+        &host.ledger,
+        &versions[1].0,
+        &versions[1].1,
+        r#"{"recipient":"Pellow Ventures","purpose":null,"embedId":false}"#,
+        host.now,
+    );
+    let (_, twin) = host.take(reply);
+    let twin = twin.expect("copy");
+    golden.keep(
+        "recognise-choose",
+        &host.session.recognise(&twin, &ledgers(&host)),
+    );
+    golden.keep(
+        "recognise-unknown",
+        &host.session.recognise(
+            &resume::package("t", &lineage_testkit::returned::stranger_lines()).to_bytes(),
+            &ledgers(&host),
+        ),
+    );
+
     // Errors.
     let fresh = Session::new([7; 32]);
+    golden.keep(
+        "error-missing-blobs-family",
+        &fresh.recognise(&twin, &ledgers(&host)),
+    );
     golden.keep("error-missing-blobs", &fresh.master_panel(&host.ledger));
     golden.keep(
         "error-wrong-file",

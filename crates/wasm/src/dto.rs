@@ -10,9 +10,10 @@
 
 use lineage::Id;
 use lineage::commands::{Outcome, UpdateGroup, Updates};
-use lineage::event::{self, Role};
+use lineage::event::{self, MatchedBy, Role};
+use lineage::returned::{RecognitionView, ReturnReview, Verdict};
 use lineage::state::FamilyState;
-use lineage::views::{CheckpointCard, MasterPanel, SentList, VersionPanel};
+use lineage::views::{CheckpointCard, MasterPanel, ReturnedRow, SentList, VersionPanel};
 use lineage_core::check::Written;
 use lineage_core::diff::{Segment, SegmentKind};
 use lineage_core::docx::props::LineageIds;
@@ -83,6 +84,45 @@ pub struct SendArgs {
     pub recipient: String,
     pub purpose: Option<String>,
     pub embed_id: bool,
+}
+
+/// One family's ledger, for recognising a file across families.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct LedgerDto {
+    pub family: Id,
+    /// The stored JSON Lines, as text.
+    pub ledger: String,
+}
+
+/// How the person confirmed which copy a returned file is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MatchedByDto {
+    Ids,
+    Content,
+    Person,
+}
+
+impl From<MatchedByDto> for MatchedBy {
+    fn from(m: MatchedByDto) -> Self {
+        match m {
+            MatchedByDto::Ids => Self::Ids,
+            MatchedByDto::Content => Self::Content,
+            MatchedByDto::Person => Self::Person,
+        }
+    }
+}
+
+/// "Review the changes" on a recognised file.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RecordArgs {
+    /// The file's name as it came back.
+    pub name: String,
+    pub checkpoint: Id,
+    pub sent: Option<Id>,
+    pub matched_by: MatchedByDto,
 }
 
 /// The two Lineage ids, in and out.
@@ -222,6 +262,16 @@ impl FamilyDto {
     }
 }
 
+/// The sent copy a file opened in Word is, when its ids name one.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyOfDto {
+    pub sent_copy_id: Id,
+    pub recipient: String,
+    /// "2 Oct".
+    pub date: String,
+}
+
 /// Which file of the family is open.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -236,6 +286,9 @@ pub struct OpenFileDto {
     /// False when the file is an older checkpoint than the file's latest, such
     /// as a copy kept from before.
     pub is_latest: bool,
+    /// Set when the open file is a copy that was sent (it came back): the file
+    /// above is the one it was made from.
+    pub copy_of: Option<CopyOfDto>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -277,6 +330,27 @@ pub struct VersionRowDto {
     pub storage_ref: String,
 }
 
+/// A file that came back, on a panel.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReturnedRowDto {
+    pub id: Id,
+    pub text: String,
+    pub detail: String,
+    pub button: String,
+}
+
+fn returned_rows(rows: &[ReturnedRow]) -> Vec<ReturnedRowDto> {
+    rows.iter()
+        .map(|r| ReturnedRowDto {
+            id: r.id.clone(),
+            text: r.text.clone(),
+            detail: r.detail.clone(),
+            button: r.button.clone(),
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MasterPanelDto {
@@ -286,6 +360,7 @@ pub struct MasterPanelDto {
     pub follows: String,
     pub latest: CheckpointCardDto,
     pub callout: Option<CalloutDto>,
+    pub returned: Vec<ReturnedRowDto>,
     pub versions: Vec<VersionRowDto>,
     pub actions: Vec<String>,
     pub footer: String,
@@ -304,6 +379,7 @@ impl MasterPanelDto {
                 button: c.button.clone(),
                 versions: c.versions.clone(),
             }),
+            returned: returned_rows(&panel.returned),
             versions: panel
                 .versions
                 .iter()
@@ -333,6 +409,7 @@ pub struct VersionPanelDto {
     pub status: String,
     pub latest: CheckpointCardDto,
     pub updates: Option<String>,
+    pub returned: Vec<ReturnedRowDto>,
     pub actions: Vec<String>,
     pub footer: String,
 }
@@ -346,6 +423,7 @@ impl VersionPanelDto {
             status: panel.status.clone(),
             latest: (&panel.latest).into(),
             updates: panel.updates.clone(),
+            returned: returned_rows(&panel.returned),
             actions: panel.actions.clone(),
             footer: panel.footer.clone(),
         }
@@ -517,6 +595,8 @@ pub struct SentRowDto {
     pub format: String,
     pub date: String,
     pub chip: Option<String>,
+    /// The latest file that came back from this copy.
+    pub returned: Option<Id>,
     pub button: String,
 }
 
@@ -555,12 +635,104 @@ impl From<&SentList> for SentListDto {
                             format: r.format.clone(),
                             date: r.date.clone(),
                             chip: r.chip.clone(),
+                            returned: r.returned.clone(),
                             button: r.button.clone(),
                         })
                         .collect(),
                 })
                 .collect(),
             note: s.note.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VerdictDto {
+    Certain,
+    Choose,
+    Unknown,
+}
+
+/// One copy a returned file could be.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateDto {
+    pub family: Id,
+    pub checkpoint: Id,
+    pub sent: Option<Id>,
+    pub node: Id,
+    pub node_name: String,
+    pub title: String,
+    pub detail: String,
+    pub score: String,
+}
+
+/// "Which copy is this?"
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognitionDto {
+    pub verdict: VerdictDto,
+    pub by_ids: bool,
+    pub headline: String,
+    pub note: Option<String>,
+    pub candidates: Vec<CandidateDto>,
+}
+
+impl From<&RecognitionView> for RecognitionDto {
+    fn from(r: &RecognitionView) -> Self {
+        Self {
+            verdict: match r.verdict {
+                Verdict::Certain => VerdictDto::Certain,
+                Verdict::Choose => VerdictDto::Choose,
+                Verdict::Unknown => VerdictDto::Unknown,
+            },
+            by_ids: r.by_ids,
+            headline: r.headline.clone(),
+            note: r.note.clone(),
+            candidates: r
+                .candidates
+                .iter()
+                .map(|c| CandidateDto {
+                    family: c.family.clone(),
+                    checkpoint: c.checkpoint.clone(),
+                    sent: c.sent.clone(),
+                    node: c.node.clone(),
+                    node_name: c.node_name.clone(),
+                    title: c.title.clone(),
+                    detail: c.detail.clone(),
+                    score: c.score.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// The review of a file that came back.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReturnReviewDto {
+    pub returned: Id,
+    pub headline: String,
+    pub from: String,
+    pub notes: Vec<String>,
+    pub theirs: String,
+    pub from_node: Id,
+    pub from_name: String,
+    pub view: WhatChangedDto,
+}
+
+impl From<&ReturnReview> for ReturnReviewDto {
+    fn from(r: &ReturnReview) -> Self {
+        Self {
+            returned: r.returned.clone(),
+            headline: r.headline.clone(),
+            from: r.from.clone(),
+            notes: r.notes.clone(),
+            theirs: r.theirs.clone(),
+            from_node: r.from_node.clone(),
+            from_name: r.from_name.clone(),
+            view: (&r.view).into(),
         }
     }
 }

@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "value": {
+    "checkpointLabel": "v3",
+    "copyOf": {
+      "date": "15 Oct",
+      "recipient": "Northgate Analytics",
+      "sentCopyId": "8b3fda26766265ccd1505e34fbf66ac1"
+    },
+    "displayName": "Resume – data roles.docx",
+    "familyId": "119736279a3062acd1d1873c28a849ee",
+    "isLatest": false,
+    "nodeId": "5c81cc14a997e2ba9928492bcc208f37",
+    "role": "variant",
+    "storageRef": "Resume – data roles.docx"
+  }
+}

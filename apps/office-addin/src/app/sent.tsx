@@ -13,12 +13,17 @@ export function WhatIveSent({
   busy,
   onSearch,
   onOpen,
+  onReview,
+  onCameBack,
   onBack,
 }: {
   list: SentList;
   busy: boolean;
   onSearch: (search: string) => void;
   onOpen: (sent: string) => void;
+  /** "Review" on a copy that came back with changes. */
+  onReview?: (returned: string) => void;
+  onCameBack?: () => void;
   onBack: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -28,6 +33,13 @@ export function WhatIveSent({
     <div className="stack">
       <Back onClick={onBack} />
       <h1>{list.title}</h1>
+      {onCameBack && (
+        <div>
+          <Button disabled={busy} onClick={onCameBack}>
+            A file came back
+          </Button>
+        </div>
+      )}
       <form
         role="search"
         className="row"
@@ -82,15 +94,28 @@ export function WhatIveSent({
                   <p className="secondary small">
                     {row.format} · {row.date}
                   </p>
-                  <Button
-                    aria-label={`${row.button} what ${row.recipient} received`}
-                    disabled={busy}
-                    onClick={() => {
-                      onOpen(row.id);
-                    }}
-                  >
-                    {row.button}
-                  </Button>
+                  {row.returned && row.button === "Review" && onReview ? (
+                    <Button
+                      primary
+                      aria-label={`Review what ${row.recipient} sent back`}
+                      disabled={busy}
+                      onClick={() => {
+                        onReview(row.returned ?? "");
+                      }}
+                    >
+                      {row.button}
+                    </Button>
+                  ) : (
+                    <Button
+                      aria-label={`Open what ${row.recipient} received`}
+                      disabled={busy}
+                      onClick={() => {
+                        onOpen(row.id);
+                      }}
+                    >
+                      Open
+                    </Button>
+                  )}
                 </div>
               </li>
             ))}

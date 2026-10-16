@@ -6,7 +6,8 @@ The Lineage task pane for Word: React, designed at 360 px, running the engine as
 - `src/app/`: the personal screens.
   - the master panel and a tailored version's panel;
   - updates from the master, with bring in or decline, both sides of overlaps and by-hand reasons;
-  - save checkpoint, make a tailored version, send a copy, and what I've sent.
+  - save checkpoint, make a tailored version, send a copy, and what I've sent;
+  - files that come back: choose or drop the file, "Which copy is this?", and the review one change at a time with Keep / Skip (decision 0012).
 
   Labels come from the engine, in the glossary's words.
 
@@ -46,6 +47,7 @@ pnpm budgets
 ```
 
 - `src/app/screens.test.tsx`: every screen drawn from the engine's golden replies, found by role and accessible name.
-- `src/app/App.test.tsx`: the whole flow in jsdom with the real wasm engine, memory storage and a fake Word.
+- `src/app/returned.test.tsx`: the screens for files that come back.
+- `src/app/App.test.tsx`: the whole flow in jsdom with the real wasm engine, memory storage and a fake Word, including a mentor's copy coming back.
 - `src/styles/tokens.test.ts`: every text colour pair reaches 4.5:1.
 - `pnpm budgets` builds and fails over 1.5 MB raw or 420 KB gzipped wasm, or 250 KB gzipped JavaScript (decision 0010).
