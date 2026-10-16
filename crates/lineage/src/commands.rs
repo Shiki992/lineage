@@ -751,3 +751,202 @@ pub fn open_sent_copy(state: &FamilyState, sent: &Id, blobs: &dyn BlobSource) ->
     }
     Ok(bytes)
 }
+
+fn checkpoint_name(state: &FamilyState, checkpoint: &Id) -> Result<String> {
+    let c = state
+        .checkpoint(checkpoint)
+        .ok_or_else(|| Error::NotAllowed("unknown checkpoint".to_owned()))?;
+    let node = state
+        .node(&c.node)
+        .ok_or_else(|| Error::Ledger("a checkpoint of an unknown file".to_owned()))?;
+    Ok(format!(
+        "{} {}",
+        stem(&node.display_name),
+        state.label(checkpoint)
+    ))
+}
+
+fn readable(state: &FamilyState) -> Result<()> {
+    if crate::library::readable_format(&state.format) {
+        Ok(())
+    } else {
+        Err(Error::NotAllowed(format!(
+            "this version of Lineage can't open {} files yet",
+            state.format
+        )))
+    }
+}
+
+/// "Compare": what changed from checkpoint `a` to checkpoint `b`, of the same
+/// file or of two files in the family.
+///
+/// # Errors
+/// When either checkpoint is unknown or its snapshot is missing.
+pub fn compare(state: &FamilyState, a: &Id, b: &Id, blobs: &dyn BlobSource) -> Result<WhatChanged> {
+    readable(state)?;
+    let (from, to) = (checkpoint_name(state, a)?, checkpoint_name(state, b)?);
+    let snapshot = |id: &Id| -> Result<Docx> {
+        let c = state
+            .checkpoint(id)
+            .ok_or_else(|| Error::NotAllowed("unknown checkpoint".to_owned()))?;
+        Ok(Docx::open(&restore(&c.snapshot, blobs)?)?)
+    };
+    let (before, after) = (snapshot(a)?, snapshot(b)?);
+    let mut view = from_diff(&diff(&before, &after), &after);
+    view.headline = if view.changes.is_empty() && view.formatting.is_empty() {
+        format!("No changes from {from} to {to}")
+    } else {
+        format!("{} from {from} to {to}", view.headline)
+    };
+    Ok(view)
+}
+
+/// The newest master checkpoint `checkpoint` is, or comes from (through its
+/// parents and links found by content).
+fn master_ancestor(state: &FamilyState, checkpoint: &Id) -> Option<Id> {
+    let masters = state.master_checkpoints();
+    let position = |id: &Id| masters.iter().position(|c| &c.id == id);
+    let mut best: Option<usize> = None;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut queue = vec![checkpoint.clone()];
+    while let Some(id) = queue.pop() {
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        if let Some(p) = position(&id) {
+            best = best.max(Some(p));
+            continue;
+        }
+        if let Some(c) = state.checkpoint(&id) {
+            queue.extend(c.parents.iter().cloned());
+        }
+        queue.extend(
+            state
+                .links
+                .iter()
+                .filter(|(v, _)| v == &id)
+                .map(|(_, m)| m.clone()),
+        );
+    }
+    best.map(|p| masters[p].id.clone())
+}
+
+/// "Restore as a new version": a new tailored version holding exactly what
+/// `checkpoint` held. Nothing that exists is changed. The new version follows
+/// the master from the newest master checkpoint it comes from, so later master
+/// changes are offered to it, and those it already has are found by content
+/// (decision 0002).
+///
+/// # Errors
+/// When the checkpoint is unknown, its snapshot is missing, or the family's
+/// files can't be opened by this version of Lineage.
+pub fn restore_as_new_version(
+    ctx: &mut Context<'_>,
+    state: &FamilyState,
+    checkpoint: &Id,
+    display_name: &str,
+    storage_ref: &str,
+    blobs: &dyn BlobSource,
+) -> Result<Outcome> {
+    readable(state)?;
+    let source = state
+        .checkpoint(checkpoint)
+        .ok_or_else(|| Error::NotAllowed("unknown checkpoint".to_owned()))?;
+    let from_name = checkpoint_name(state, checkpoint)?;
+    let made_from = master_ancestor(state, checkpoint)
+        .ok_or_else(|| Error::Ledger("no master checkpoint before this one".to_owned()))?;
+    let bytes = restore(&source.snapshot, blobs)?;
+    let node = ctx.ids.next_id();
+    let mut builder = Builder::new(state, ctx.now, blobs);
+    builder.push(Event::NodeAdded {
+        node_id: node.clone(),
+        role: Role::Variant,
+        display_name: display_name.to_owned(),
+        storage_ref: storage_ref.to_owned(),
+        made_from_checkpoint_id: Some(made_from),
+        follows_master: true,
+    })?;
+    let (_, file) = checkpoint_into(
+        &mut builder,
+        ctx.ids,
+        ctx.author.clone(),
+        &node,
+        &bytes,
+        vec![checkpoint.clone()],
+        format!("Restored from {from_name}"),
+    )?;
+    builder.out.new_file = Some(NewFile {
+        name: display_name.to_owned(),
+        bytes: file,
+    });
+    builder.out.created = Some(node);
+    Ok(builder.finish())
+}
+
+/// "Mark as milestone", or take the mark off with `label: None`.
+///
+/// # Errors
+/// When the checkpoint is unknown or the label is empty or too long.
+pub fn mark_milestone(
+    ctx: &Context<'_>,
+    state: &FamilyState,
+    checkpoint: &Id,
+    label: Option<&str>,
+) -> Result<Outcome> {
+    let current = state
+        .checkpoint(checkpoint)
+        .ok_or_else(|| Error::NotAllowed("unknown checkpoint".to_owned()))?;
+    let label = label.map(str::trim).filter(|l| !l.is_empty());
+    if current.milestone.as_deref() == label {
+        return Ok(Outcome {
+            nothing_changed: true,
+            ..Outcome::default()
+        });
+    }
+    if label.is_some_and(|l| l.chars().count() > crate::event::MILESTONE_MAX) {
+        return Err(Error::NotAllowed(format!(
+            "a milestone is at most {} characters",
+            crate::event::MILESTONE_MAX
+        )));
+    }
+    let none = crate::blob::MemoryBlobs::default();
+    let mut builder = Builder::new(state, ctx.now, &none);
+    builder.push(Event::MilestoneMarked {
+        checkpoint_id: checkpoint.clone(),
+        label: label.map(str::to_owned),
+    })?;
+    builder.out.created = Some(checkpoint.clone());
+    Ok(builder.finish())
+}
+
+/// "Choose the file": the file of `node` is now at `storage_ref`. The file's
+/// own Lineage ids must name this node, so a different file is never linked.
+///
+/// # Errors
+/// [`Error::WrongFile`] when the file isn't one of this node's checkpoints.
+pub fn relink(
+    ctx: &Context<'_>,
+    state: &FamilyState,
+    node: &Id,
+    storage_ref: &str,
+    bytes: &[u8],
+) -> Result<Outcome> {
+    check_file(state, node, bytes)?;
+    let current = state
+        .node(node)
+        .ok_or_else(|| Error::NotAllowed("unknown file".to_owned()))?;
+    if current.storage_ref == storage_ref {
+        return Ok(Outcome {
+            nothing_changed: true,
+            ..Outcome::default()
+        });
+    }
+    let none = crate::blob::MemoryBlobs::default();
+    let mut builder = Builder::new(state, ctx.now, &none);
+    builder.push(Event::NodeRelinked {
+        node_id: node.clone(),
+        storage_ref: storage_ref.to_owned(),
+    })?;
+    builder.out.created = Some(node.clone());
+    Ok(builder.finish())
+}

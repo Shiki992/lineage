@@ -183,6 +183,13 @@ impl Timestamp {
         format!("{d} {}", &MONTHS[(m - 1) as usize][..3])
     }
 
+    /// "2 Oct 2026", where the year matters (a library of families).
+    #[must_use]
+    pub fn date_label(self) -> String {
+        let (y, ..) = self.parts();
+        format!("{} {y}", self.day_label())
+    }
+
     /// The (year, month) pair, for grouping.
     #[must_use]
     pub fn year_month(self) -> (i64, u32) {

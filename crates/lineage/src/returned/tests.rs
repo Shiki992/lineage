@@ -17,7 +17,13 @@ use crate::tests::{Host, edit, lines};
 use crate::views;
 
 impl Host {
-    fn send(&mut self, node: &Id, bytes: &[u8], recipient: &str, embed_id: bool) -> (Id, Vec<u8>) {
+    pub(crate) fn send(
+        &mut self,
+        node: &Id,
+        bytes: &[u8],
+        recipient: &str,
+        embed_id: bool,
+    ) -> (Id, Vec<u8>) {
         let state = self.state().clone();
         let mut ctx = Context {
             now: self.now,
@@ -42,7 +48,7 @@ impl Host {
         )
     }
 
-    fn recognise(&self, bytes: &[u8]) -> Recognition {
+    pub(crate) fn recognise(&self, bytes: &[u8]) -> Recognition {
         let family = Family {
             state: self.state(),
             blobs: &self.blobs,
@@ -50,7 +56,7 @@ impl Host {
         recognise(bytes, &[family]).expect("recognises")
     }
 
-    fn record(&mut self, bytes: &[u8], found: &Recognition, how: MatchedBy) -> Id {
+    pub(crate) fn record(&mut self, bytes: &[u8], found: &Recognition, how: MatchedBy) -> Id {
         let candidate = found.candidates[0].clone();
         let state = self.state().clone();
         let mut ctx = Context {
@@ -72,7 +78,7 @@ impl Host {
         self.take(outcome).created.expect("returned file")
     }
 
-    fn keep(
+    pub(crate) fn keep(
         &mut self,
         returned: &Id,
         node: &Id,
@@ -82,7 +88,7 @@ impl Host {
         self.keep_with(returned, node, bytes, cards, Bring::Everything)
     }
 
-    fn keep_with(
+    pub(crate) fn keep_with(
         &mut self,
         returned: &Id,
         node: &Id,

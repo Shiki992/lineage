@@ -34,6 +34,19 @@ impl Host {
         }
     }
 
+    /// The ledger as stored.
+    pub(crate) fn ledger_bytes(&self) -> Vec<u8> {
+        event::encode(&self.ledger).expect("encodes")
+    }
+
+    pub(crate) fn context(&mut self) -> Context<'_> {
+        Context {
+            now: self.now,
+            ids: &mut self.ids,
+            author: None,
+        }
+    }
+
     pub(crate) fn tick(&mut self) {
         self.now = Timestamp(self.now.0 + 60_000);
     }

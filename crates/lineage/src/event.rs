@@ -179,7 +179,21 @@ pub enum Event {
     NodeArchived {
         node_id: Id,
     },
+    /// A checkpoint marked as a milestone, such as "Sent to ten companies", or
+    /// the mark taken off (`label: None`).
+    MilestoneMarked {
+        checkpoint_id: Id,
+        label: Option<String>,
+    },
+    /// The file was found somewhere else (moved or renamed): where it is now.
+    NodeRelinked {
+        node_id: Id,
+        storage_ref: String,
+    },
 }
+
+/// The longest milestone label, in characters.
+pub const MILESTONE_MAX: usize = 60;
 
 /// Encodes records as JSON Lines.
 ///
