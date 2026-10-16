@@ -109,6 +109,7 @@ The same paths. The add-on is installed from the Workspace Marketplace, sign-in 
    - Checkboxes for which tailored versions to offer it to, with context such as "Sent 1 Oct with the old numbers".
    - "Update 3 versions" button.
    - A "Pellow replied · Open what they saw" card.
+5. **My documents (web app).** The user signs in with their existing Microsoft (later Google) account, with no Lineage account. The list shows every tracked family. A document page has three sections: Versions (timeline, compare, restore as new), Sent copies (open exactly as sent, came-back status) and Family tree (lanes for master, tailored versions, sent copies and returned files). Data is read only from the user's own storage, through a rebuildable index at `Lineage/index.json`.
 
 ### Enterprise Microsoft (canvas page "Microsoft 365")
 

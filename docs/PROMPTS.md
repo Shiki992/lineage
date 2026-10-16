@@ -163,6 +163,72 @@ tests report precision and recall on the fixture set.
 
 ---
 
+## Phase 3B: My documents (account, library and document history)
+
+Model: `/model opus` for the plan, then `/model sonnet` for the screens.
+
+```
+Phase 3B: "My documents". A signed-in user sees every document they track with
+Lineage, opens one, and sees all its versions, every copy they sent, and the full
+family tree. Start in plan mode. First check the current Microsoft identity (MSAL) and
+Microsoft Graph documentation for a static web app, and list what you verified with links.
+
+Accounts:
+- "Creating an account" means signing in with the Microsoft account the user already
+  uses for Lineage. There are no Lineage accounts: no passwords, no user database, and
+  no server run by the project. Design the auth layer so a Google sign-in can be added
+  in Phase 5 without changes to the screens.
+- Everything is read from the user's own storage, in their browser. No analytics, and no
+  data sent anywhere else. Signing out clears any local cache.
+
+Library (Rust, crates/lineage, pure):
+- build_library(ledgers) → Library: one entry per family with name, format, master
+  file, version count, sent-copy count, returned-file count and last activity.
+- family_graph(ledger) → nodes and edges for the tree (master checkpoints, tailored
+  versions with where they branched and which master updates they took, sent copies,
+  returned files, archived nodes flagged). Layout stays in TypeScript.
+- Keep a small library index in the user's storage (Lineage/index.json), updated with
+  every ledger write and always rebuildable by scanning Lineage/*/ledger.jsonl. If the
+  two disagree, the ledgers win and the index is rebuilt.
+
+Build apps/family-app (static web app, React, design system from CLAUDE.md):
+1. My documents:
+   - Rows showing name, format icon, versions, sent copies, last activity.
+   - Search, a format filter and sorting.
+   - An empty state that explains how to start tracking a file.
+2. Document page, with three sections:
+   - Versions: the checkpoint timeline for the master and each tailored version, with
+     notes, milestones and dates. Compare any two (reuse the Phase 1 diff and summaries).
+     "Restore as a new version" never overwrites anything.
+   - Sent copies: recipient, version, format and date, with "Came back" status. Open a
+     copy exactly as sent.
+   - Family tree: lanes for the master, tailored versions, sent copies and returned
+     files, like the "App: family tree view" artboard on the Microsoft 365 page of the
+     canvas, adapted to personal wording. Archived items are hidden behind a toggle.
+     Selecting a node shows its details and actions.
+3. A "My documents" link in the Word task pane footer that opens the app.
+
+Edge cases:
+- The master or a version was moved, renamed or deleted in OneDrive: keep the history,
+  show "File not found", and offer to relink it to a file the user picks.
+- A ledger is corrupt or half-written: show the readable part, flag the rest, never crash.
+- Large families: 300 checkpoints and 50 sent copies stay smooth.
+
+Tests:
+- Rust unit and property tests for build_library and family_graph, including index
+  rebuild after a deliberately broken index.
+- Component tests for each screen state (loading, empty, normal, missing file, error).
+- Playwright end-to-end runs against a storage-local fixture account with three families.
+- Accessibility check: keyboard-only navigation of the list, tabs and tree.
+
+Out of scope: Google sign-in, sharing a document page with others, enterprise reviews.
+Done when: I sign in with my Microsoft account, see my tracked resume and deck families,
+open one, compare two versions, open a sent copy exactly as sent, and walk the tree.
+Write a manual test script in docs/testing/my-documents.md and update docs/STATUS.md.
+```
+
+---
+
 ## Phase 4: PowerPoint deck variants
 
 ```
