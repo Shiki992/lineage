@@ -67,7 +67,7 @@ The recognition test (`crates/lineage/tests/recognition.rs`) brings every sent c
 
 ### `returned/libreoffice/`
 
-Real re-saves by **LibreOffice 26.8.1.1** (Windows, installed with winget), made by `scripts/libreoffice-resave.ps1` on 2026-10-15: `cargo xtask returned-inputs` writes the inputs from `crates/testkit/src/returned.rs` (`LIBREOFFICE`), and LibreOffice opens each one headless and saves it as Word 2007-365 (`--convert-to docx:"MS Word 2007 XML"`). Invented content; licence Apache-2.0. LibreOffice keeps custom document properties, so the inputs that carried ids still carry them.
+Real re-saves by **LibreOffice 26.8.1.1** (Windows, installed with winget), made by `scripts/libreoffice-resave.ps1` on 2026-10-15: `cargo xtask returned-inputs` writes the inputs from `crates/testkit/src/returned.rs` (`LIBREOFFICE`), and LibreOffice opens each one headless and saves it as Word 2007-365 (`--convert-to docx:"MS Word 2007 XML"`). Invented content; licence Apache-2.0. LibreOffice keeps custom document properties, so the inputs that carried ids still carry them. They are also write fixtures: `crates/core/src/write/tests.rs` keeps every content change from the four edited ones words only (decision 0014), and `origin.rs` checks each is recognised as saved by LibreOffice.
 
 | File                                     | From                          | Outside edits | Ids |
 | ---------------------------------------- | ----------------------------- | ------------- | --- |
