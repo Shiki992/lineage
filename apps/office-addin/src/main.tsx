@@ -14,6 +14,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { signIn } from "./auth/sign-in";
 import { pageStart, timing } from "./metrics";
+import { myDocumentsOpener } from "./office/my-documents";
 import { WordHost } from "./office/word-host";
 import { chooseStorage } from "./storage/choose";
 
@@ -53,7 +54,13 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
     };
     view.render(
       <StrictMode>
-        <App engine={engine} host={new WordHost()} storage={storage} signIn={interactive} />
+        <App
+          engine={engine}
+          host={new WordHost()}
+          storage={storage}
+          signIn={interactive}
+          openMyDocuments={myDocumentsOpener()}
+        />
       </StrictMode>,
     );
   } catch (error) {

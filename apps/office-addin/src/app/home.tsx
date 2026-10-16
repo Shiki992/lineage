@@ -49,20 +49,23 @@ function Actions({
   );
 }
 
-/** The footer: "What I've sent" and "A file came back". */
+/** The footer: "What I've sent", "A file came back" and "My documents". */
 function Footer({
   label,
   onSent,
   onCameBack,
+  onMyDocuments,
 }: {
   label: string;
   onSent: () => void;
   onCameBack: (() => void) | undefined;
+  onMyDocuments: (() => void) | undefined;
 }) {
   return (
     <footer className="row" style={{ flexWrap: "wrap" }}>
       <LinkButton onClick={onSent}>{label}</LinkButton>
       {onCameBack && <LinkButton onClick={onCameBack}>A file came back</LinkButton>}
+      {onMyDocuments && <LinkButton onClick={onMyDocuments}>My documents</LinkButton>}
     </footer>
   );
 }
@@ -76,6 +79,7 @@ export function MasterHome({
   onSent,
   onCameBack,
   onReviewReturned,
+  onMyDocuments,
 }: {
   panel: MasterPanel;
   busy: boolean;
@@ -85,6 +89,8 @@ export function MasterHome({
   onSent: () => void;
   onCameBack?: () => void;
   onReviewReturned?: (returned: string) => void;
+  /** Opens My documents in the browser; absent when this build doesn't know where it is. */
+  onMyDocuments?: (() => void) | undefined;
 }) {
   return (
     <div className="stack">
@@ -132,7 +138,12 @@ export function MasterHome({
         </section>
       )}
       <Actions labels={panel.actions} busy={busy} onAction={onAction} />
-      <Footer label={panel.footer} onSent={onSent} onCameBack={onCameBack} />
+      <Footer
+        label={panel.footer}
+        onSent={onSent}
+        onCameBack={onCameBack}
+        onMyDocuments={onMyDocuments}
+      />
     </div>
   );
 }
@@ -145,6 +156,7 @@ export function VersionHome({
   onSent,
   onCameBack,
   onReviewReturned,
+  onMyDocuments,
 }: {
   panel: VersionPanel;
   busy: boolean;
@@ -153,6 +165,8 @@ export function VersionHome({
   onSent: () => void;
   onCameBack?: () => void;
   onReviewReturned?: (returned: string) => void;
+  /** Opens My documents in the browser; absent when this build doesn't know where it is. */
+  onMyDocuments?: (() => void) | undefined;
 }) {
   return (
     <div className="stack">
@@ -170,7 +184,12 @@ export function VersionHome({
       )}
       <LatestCheckpoint card={panel.latest} />
       <Actions labels={panel.actions} busy={busy} onAction={onAction} />
-      <Footer label={panel.footer} onSent={onSent} onCameBack={onCameBack} />
+      <Footer
+        label={panel.footer}
+        onSent={onSent}
+        onCameBack={onCameBack}
+        onMyDocuments={onMyDocuments}
+      />
     </div>
   );
 }

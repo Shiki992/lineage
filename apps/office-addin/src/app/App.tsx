@@ -60,9 +60,11 @@ export interface AppProps {
   storage: StorageChoice;
   /** Signs in and returns the person's storage (OneDrive). */
   signIn?: () => Promise<Storage>;
+  /** Opens My documents in the browser (the footer link). */
+  openMyDocuments?: (() => void) | undefined;
 }
 
-export function App({ engine, host, storage: choice, signIn }: AppProps) {
+export function App({ engine, host, storage: choice, signIn, openMyDocuments }: AppProps) {
   const [storage, setStorage] = useState<Storage | null>(
     choice.kind === "ready" ? choice.storage : null,
   );
@@ -495,6 +497,7 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
         }
         onCameBack={cameBackLink}
         onReviewReturned={reviewReturned}
+        onMyDocuments={openMyDocuments}
       />
     );
   } else {
@@ -515,6 +518,7 @@ export function App({ engine, host, storage: choice, signIn }: AppProps) {
         }
         onCameBack={cameBackLink}
         onReviewReturned={reviewReturned}
+        onMyDocuments={openMyDocuments}
       />
     );
   }

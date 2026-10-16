@@ -147,6 +147,33 @@ describe("the task pane", () => {
     });
   });
 
+  it("links to My documents from the footer when it knows where it is", async () => {
+    const engine = loadEngine(wasm, new Uint8Array(32).fill(11));
+    const host = new FakeHost(engine, fixture("resume-master.docx"), {
+      name: "Resume.docx",
+      url: "https://d.docs.live.net/0/Documents/Resume.docx",
+    });
+    let opened = 0;
+    const storage = new MemoryStorage();
+    const { unmount } = render(
+      <App
+        engine={engine}
+        host={host}
+        storage={{ kind: "ready", storage }}
+        openMyDocuments={() => {
+          opened += 1;
+        }}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Start tracking" }));
+    fireEvent.click(await screen.findByRole("button", { name: "My documents" }));
+    expect(opened).toBe(1);
+    unmount();
+    render(<App engine={engine} host={host} storage={{ kind: "ready", storage }} />);
+    await screen.findByRole("button", { name: "What I've sent" });
+    expect(screen.queryByRole("button", { name: "My documents" })).toBeNull();
+  });
+
   it("shows the engine's words when something can't be done", async () => {
     const engine = loadEngine(wasm, new Uint8Array(32).fill(10));
     const host = new FakeHost(engine, new TextEncoder().encode("not a Word file"), {

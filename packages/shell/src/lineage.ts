@@ -54,6 +54,18 @@ export interface LineageOptions {
 
 const utf8 = new TextEncoder();
 
+/** "d.docs.live.net" for a web address, "path" for a file on this computer. */
+function addressKind(ref: string): string {
+  if (!/^https?:\/\//i.test(ref)) {
+    return "path";
+  }
+  try {
+    return new URL(ref).host.toLowerCase();
+  } catch {
+    return "path";
+  }
+}
+
 function docx(name: string): string {
   const trimmed = name.trim();
   return /\.docx$/i.test(trimmed) ? trimmed : `${trimmed}.docx`;
@@ -195,13 +207,17 @@ export class Lineage {
         const { name, url } = await this.host.describe();
         return { kind: "untracked", name, saved: url !== null };
       }
-      const ledger = await this.ledger(ids.family);
+      let ledger = await this.ledger(ids.family);
       if (ledger.length === 0) {
         this.openFile = undefined;
         return { kind: "elsewhere", ids };
       }
       await this.fetchBlobs(ids.family, this.engine.referencedBlobs(ledger));
-      const file = this.engine.openFile(ledger, ids.checkpoint);
+      let file = this.engine.openFile(ledger, ids.checkpoint);
+      if (file.copyOf === null && file.isLatest && (await this.followMove(file))) {
+        ledger = await this.ledger(ids.family);
+        file = this.engine.openFile(ledger, ids.checkpoint);
+      }
       if (file.copyOf !== null || !file.isLatest) {
         this.openFile = undefined;
         const { name } = await this.host.describe();
@@ -211,6 +227,32 @@ export class Lineage {
       this.openFile = file;
       return this.panelFor(file, ledger);
     });
+  }
+
+  /**
+   * The master, opened from somewhere new (moved or renamed in OneDrive or on
+   * this computer): records where it is now, so My documents shows the right
+   * place (decision 0015). Word reports one file differently on the web and on
+   * the desktop, so only a new address of the same kind counts as a move. Only
+   * a convenience: if it can't be recorded, the panel opens anyway.
+   */
+  private async followMove(file: s.OpenFile): Promise<boolean> {
+    if (file.role !== "master") {
+      return false;
+    }
+    const { url } = await this.host.describe();
+    if (!url || url === file.storageRef || addressKind(url) !== addressKind(file.storageRef)) {
+      return false;
+    }
+    try {
+      const bytes = await this.host.readBytes();
+      const result = await this.press(file.familyId, (ledger) =>
+        this.engine.relink(ledger, file.nodeId, url, bytes, this.now()),
+      );
+      return result.outcome.records > 0;
+    } catch {
+      return false;
+    }
   }
 
   private async panelFor(file: s.OpenFile, ledger: Uint8Array): Promise<Opened> {
