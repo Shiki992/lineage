@@ -152,6 +152,7 @@ export function VersionHome({
   panel,
   busy,
   deck = false,
+  bringsIn = false,
   onReview,
   onAction,
   onSent,
@@ -161,8 +162,13 @@ export function VersionHome({
 }: {
   panel: VersionPanel;
   busy: boolean;
-  /** A deck: updates come from the master deck's panel (decision 0018). */
+  /**
+   * A deck. Its updates are brought in from this panel when PowerPoint can
+   * change its slides (`bringsIn`, decision 0019), else from the master deck's
+   * panel once it's closed (decision 0018).
+   */
   deck?: boolean;
+  bringsIn?: boolean;
   onReview: () => void;
   onAction: (action: Action) => void;
   onSent: () => void;
@@ -180,7 +186,7 @@ export function VersionHome({
       {panel.updates && (
         <section className="callout stack" style={{ gap: 8 }} aria-label="Updates from the master">
           <p>{panel.updates}</p>
-          {deck ? (
+          {deck && !bringsIn ? (
             <p className="small">
               PowerPoint can't change a deck while it's open. Close this deck, then choose Update
               versions in the master deck: this deck gets the changes, and a checkpoint from before.

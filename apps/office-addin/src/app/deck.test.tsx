@@ -6,10 +6,10 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { DeckPanel, UpdateRun, VersionPanel } from "@lineage/shell";
+import type { ChangeCard, DeckPanel, UpdateRun, Updates, VersionPanel } from "@lineage/shell";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { DeckHome, UpdateReport } from "./deck";
+import { DeckHome, DeckVersionReview, UpdateReport } from "./deck";
 import { VersionHome } from "./home";
 
 function golden(name: string): unknown {
@@ -94,6 +94,92 @@ describe("the pitch deck panel", () => {
         },
       ],
     );
+  });
+
+  it("offers Review on a tailored deck PowerPoint can change", () => {
+    const panel = {
+      ...(golden("version-panel-updates") as VersionPanel),
+      fileName: "Pitch deck – Seed fund.pptx",
+    };
+    const onReview = vi.fn();
+    render(
+      <VersionHome
+        panel={panel}
+        busy={false}
+        deck
+        bringsIn
+        onReview={onReview}
+        onAction={vi.fn()}
+        onSent={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/Close this deck/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review them" }));
+    expect(onReview).toHaveBeenCalled();
+  });
+
+  it("brings changes into the open deck, with Keep mine or Use the master's", () => {
+    const updates = golden("updates-deck") as Updates;
+    const onBringIn = vi.fn();
+    render(
+      <DeckVersionReview
+        updates={updates}
+        node="0123456789abcdef0123456789abcdef"
+        busy={false}
+        onBringIn={onBringIn}
+        onBack={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(updates.headline);
+    expect(screen.getByText("Both changed '$1.2M ARR'")).toBeTruthy();
+    // Only the overlap is left: nothing to bring in until a side is chosen.
+    expect(screen.queryByRole("button", { name: /^Bring in/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep mine" }));
+    expect(screen.getByRole("status").textContent).toBe("Nothing to bring in.");
+    fireEvent.click(screen.getByRole("button", { name: "Use the master's" }));
+    expect(screen.getByRole("status").textContent).toBe("1 change to bring in.");
+    fireEvent.click(screen.getByRole("button", { name: "Bring in 1 change" }));
+    const overlap = updates.groups[0]?.view.overlaps[0];
+    expect(onBringIn).toHaveBeenCalledWith([
+      { node: "0123456789abcdef0123456789abcdef", card: overlap?.id, decision: "useMasters" },
+    ]);
+  });
+
+  it("brings in what only the master changed, and says what waits", () => {
+    const base = golden("updates-deck") as Updates;
+    const group = base.groups[0];
+    const overlap = group?.view.overlaps[0];
+    if (!group || !overlap) {
+      throw new Error("an overlap in the golden reply");
+    }
+    const change: ChangeCard = {
+      id: "c1",
+      summary: "The notes changed",
+      place: "Slide 6 · Traction",
+      text: [],
+      choices: [],
+      byHand: null,
+    };
+    const updates: Updates = {
+      ...base,
+      groups: [{ ...group, view: { ...group.view, changes: [change] } }],
+    };
+    const onBringIn = vi.fn();
+    render(
+      <DeckVersionReview
+        updates={updates}
+        node="0123456789abcdef0123456789abcdef"
+        busy={false}
+        onBringIn={onBringIn}
+        onBack={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toBe(
+      "1 change to bring in. 1 change you both made waits until you choose.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Bring in 1 change" }));
+    expect(onBringIn).toHaveBeenCalledWith([]);
   });
 
   it("tells a tailored deck where its updates come from", () => {
