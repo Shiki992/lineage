@@ -90,25 +90,32 @@ impl Item {
     /// The choices the panel offers for this item.
     #[must_use]
     pub fn choices(&self) -> Vec<Decision> {
-        match &self.status {
-            Status::Clean => vec![Decision::BringIn, Decision::Decline],
-            Status::Overlap(_) if !self.masters_writable => vec![Decision::KeepMine],
-            Status::Overlap(OverlapKind::BothAdded) => vec![
-                Decision::KeepMine,
-                Decision::KeepBoth {
-                    masters_first: false,
-                },
-                Decision::KeepBoth {
-                    masters_first: true,
-                },
-                Decision::UseMasters,
-            ],
-            Status::Overlap(_) => vec![Decision::KeepMine, Decision::UseMasters],
-            // Lineage can't write it, but the person can still say no, so it
-            // stops being offered. Copied in by hand, it is detected as merged.
-            Status::ByHand(_) => vec![Decision::Decline],
-            Status::AlreadyThere { .. } => Vec::new(),
-        }
+        choices(&self.status, self.masters_writable)
+    }
+}
+
+/// The choices the panel offers for an item with this status: the same for
+/// documents and decks.
+#[must_use]
+pub fn choices(status: &Status, masters_writable: bool) -> Vec<Decision> {
+    match status {
+        Status::Clean => vec![Decision::BringIn, Decision::Decline],
+        Status::Overlap(_) if !masters_writable => vec![Decision::KeepMine],
+        Status::Overlap(OverlapKind::BothAdded) => vec![
+            Decision::KeepMine,
+            Decision::KeepBoth {
+                masters_first: false,
+            },
+            Decision::KeepBoth {
+                masters_first: true,
+            },
+            Decision::UseMasters,
+        ],
+        Status::Overlap(_) => vec![Decision::KeepMine, Decision::UseMasters],
+        // Lineage can't write it, but the person can still say no, so it
+        // stops being offered. Copied in by hand, it is detected as merged.
+        Status::ByHand(_) => vec![Decision::Decline],
+        Status::AlreadyThere { .. } => Vec::new(),
     }
 }
 

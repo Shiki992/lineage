@@ -487,7 +487,7 @@ fn chart_figures(package: &Package, part: &str) -> Vec<Para> {
 /// Layouts already read, by part.
 pub(crate) type LayoutCache = BTreeMap<String, LayoutRef>;
 
-fn layout(package: &Package, part: &str, cache: &mut LayoutCache) -> Result<LayoutRef> {
+pub(crate) fn layout(package: &Package, part: &str, cache: &mut LayoutCache) -> Result<LayoutRef> {
     if let Some(found) = cache.get(part) {
         return Ok(found.clone());
     }

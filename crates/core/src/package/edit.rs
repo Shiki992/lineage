@@ -190,6 +190,70 @@ pub fn add_relationships(
     Ok(ids)
 }
 
+/// Adds relationships whose ids the caller already chose (none may be in use).
+/// The `.rels` part is created when the source has none.
+///
+/// # Errors
+/// [`Error::CannotEdit`] when an id is already used; [`Error`] when an existing
+/// `.rels` part is damaged.
+pub fn add_relationships_with_ids(
+    package: &mut Package,
+    source: &str,
+    rels: &[(String, NewRelationship)],
+) -> Result<()> {
+    if rels.is_empty() {
+        return Ok(());
+    }
+    let rels_part = rels_part_for(source);
+    let existing = match package.part(&rels_part) {
+        Some(bytes) => Relationships::parse(&rels_part, bytes)?,
+        None => Relationships::default(),
+    };
+    let prefix = match package.part(&rels_part) {
+        Some(bytes) => {
+            let text = xml::text(&rels_part, bytes)?;
+            let doc = xml::parse(&rels_part, text)?;
+            xml::prefix_of(text, doc.root_element()).to_owned()
+        }
+        None => String::new(),
+    };
+    let name = element(&prefix, "Relationship");
+    let mut fragment = String::new();
+    for (id, rel) in rels {
+        if existing.by_id(id).is_some() {
+            return Err(Error::CannotEdit(format!(
+                "relationship {id} is already used"
+            )));
+        }
+        let mode = if rel.external {
+            r#" TargetMode="External""#
+        } else {
+            ""
+        };
+        fragment.push_str(&format!(
+            r#"<{name} Id="{}" Type="{}" Target="{}"{mode}/>"#,
+            escape_attr(id),
+            escape_attr(&rel.rel_type),
+            escape_attr(&rel.target)
+        ));
+    }
+    let new = match package.part(&rels_part) {
+        Some(bytes) => {
+            let text = xml::text(&rels_part, bytes)?;
+            let doc = xml::parse(&rels_part, text)?;
+            let mut edits = Edits::new();
+            xml::append_child(&mut edits, text, doc.root_element(), &fragment);
+            edits.apply(text)?
+        }
+        None => format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n<Relationships xmlns=\"{}\">{fragment}</Relationships>",
+            ns::PACKAGE_RELS
+        ),
+    };
+    package.set_part(&rels_part, new.into_bytes());
+    Ok(())
+}
+
 /// Removes relationships by id from `source`'s `.rels` part.
 ///
 /// # Errors

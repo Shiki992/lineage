@@ -69,3 +69,22 @@ pub fn smoke(name: &str, bytes: &[u8]) {
             .expect("write expected text");
     }
 }
+
+/// Writes a deck for the PowerPoint smoke test when `LINEAGE_SMOKE_DIR` is set,
+/// with the text PowerPoint should show, slide by slide (`Deck::lines`).
+pub fn smoke_deck(name: &str, bytes: &[u8]) {
+    let Some(dir) = std::env::var_os("LINEAGE_SMOKE_DIR") else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    std::fs::create_dir_all(&dir).expect("smoke folder");
+    std::fs::write(dir.join(format!("{name}.pptx")), bytes).expect("write output");
+    let deck = crate::Deck::open(bytes).unwrap_or_else(|e| panic!("opens: {e}"));
+    let lines: Vec<String> = deck
+        .lines()
+        .into_iter()
+        .map(|line| line.replace('\n', "\u{b}"))
+        .collect();
+    std::fs::write(dir.join(format!("{name}.expected.txt")), lines.join("\n"))
+        .expect("write expected text");
+}

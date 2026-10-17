@@ -31,6 +31,8 @@ pub struct CleanReport {
     pub comments: usize,
     /// Runs of hidden text removed.
     pub hidden_runs: usize,
+    /// Hidden slides removed (decks).
+    pub hidden_slides: usize,
     /// Parts removed, such as `word/comments.xml`.
     pub parts_removed: Vec<String>,
 }
@@ -287,7 +289,7 @@ fn removable(name: &str) -> bool {
 }
 
 /// Removes relationships to removed parts (and the settings' attached template).
-fn prune_relationships(package: &mut Package, removed: &BTreeSet<String>) -> Result<()> {
+pub(crate) fn prune_relationships(package: &mut Package, removed: &BTreeSet<String>) -> Result<()> {
     let rels_parts: Vec<String> = package
         .part_names()
         .filter(|n| n.ends_with(".rels"))
@@ -324,7 +326,7 @@ fn prune_relationships(package: &mut Package, removed: &BTreeSet<String>) -> Res
 }
 
 /// The part a `.rels` part belongs to: `word/_rels/document.xml.rels` → `word/document.xml`.
-fn source_of(rels_part: &str) -> String {
+pub(crate) fn source_of(rels_part: &str) -> String {
     let (dir, file) = rels_part.rsplit_once('/').unwrap_or(("", rels_part));
     let dir = dir.trim_end_matches("_rels").trim_end_matches('/');
     let file = file.trim_end_matches(".rels");
@@ -335,7 +337,7 @@ fn source_of(rels_part: &str) -> String {
     }
 }
 
-fn prune_content_types(package: &mut Package, removed: &BTreeSet<String>) -> Result<()> {
+pub(crate) fn prune_content_types(package: &mut Package, removed: &BTreeSet<String>) -> Result<()> {
     let bytes = package
         .part(ContentTypes::PART)
         .ok_or_else(|| Error::NotAnOfficeFile("no content types".to_owned()))?
@@ -366,7 +368,7 @@ fn prune_content_types(package: &mut Package, removed: &BTreeSet<String>) -> Res
 
 /// Empties the core and extended properties: author, editors, company, template,
 /// editing time and the title all go.
-fn empty_properties(package: &mut Package) {
+pub(crate) fn empty_properties(package: &mut Package) {
     if package.contains("docProps/core.xml") {
         package.set_part(
             "docProps/core.xml",
@@ -409,6 +411,36 @@ fn clean_settings(package: &mut Package, settings: &str) -> Result<()> {
     if !edits.is_empty() {
         let new = edits.apply(text)?;
         package.set_part(settings, new.into_bytes());
+    }
+    Ok(())
+}
+
+/// Custom properties: only the two ids, or nothing. A removed part is added to
+/// `removed` (lower case) and `names`.
+pub(crate) fn only_ids(
+    package: &mut Package,
+    ids: Option<&LineageIds>,
+    removed: &mut BTreeSet<String>,
+    names: &mut Vec<String>,
+) -> Result<()> {
+    let custom = custom_part(package);
+    match (ids, &custom) {
+        (Some(ids), Some(part)) => package.set_part(
+            part,
+            custom_xml(&[(FAMILY_ID, &ids.family), (CHECKPOINT_ID, &ids.checkpoint)]).into_bytes(),
+        ),
+        (Some(ids), None) => {
+            add_custom_part(
+                package,
+                &custom_xml(&[(FAMILY_ID, &ids.family), (CHECKPOINT_ID, &ids.checkpoint)]),
+            )?;
+        }
+        (None, Some(part)) => {
+            package.remove_part(part);
+            removed.insert(part.to_ascii_lowercase());
+            names.push(part.clone());
+        }
+        (None, None) => {}
     }
     Ok(())
 }
@@ -456,27 +488,8 @@ pub fn clean_copy(bytes: &[u8], ids: Option<&LineageIds>) -> Result<(Vec<u8>, Cl
     }
     removed_names.extend(orphan_rels);
 
-    // Custom properties: only the two ids, or nothing.
-    let custom = custom_part(&package);
     let mut removed_set = removed.clone();
-    match (ids, &custom) {
-        (Some(ids), Some(part)) => package.set_part(
-            part,
-            custom_xml(&[(FAMILY_ID, &ids.family), (CHECKPOINT_ID, &ids.checkpoint)]).into_bytes(),
-        ),
-        (Some(ids), None) => {
-            add_custom_part(
-                &mut package,
-                &custom_xml(&[(FAMILY_ID, &ids.family), (CHECKPOINT_ID, &ids.checkpoint)]),
-            )?;
-        }
-        (None, Some(part)) => {
-            package.remove_part(part);
-            removed_set.insert(part.to_ascii_lowercase());
-            removed_names.push(part.clone());
-        }
-        (None, None) => {}
-    }
+    only_ids(&mut package, ids, &mut removed_set, &mut removed_names)?;
     prune_relationships(&mut package, &removed_set)?;
     prune_content_types(&mut package, &removed_set)?;
     empty_properties(&mut package);

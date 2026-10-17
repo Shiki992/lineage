@@ -4,11 +4,15 @@
 //! PowerPoint decks: opening a .pptx into the slide model, and everything the
 //! engine does with decks (what changed, merging, writing, clean copies).
 
+pub mod check;
+pub mod clean;
 pub mod diff;
+pub mod merge;
 pub mod model;
 mod read;
 pub mod summary;
 pub mod view;
+pub mod write;
 
 pub use model::*;
 
@@ -29,6 +33,10 @@ pub struct Deck {
     pub sections: Vec<Section>,
     /// The design: slide masters, layouts and themes. Equal when none changed.
     pub design: u64,
+    /// Every layout of every slide master, used or not.
+    pub layouts: Vec<LayoutRef>,
+    /// The notes master, if the deck has one.
+    pub notes_master: Option<String>,
 }
 
 impl Deck {
@@ -103,6 +111,26 @@ impl Deck {
             .collect();
 
         let design = design_key(&package);
+        let mut all_layouts = Vec::new();
+        for rel in main_rels.of_kind("slideMaster") {
+            let master = resolve_target(&main_part, &rel.target);
+            let master_rels = read_rels(&package, &master)?;
+            for layout_rel in master_rels.of_kind("slideLayout") {
+                let part = resolve_target(&master, &layout_rel.target);
+                if package.contains(&part) {
+                    let part = package.canonical_name(&part).unwrap_or(&part).to_owned();
+                    let layout = read::layout(&package, &part, &mut layouts)?;
+                    if !all_layouts.contains(&layout) {
+                        all_layouts.push(layout);
+                    }
+                }
+            }
+        }
+        let notes_master = main_rels
+            .of_kind("notesMaster")
+            .next()
+            .map(|rel| resolve_target(&main_part, &rel.target))
+            .filter(|part| package.contains(part));
         Ok(Self {
             package,
             main_part,
@@ -110,6 +138,8 @@ impl Deck {
             slides,
             sections,
             design,
+            layouts: all_layouts,
+            notes_master,
         })
     }
 
@@ -123,6 +153,24 @@ impl Deck {
             .part(part)
             .ok_or_else(|| Error::Damaged(format!("{part} is missing")))?;
         xml::text(part, bytes)
+    }
+
+    /// This deck's layout with the same name and type as `layout`, if any.
+    #[must_use]
+    pub fn layout_like(&self, layout: &LayoutRef) -> Option<&LayoutRef> {
+        self.layouts
+            .iter()
+            .find(|l| l.name == layout.name && l.kind == layout.kind)
+            .or_else(|| {
+                // A layout renamed but not changed in kind still fits, when it is
+                // the only one of that kind ("blank", "title").
+                let same_kind: Vec<&LayoutRef> = self
+                    .layouts
+                    .iter()
+                    .filter(|l| l.kind == layout.kind && l.kind != "cust")
+                    .collect();
+                (same_kind.len() == 1).then(|| same_kind[0])
+            })
     }
 
     /// The slide with this `p:sldId@id`.
