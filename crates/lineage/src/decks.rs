@@ -17,9 +17,13 @@ use lineage_core::view::{ChangeCard, WhatChanged};
 
 use crate::blob::{Blob, BlobSource, Layered, restore};
 use crate::changes::variant_status;
+use lineage_core::Deck;
+use lineage_core::docx::props::LineageIds;
+use lineage_core::pptx::slides::{SlideOps, slide_ops};
+
 use crate::commands::{
-    Context, Outcome, check_file, decide_cards, offer_to_versions, same_content, save_checkpoint,
-    updates, what_changed,
+    Context, Outcome, check_file, decide_cards_landing, offer_to_versions, same_content,
+    save_checkpoint, updates, what_changed,
 };
 use crate::error::{Error, Result};
 use crate::ids::Id;
@@ -123,6 +127,21 @@ pub fn update_versions_leaving_open(
     choices: &[(Id, String, Decision)],
     blobs: &dyn BlobSource,
 ) -> Result<UpdateRun> {
+    run_versions(ctx, state, inputs, open, choices, None, blobs)
+}
+
+/// The run behind "Update N versions" and the open deck's Bring in. `landed`
+/// is what PowerPoint holds after the open deck's slides were changed (one
+/// version only), which its checkpoint records.
+fn run_versions(
+    ctx: &mut Context<'_>,
+    state: &FamilyState,
+    inputs: &[(Id, Vec<u8>)],
+    open: &[Id],
+    choices: &[(Id, String, Decision)],
+    landed: Option<&[u8]>,
+    blobs: &dyn BlobSource,
+) -> Result<UpdateRun> {
     let mut state = state.clone();
     let mut out = Outcome::default();
     let nodes: Vec<Id> = inputs.iter().map(|(n, _)| n.clone()).collect();
@@ -162,6 +181,7 @@ pub fn update_versions_leaving_open(
             node,
             &mut current,
             choices,
+            landed,
             blobs,
             &mut run,
         );
@@ -174,6 +194,9 @@ pub fn update_versions_leaving_open(
                 missing.get_or_insert(hash);
             }
             Err(e @ Error::Ledger(_)) => return Err(e),
+            // What PowerPoint holds isn't the merged deck: the open deck's run
+            // fails as a whole, so the host puts the slides back.
+            Err(e @ Error::Engine(lineage_core::Error::NotLanded(_))) => return Err(e),
             Err(e) => {
                 run.result = RunResult::NotUpdated;
                 run.text = format!("Not updated: {}", reason(&e));
@@ -237,6 +260,7 @@ fn update_one(
     node: &Id,
     current: &mut Vec<u8>,
     choices: &[(Id, String, Decision)],
+    landed: Option<&[u8]>,
     blobs: &dyn BlobSource,
     run: &mut VersionRun,
 ) -> Result<()> {
@@ -340,7 +364,7 @@ fn update_one(
             fresh: &out.blobs,
             stored: blobs,
         };
-        decide_cards(ctx, state, node, current, &cards, &layered)?
+        decide_cards_landing(ctx, state, node, current, &cards, landed, &layered)?
     };
     if let Some(file) = decided.file.clone() {
         *current = file;
@@ -365,6 +389,115 @@ fn update_one(
     }
     run.text = text;
     Ok(())
+}
+
+/// What bringing the master's changes into the open deck takes (decision
+/// 0019): the version's line, the merged deck, and the slide steps from the
+/// open deck to it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenPlan {
+    /// "Brought in 2 changes · 1 to choose", or why nothing can be.
+    pub run: VersionRun,
+    /// The deck the slides come from. `None` when nothing changes.
+    pub merged: Option<Vec<u8>>,
+    pub ops: SlideOps,
+}
+
+/// The first half of Bring in for a tailored deck open in PowerPoint, which
+/// can't be replaced as a file (decision 0019). Runs "Update N versions" for
+/// this one version on the open deck's bytes, and works out the slide steps
+/// that turn the open deck into the merged one. Nothing is recorded: the host
+/// carries out the steps, reads the deck back, and calls [`finish_open`].
+///
+/// # Errors
+/// As [`update_versions`].
+pub fn prepare_open(
+    ctx: &mut Context<'_>,
+    state: &FamilyState,
+    node: &Id,
+    bytes: &[u8],
+    choices: &[(Id, String, Decision)],
+    blobs: &dyn BlobSource,
+) -> Result<OpenPlan> {
+    let inputs = [(node.clone(), bytes.to_vec())];
+    let mut done = run_versions(ctx, state, &inputs, &[], choices, None, blobs)?;
+    let mut run = done
+        .versions
+        .pop()
+        .ok_or_else(|| Error::NotAllowed("no version to update".to_owned()))?;
+    let file = run.file.take();
+    let merged = file.filter(|_| run.brought_in > 0);
+    let Some(merged) = merged else {
+        return Ok(OpenPlan {
+            run,
+            merged: None,
+            ops: SlideOps::default(),
+        });
+    };
+    match slide_ops(&Deck::open(bytes)?, &Deck::open(&merged)?) {
+        Ok(ops) => Ok(OpenPlan {
+            run,
+            merged: Some(merged),
+            ops,
+        }),
+        Err(lineage_core::Error::CannotEdit(_)) => {
+            run.result = RunResult::NotUpdated;
+            run.brought_in = 0;
+            run.text = "Not updated: PowerPoint can't change this deck's slides while it's open. Close it, then choose Update versions in the master deck.".to_owned();
+            Ok(OpenPlan {
+                run,
+                merged: None,
+                ops: SlideOps::default(),
+            })
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// The second half of Bring in for an open deck: runs the same update on
+/// `original` (the bytes [`prepare_open`] had), checks that `held` (what
+/// PowerPoint holds now) is the merged deck, and records it: "Your edits
+/// before the update" if there were any, the choices, and a checkpoint of
+/// `held`. The outcome's `ids` are the ones to set in the open deck.
+///
+/// # Errors
+/// [`lineage_core::Error::NotLanded`] when `held` isn't the merged deck;
+/// otherwise as [`update_versions`], or when nothing could be brought in.
+pub fn finish_open(
+    ctx: &mut Context<'_>,
+    state: &FamilyState,
+    node: &Id,
+    original: &[u8],
+    held: &[u8],
+    choices: &[(Id, String, Decision)],
+    blobs: &dyn BlobSource,
+) -> Result<Outcome> {
+    let inputs = [(node.clone(), original.to_vec())];
+    let done = run_versions(ctx, state, &inputs, &[], choices, Some(held), blobs)?;
+    let run = done
+        .versions
+        .first()
+        .ok_or_else(|| Error::NotAllowed("no version to update".to_owned()))?;
+    if run.brought_in == 0 {
+        return Err(Error::NotAllowed(format!(
+            "nothing to bring in: {}",
+            run.text
+        )));
+    }
+    let mut outcome = done.outcome;
+    let mut after = state.clone();
+    for record in &outcome.records {
+        after.apply(record)?;
+    }
+    let latest = after
+        .latest(node)
+        .ok_or_else(|| Error::Ledger("a version without checkpoints".to_owned()))?;
+    outcome.ids = Some(LineageIds {
+        family: after.family_id.to_string(),
+        checkpoint: latest.id.to_string(),
+    });
+    outcome.created = Some(latest.id.clone());
+    Ok(outcome)
 }
 
 /// "You just changed Slide 6 · Traction", with the changes marked.

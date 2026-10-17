@@ -549,6 +549,26 @@ pub fn decide(
     decisions: &[(Id, String, Decision)],
     blobs: &dyn BlobSource,
 ) -> Result<Outcome> {
+    decide_landing(ctx, state, version, bytes, decisions, None, blobs)
+}
+
+/// As [`decide`], with `landed`: the deck PowerPoint holds after the host put
+/// the merged slides into the open deck (decision 0019). It must be the deck
+/// the engine wrote, and the checkpoint records it, not the engine's file, so
+/// the history holds what the person has.
+///
+/// # Errors
+/// As [`decide`]; [`lineage_core::Error::NotLanded`] when `landed` isn't the
+/// merged deck (nothing is recorded).
+pub(crate) fn decide_landing(
+    ctx: &mut Context<'_>,
+    state: &FamilyState,
+    version: &Id,
+    bytes: &[u8],
+    decisions: &[(Id, String, Decision)],
+    landed: Option<&[u8]>,
+    blobs: &dyn BlobSource,
+) -> Result<Outcome> {
     check_file(state, version, bytes)?;
     let status = variant_status(state, version, blobs)?;
     for (checkpoint, change, _) in decisions {
@@ -628,12 +648,22 @@ pub fn decide(
             1 => format!("Brought in 1 change from {from}"),
             n => format!("Brought in {n} changes from {from}"),
         };
+        let recorded = match landed {
+            Some(held) => {
+                lineage_core::pptx::check::landed(
+                    &lineage_core::Deck::open(&current)?,
+                    &lineage_core::Deck::open(held)?,
+                )?;
+                held
+            }
+            None => current.as_slice(),
+        };
         let (checkpoint, file) = checkpoint_into(
             &mut builder,
             ctx.ids,
             ctx.author.clone(),
             version,
-            &current,
+            recorded,
             parents,
             note,
         )?;
@@ -664,6 +694,19 @@ pub fn decide_cards(
     cards: &[(String, Decision)],
     blobs: &dyn BlobSource,
 ) -> Result<Outcome> {
+    decide_cards_landing(ctx, state, version, bytes, cards, None, blobs)
+}
+
+/// As [`decide_cards`], with what PowerPoint holds (see [`decide_landing`]).
+pub(crate) fn decide_cards_landing(
+    ctx: &mut Context<'_>,
+    state: &FamilyState,
+    version: &Id,
+    bytes: &[u8],
+    cards: &[(String, Decision)],
+    landed: Option<&[u8]>,
+    blobs: &dyn BlobSource,
+) -> Result<Outcome> {
     let panel = updates(state, version, bytes, blobs)?;
     let mut resolved = Vec::with_capacity(cards.len());
     for (card, decision) in cards {
@@ -674,7 +717,7 @@ pub fn decide_cards(
             .ok_or_else(|| Error::NotAllowed(format!("no update card {card}")))?;
         resolved.push((group.checkpoint.clone(), card.clone(), *decision));
     }
-    decide(ctx, state, version, bytes, &resolved, blobs)
+    decide_landing(ctx, state, version, bytes, &resolved, landed, blobs)
 }
 
 /// "Save copy and record it": saves a checkpoint if the file has unsaved

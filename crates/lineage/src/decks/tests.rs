@@ -345,3 +345,219 @@ impl EndsWithPptx for Vec<u8> {
         Deck::open(self).is_ok()
     }
 }
+
+// ----- Bringing changes into the open deck (decision 0019) ---------------------------
+
+impl Host {
+    fn prepare(&mut self, node: &Id, bytes: &[u8], choices: &[(Id, String, Decision)]) -> OpenPlan {
+        let state = self.state().clone();
+        let blobs = self.blobs.clone();
+        let mut ctx = self.context();
+        prepare_open(&mut ctx, &state, node, bytes, choices, &blobs).expect("prepares")
+    }
+
+    fn finish(
+        &mut self,
+        node: &Id,
+        original: &[u8],
+        held: &[u8],
+        choices: &[(Id, String, Decision)],
+    ) -> crate::Result<Outcome> {
+        let state = self.state().clone();
+        let blobs = self.blobs.clone();
+        let mut ctx = self.context();
+        finish_open(&mut ctx, &state, node, original, held, choices, &blobs)
+    }
+}
+
+/// A master with the traction update saved, and one tailored version made
+/// before it.
+fn founder_with_update() -> (Host, Id, Vec<u8>) {
+    let mut host = Host::new();
+    let master_file = host.start_deck(&pitch_deck().to_bytes());
+    let master = host.master();
+    let (seed, seed_file) = host.make_version("Pitch deck – Seed fund.pptx");
+    let edited = deck_edit(&master_file, &edits::traction_update(pitch_deck()));
+    host.save(&master, &edited, "New traction numbers");
+    (host, seed, seed_file)
+}
+
+fn names(bytes: &[u8]) -> Vec<String> {
+    Deck::open(bytes)
+        .expect("opens")
+        .slides
+        .iter()
+        .filter_map(lineage_core::pptx::slides::office_id)
+        .collect()
+}
+
+fn office(id: u32) -> String {
+    format!("{id}#{}", lineage_testkit::pptx::creation_id_for(id))
+}
+
+#[test]
+fn the_open_deck_takes_the_master_change_and_records_what_powerpoint_holds() {
+    use lineage_core::pptx::slides::SlideOp;
+
+    let (mut host, seed, seed_file) = founder_with_update();
+    let plan = host.prepare(&seed, &seed_file, &[]);
+    assert_eq!(plan.run.result, RunResult::Updated);
+    assert_eq!(plan.run.text, "Brought in 2 changes");
+    let merged = plan.merged.clone().expect("merged");
+    assert!(traction_text(&merged).contains("$2.0M ARR"));
+    assert_eq!(
+        plan.ops.ops,
+        [
+            SlideOp::Delete {
+                slide: office(ids::TRACTION)
+            },
+            SlideOp::Insert {
+                slide: office(ids::TRACTION),
+                after: Some(office(ids::PRODUCT)),
+            },
+        ]
+    );
+    assert_eq!(plan.ops.order, names(&merged));
+    // Nothing is recorded until PowerPoint holds the deck.
+    let before = host.ledger_bytes();
+
+    // PowerPoint holds the same deck, written its own way.
+    let held = deck_edit(&seed_file, &edits::traction_update(pitch_deck()));
+    assert_ne!(held, merged);
+    let outcome = host
+        .finish(&seed, &seed_file, &held, &[])
+        .expect("finishes");
+    assert_eq!(host.ledger_bytes(), before);
+    let ids = outcome.ids.clone().expect("ids for the open deck");
+    let created = outcome.created.clone().expect("checkpoint");
+    assert_eq!(ids.checkpoint, created.as_str());
+    host.take(outcome);
+
+    let latest = host.state().latest(&seed).expect("latest").clone();
+    assert_eq!(latest.id, created);
+    assert!(
+        latest.note.starts_with("Brought in 2 changes from master"),
+        "{}",
+        latest.note
+    );
+    let recorded = crate::blob::restore(&latest.snapshot, &host.blobs).expect("restores");
+    let (a, b) = (
+        Deck::open(&recorded).expect("opens"),
+        Deck::open(&held).expect("opens"),
+    );
+    assert_eq!(a.slides.len(), b.slides.len());
+    assert!(
+        a.slides
+            .iter()
+            .zip(&b.slides)
+            .all(|(x, y)| x.full == y.full),
+        "the checkpoint is the deck PowerPoint holds"
+    );
+    // The open deck with its new ids is that checkpoint, and nothing is left.
+    let mut package = Package::read(&held).expect("reads");
+    write_ids(&mut package, &ids).expect("writes");
+    let now = package.to_bytes().expect("bytes");
+    let status = crate::changes::variant_status(host.state(), &seed, &host.blobs).expect("status");
+    assert!(status.offerable.is_empty(), "{:?}", status.offerable);
+    let again = host.prepare(&seed, &now, &[]);
+    assert_eq!(again.run.text, "Already up to date");
+    assert!(again.merged.is_none() && again.ops.is_empty());
+}
+
+#[test]
+fn a_deck_that_did_not_land_records_nothing() {
+    let (mut host, seed, seed_file) = founder_with_update();
+    // PowerPoint still holds the old slide, or only part of the change.
+    for held in [
+        seed_file.clone(),
+        deck_edit(&seed_file, &with_box("$2.0M ARR")),
+    ] {
+        let failed = host.finish(&seed, &seed_file, &held, &[]);
+        assert!(
+            matches!(
+                failed,
+                Err(Error::Engine(lineage_core::Error::NotLanded(_)))
+            ),
+            "{failed:?}"
+        );
+    }
+}
+
+#[test]
+fn an_overlap_waits_for_a_choice_on_the_open_deck() {
+    let mut host = Host::new();
+    let master_file = host.start_deck(&pitch_deck().to_bytes());
+    let master = host.master();
+    let (north, north_file) = host.make_version("Pitch deck – Northgate.pptx");
+    let north_file = host.save(
+        &north,
+        &deck_edit(&north_file, &with_box("$1.3M ARR")),
+        "Northgate numbers",
+    );
+    let edited = deck_edit(&master_file, &edits::traction_update(pitch_deck()));
+    host.save(&master, &edited, "New traction numbers");
+
+    let plan = host.prepare(&north, &north_file, &[]);
+    assert_eq!(plan.run.text, "Brought in 1 change · 1 to choose");
+    let overlap = plan.run.left.overlaps[0].id.clone();
+    assert!(traction_text(&plan.merged.expect("merged")).contains("$1.3M ARR"));
+
+    let keep = host.prepare(
+        &north,
+        &north_file,
+        &[(north.clone(), overlap.clone(), Decision::KeepMine)],
+    );
+    assert_eq!(keep.run.text, "Brought in 1 change");
+    assert!(traction_text(&keep.merged.expect("merged")).contains("$1.3M ARR"));
+
+    let choice = [(north.clone(), overlap, Decision::UseMasters)];
+    let masters = host.prepare(&north, &north_file, &choice);
+    assert_eq!(masters.run.text, "Brought in 2 changes");
+    let merged = masters.merged.expect("merged");
+    assert!(traction_text(&merged).contains("$2.0M ARR"));
+    let outcome = host
+        .finish(&north, &north_file, &merged, &choice)
+        .expect("finishes");
+    host.take(outcome);
+}
+
+#[test]
+fn edits_not_yet_saved_are_kept_as_a_checkpoint_first() {
+    let (mut host, seed, seed_file) = founder_with_update();
+    let typed = deck_edit(&seed_file, &edits::notes_edited(pitch_deck()));
+    let plan = host.prepare(&seed, &typed, &[]);
+    assert!(plan.run.saved_edits);
+    let merged = plan.merged.expect("merged");
+    let outcome = host.finish(&seed, &typed, &merged, &[]).expect("finishes");
+    host.take(outcome);
+    let notes: Vec<String> = host
+        .state()
+        .node(&seed)
+        .expect("seed")
+        .checkpoints
+        .iter()
+        .filter_map(|c| host.state().checkpoint(c).map(|c| c.note.clone()))
+        .collect();
+    assert_eq!(notes.len(), 3, "{notes:?}");
+    assert_eq!(notes[1], "Your edits before the update");
+}
+
+#[test]
+fn a_deck_whose_slides_powerpoint_cannot_name_stays_for_the_master_deck() {
+    let unnamed = |mut deck: Built| {
+        for slide in &mut deck.slides {
+            slide.creation_id = None;
+        }
+        deck
+    };
+    let mut host = Host::new();
+    let master_file = host.start_deck(&unnamed(pitch_deck()).to_bytes());
+    let master = host.master();
+    let (seed, seed_file) = host.make_version("Pitch deck – Seed fund.pptx");
+    let update = unnamed(edits::traction_update(pitch_deck()));
+    host.save(&master, &deck_edit(&master_file, &update), "New numbers");
+    let plan = host.prepare(&seed, &seed_file, &[]);
+    assert_eq!(plan.run.result, RunResult::NotUpdated);
+    assert!(plan.run.text.contains("Close it"), "{}", plan.run.text);
+    assert!(plan.merged.is_none() && plan.ops.is_empty());
+}
