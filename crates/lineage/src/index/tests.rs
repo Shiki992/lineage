@@ -209,13 +209,35 @@ fn apply(index: &[u8], harms: &[Harm]) -> Vec<u8> {
     bytes
 }
 
+/// True when the damaged index still parses and holds, for a family whose
+/// ledger is at the version it names, facts other than a rebuild's.
+fn edited_under_a_matching_version(
+    damaged: &[u8],
+    rebuilt: &[u8],
+    seen: &BTreeMap<Id, String>,
+) -> bool {
+    let (Some(damaged), Some(rebuilt)) = (parse(damaged), parse(rebuilt)) else {
+        return false;
+    };
+    damaged.families.iter().any(|entry| {
+        seen.get(&entry.family_id) == Some(&entry.ledger_version)
+            && rebuilt
+                .families
+                .iter()
+                .find(|r| r.family_id == entry.family_id)
+                .is_some_and(|r| r.facts != entry.facts)
+    })
+}
+
 proptest! {
     #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
 
     /// Whatever happened to the index, refreshing it with the ledgers it asks
-    /// for gives exactly what a full rebuild gives, except that facts edited
-    /// by hand under a ledger version that still matches are believed (the
-    /// version is the only thing compared, by design).
+    /// for gives exactly what a full rebuild gives, except that facts changed
+    /// under a ledger version that still matches are believed until that
+    /// ledger moves on (the version is the only thing compared, by design,
+    /// decision 0015). Those changes come from `Facts`, and from a `Byte` that
+    /// lands inside a value and leaves the JSON readable ("docx" to " ocx").
     #[test]
     fn a_damaged_index_refreshes_to_a_rebuild(harms in proptest::collection::vec(harm(), 1..5)) {
         let ledgers = ledgers();
@@ -228,8 +250,7 @@ proptest! {
             .filter(|(f, _)| wanted.contains(f))
             .collect();
         let refreshed = refresh(Some(&damaged), &seen, &given).expect("refreshes");
-        let hand_edited = harms.iter().any(|h| matches!(h, Harm::Facts(_)));
-        if !hand_edited {
+        if !edited_under_a_matching_version(&damaged, &rebuilt.index, &seen) {
             prop_assert_eq!(&refreshed.library, &rebuilt.library);
             prop_assert_eq!(&refreshed.index, &rebuilt.index);
         }
