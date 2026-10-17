@@ -33,6 +33,9 @@ fn open(dir: &str, name: &str) -> Deck {
     Deck::open(&bytes(dir, name)).expect("opens")
 }
 
+/// A change as expected: its kind, unit and summary.
+type Expected = (ChangeKind, Unit, &'static str);
+
 fn saved() -> Deck {
     open("powerpoint", "pitch-deck-saved.pptx")
 }
@@ -99,7 +102,7 @@ fn powerpoint_saving_a_deck_changes_nothing_a_person_made() {
 
 #[test]
 fn edits_made_in_powerpoint_are_found_as_made() {
-    let cases: [(&str, &[(ChangeKind, Unit, &str)]); 7] = [
+    let cases: [(&str, &[Expected]); 7] = [
         (
             "pitch-deck-duplicated.pptx",
             &[(ChangeKind::Insert, Unit::Slide, "Added slide 7 · Traction")],
