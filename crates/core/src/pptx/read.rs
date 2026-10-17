@@ -19,10 +19,15 @@ const NOISE_ATTRIBUTES: [&str; 8] = [
     "lang", "altLang", "dirty", "err", "noProof", "smtClean", "smtId", "bmk",
 ];
 
+/// Charts (2014): PowerPoint gives every series a new `c16:uniqueId` each time
+/// it saves a deck.
+const C16: &str = "http://schemas.microsoft.com/office/drawing/2014/chart";
+
 /// Elements left out of every key: the mark that holds an empty paragraph end's
-/// formatting, which PowerPoint adds and drops as people type.
+/// formatting, which PowerPoint adds and drops as people type, and ids PowerPoint
+/// makes afresh on every save (found with real PowerPoint saves, Phase 4).
 fn skipped_element(node: Node<'_, '_>) -> bool {
-    xml::is(node, ns::A, "endParaRPr")
+    xml::is(node, ns::A, "endParaRPr") || xml::is(node, C16, "uniqueId")
 }
 
 /// Text that counts: inside text-bearing elements, whitespace is content.
@@ -32,6 +37,9 @@ fn text_bearing(node: Node<'_, '_>) -> bool {
         "t" | "v" | "f" | "formatCode" | "text"
     )
 }
+
+/// No relationships, for hashing a part without following its references.
+static EMPTY_RELS: Relationships = Relationships { items: Vec::new() };
 
 /// Relationships of a part, or none.
 pub(crate) fn read_rels(package: &Package, part: &str) -> Result<Relationships> {
@@ -63,6 +71,9 @@ impl<'a> Canon<'a> {
     /// a part's bytes together with the bytes of the parts it points at (a chart
     /// and its data workbook, a picture).
     pub(crate) fn rel_identity(&self, id: &str) -> u64 {
+        if std::ptr::eq(self.rels, &raw const EMPTY_RELS) {
+            return Fnv::new().str("rel").finish();
+        }
         let Some(rel) = self.rels.by_id(id) else {
             return Fnv::new().str("missing").str(id).finish();
         };
@@ -135,6 +146,18 @@ impl<'a> Canon<'a> {
         Some(resolve_target(self.part, &rel.target))
     }
 
+    /// As [`Canon::hash`], with relationship ids taken as written: for parts
+    /// reached from a slide, whose own references are compared one level down
+    /// by [`part_identity`].
+    fn hash_shallow(&self, node: Node<'_, '_>, h: &mut Fnv) {
+        let shallow = Canon {
+            package: self.package,
+            part: self.part,
+            rels: &EMPTY_RELS,
+        };
+        shallow.hash(node, h, false);
+    }
+
     pub(crate) fn key(&self, node: Node<'_, '_>, skip_xfrm: bool) -> u64 {
         let mut h = Fnv::new();
         self.hash(node, &mut h, skip_xfrm);
@@ -142,11 +165,32 @@ impl<'a> Canon<'a> {
     }
 }
 
-/// A part's bytes and the bytes of the parts it points at, one level down.
+/// What a part holds, for telling whether two decks point at the same thing:
+/// an XML part (a chart) by its canonical form, so ids PowerPoint renews on
+/// every save don't count; anything else (a picture) by its bytes. With the
+/// parts it points at, one level down, except a chart's data workbook, which
+/// PowerPoint re-saves on its own: what the chart shows is in the chart part.
 pub(crate) fn part_identity(package: &Package, part: &str) -> u64 {
     let mut h = Fnv::new();
     h.str("part");
+    let rels = read_rels(package, part).unwrap_or_default();
     match package.part(part) {
+        Some(bytes) if part.to_ascii_lowercase().ends_with(".xml") => {
+            match xml::text(part, bytes).and_then(|t| xml::parse(part, t).map(|d| (t, d))) {
+                Ok((_, doc)) => {
+                    // References inside the part are followed by bytes only.
+                    let shallow = Canon {
+                        package,
+                        part,
+                        rels: &rels,
+                    };
+                    shallow.hash_shallow(doc.root_element(), &mut h);
+                }
+                Err(_) => {
+                    h.bytes(bytes);
+                }
+            }
+        }
         Some(bytes) => {
             h.bytes(bytes);
         }
@@ -154,10 +198,11 @@ pub(crate) fn part_identity(package: &Package, part: &str) -> u64 {
             h.str("missing");
         }
     }
-    if let Ok(rels) = read_rels(package, part) {
+    {
         let mut targets: Vec<(String, u64)> = rels
             .items
             .iter()
+            .filter(|rel| !rel.rel_type.ends_with("/package"))
             .map(|rel| {
                 let identity = if rel.external {
                     Fnv::new().str(&rel.target).finish()
@@ -334,10 +379,14 @@ pub(crate) fn shape(node: Node<'_, '_>, canon: &Canon<'_>) -> Option<Shape> {
         }
         let data =
             xml::child(node, ns::A, "graphic").and_then(|g| xml::child(g, ns::A, "graphicData"));
-        if let Some(data) = data {
+        let uri = data.and_then(|d| d.attribute("uri")).unwrap_or_default();
+        // A chart's content is its figures: a change to how it looks, with the
+        // same figures, is formatting. Everything else counts as a whole.
+        if let Some(data) = data
+            && !uri.ends_with("/chart")
+        {
             canon.hash(data, &mut object, false);
         }
-        let uri = data.and_then(|d| d.attribute("uri")).unwrap_or_default();
         if uri.ends_with("/table") {
             if let Some(tbl) = data.and_then(|d| xml::child(d, ns::A, "tbl")) {
                 for row in tbl.children().filter(|r| xml::is(*r, ns::A, "tr")) {
@@ -592,6 +641,11 @@ pub(crate) fn slide(
     let mut animated = Vec::new();
     for child in root.children().filter(Node::is_element) {
         if xml::is(child, ns::P, "cSld") {
+            continue;
+        }
+        // The slide's own extensions hold links to its comments, which a
+        // comment changes; they aren't part of what the slide shows.
+        if xml::is(child, ns::P, "extLst") {
             continue;
         }
         if xml::is(child, ns::P, "timing") {

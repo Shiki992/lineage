@@ -39,3 +39,23 @@ The base deck is eight slides: Title, Problem, Solution, Market, Product (a pict
 | `pitch-deck-animation.pptx`         | An entrance animation (`p:timing`) on slide 6's text box                               | Generated, invented content | Apache-2.0 |
 
 All 25 open in LibreOffice 26.8.1 headless (converted to PDF: the hidden slide is left out, as PowerPoint does).
+
+## Saved and edited by PowerPoint (`powerpoint/`)
+
+Made by `scripts/powerpoint-resave.ps1` from `synthetic/pitch-deck.pptx` in Microsoft PowerPoint for Windows (Microsoft 365, October 2026) through COM: invented content only, so they may be redistributed. `crates/core/tests/powerpoint_fixtures.rs` checks that the engine finds each edit as made, and nothing PowerPoint renews on every save. Run the script again after changing the synthetic deck.
+
+| File                          | What PowerPoint did                                       | Licence    |
+| ----------------------------- | --------------------------------------------------------- | ---------- |
+| `pitch-deck-saved.pptx`       | Opened and saved, nothing changed                         | Apache-2.0 |
+| `pitch-deck-duplicated.pptx`  | Duplicate Slide on Traction (slide 6)                     | Apache-2.0 |
+| `pitch-deck-new-slide.pptx`   | A new Title and Content slide "Pricing" before The ask    | Apache-2.0 |
+| `pitch-deck-reused.pptx`      | "Why Northgate" inserted from `pitch-deck-northgate.pptx` | Apache-2.0 |
+| `pitch-deck-moved.pptx`       | Market moved after Traction                               | Apache-2.0 |
+| `pitch-deck-hidden.pptx`      | The ask hidden                                            | Apache-2.0 |
+| `pitch-deck-text-edited.pptx` | "$1.2M ARR" replaced with "$2.0M ARR"                     | Apache-2.0 |
+| `pitch-deck-notes.pptx`       | Speaker notes added to slide 2                            | Apache-2.0 |
+| `pitch-deck-comment.pptx`     | A comment on slide 6                                      | Apache-2.0 |
+
+Found with them: PowerPoint gives every chart series a new `c16:uniqueId` on every save, and a comment adds a `p188:commentRel` extension to its slide. Neither is a change to what the deck shows, and the engine leaves both out.
+
+All 25 synthetic decks, and every deck the engine's merge tests write, open in PowerPoint with its alerts off (a deck that needed repairing would fail to open), and their text matches the engine's (`scripts/powerpoint-smoke.ps1 -Compare`).
