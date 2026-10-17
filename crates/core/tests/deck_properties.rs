@@ -9,12 +9,16 @@
 //! - Whatever the person decides on two edited decks, the written deck holds
 //!   together (every relationship, content type and id) and re-reads.
 //! - diff(x, x) is empty.
+//! - The slide steps from a version to its merged deck reach the merged
+//!   order, and touch only slides that changed; the steps back reach the
+//!   version (decision 0019).
 
 use lineage_core::Deck;
 use lineage_core::merge::{Decision, Status};
-use lineage_core::pptx::check::structure;
+use lineage_core::pptx::check::{landed, structure};
 use lineage_core::pptx::diff::diff;
 use lineage_core::pptx::merge::plan;
+use lineage_core::pptx::slides::{SlideOp, office_id, simulate, slide_ops};
 use lineage_core::pptx::write::apply;
 use lineage_testkit::decks::{pitch_deck, traction_data};
 use lineage_testkit::pptx::{Deck as Built, Layout, Shape, Slide, p};
@@ -201,5 +205,38 @@ proptest! {
             .collect();
         let out = apply(&merged, &decisions).expect("writes");
         structure(&out).expect("holds together");
+    }
+
+    #[test]
+    fn slide_steps_reach_the_merged_deck_and_back(
+        mine in prop::collection::vec(edit(), 0..5),
+        master in prop::collection::vec(edit(), 1..5),
+    ) {
+        let base = open(&pitch_deck());
+        let ours = open(&edited(&mine, 2));
+        let theirs = open(&edited(&master, 1));
+        let merged = plan(&base, &ours, &theirs);
+        let decisions: Vec<(String, Decision)> = merged
+            .items
+            .iter()
+            .filter(|i| i.status == Status::Clean)
+            .map(|i| (i.change.id.clone(), Decision::BringIn))
+            .collect();
+        let out = Deck::open(&apply(&merged, &decisions).expect("writes")).expect("opens");
+        let names = |deck: &Deck| -> Vec<String> { deck.slides.iter().filter_map(office_id).collect() };
+        let there = slide_ops(&ours, &out).expect("steps");
+        prop_assert_eq!(simulate(&names(&ours), &there.ops).expect("simulates"), names(&out));
+        for op in &there.ops {
+            if let SlideOp::Delete { slide } = op {
+                let before = ours.slides.iter().find(|s| office_id(s).as_ref() == Some(slide));
+                let after = out.slides.iter().find(|s| office_id(s).as_ref() == Some(slide));
+                if let (Some(b), Some(a)) = (before, after) {
+                    prop_assert_ne!(b.full, a.full, "an unchanged slide was replaced");
+                }
+            }
+        }
+        let back = slide_ops(&out, &ours).expect("steps back");
+        prop_assert_eq!(simulate(&names(&out), &back.ops).expect("simulates"), names(&ours));
+        prop_assert!(landed(&out, &out).is_ok());
     }
 }

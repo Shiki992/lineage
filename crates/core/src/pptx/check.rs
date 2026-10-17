@@ -196,6 +196,51 @@ pub fn written(plan: &Plan<'_>, decisions: &[(String, Decision)], bytes: &[u8]) 
     Ok(())
 }
 
+/// What PowerPoint holds after Lineage changed its slides is the deck Lineage
+/// meant it to hold (decision 0019): the same slides with the same ids in the
+/// same order, the same sections, and no change between them by the engine's
+/// keys, which leave out what PowerPoint renews on its own (decision 0017).
+///
+/// # Errors
+/// [`Error::NotLanded`] naming the first difference (never text).
+pub fn landed(expected: &Deck, held: &Deck) -> Result<()> {
+    let not = |detail: String| Error::NotLanded(detail);
+    let names = |deck: &Deck| -> Vec<(u32, Option<u32>)> {
+        deck.slides
+            .iter()
+            .map(|s| (s.sld_id, s.creation_id))
+            .collect()
+    };
+    let (want, have) = (names(expected), names(held));
+    if want != have {
+        return Err(not(format!("slides {have:?}, expected {want:?}")));
+    }
+    if expected.sections != held.sections {
+        let list = |deck: &Deck| -> Vec<(usize, Vec<u32>)> {
+            deck.sections
+                .iter()
+                .map(|s| (s.name.chars().count(), s.slides.clone()))
+                .collect()
+        };
+        return Err(not(format!(
+            "sections {:?}, expected {:?}",
+            list(held),
+            list(expected)
+        )));
+    }
+    let diff = super::diff::diff(expected, held);
+    if let Some(change) = diff.changes.first() {
+        return Err(not(format!(
+            "{} change(s), the first a {:?} of the {} on slide {}",
+            diff.changes.len(),
+            change.kind,
+            change.unit.as_str(),
+            change.slide_number
+        )));
+    }
+    Ok(())
+}
+
 /// Untouched parts are byte-identical to ours'.
 #[must_use]
 pub fn untouched_parts_kept(ours: &Package, result: &Package, touched: &BTreeSet<String>) -> bool {

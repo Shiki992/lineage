@@ -15,9 +15,10 @@ use std::path::PathBuf;
 use lineage_core::Deck;
 use lineage_core::diff::ChangeKind;
 use lineage_core::merge::{Decision, Status};
-use lineage_core::pptx::check::structure;
+use lineage_core::pptx::check::{landed, structure};
 use lineage_core::pptx::diff::{Unit, diff};
 use lineage_core::pptx::merge::plan;
+use lineage_core::pptx::slides::{SlideOp, simulate, slide_ops};
 use lineage_core::pptx::summary::summarize;
 use lineage_core::pptx::write::apply;
 
@@ -212,5 +213,49 @@ fn powerpoints_changes_merge_into_a_powerpoint_deck() {
             "{name}: the version's own edit stays"
         );
         smoke(&format!("powerpoint-merge-{n}"), &out);
+    }
+}
+
+/// The open-deck path (decision 0019): a master change merged into PowerPoint's
+/// own deck takes one slide's steps, and PowerPoint's deck with the same edit
+/// made by hand counts as having landed: nothing PowerPoint renews on save
+/// tells them apart.
+#[test]
+fn a_change_merged_into_a_powerpoint_deck_lands_as_powerpoint_saves_it() {
+    for edited in [
+        "pitch-deck-text-edited.pptx",
+        "pitch-deck-notes.pptx",
+        "pitch-deck-moved.pptx",
+        "pitch-deck-new-slide.pptx",
+    ] {
+        let base = saved();
+        let theirs = open("powerpoint", edited);
+        let merged = plan(&base, &base, &theirs);
+        let decisions: Vec<(String, Decision)> = merged
+            .items
+            .iter()
+            .filter(|i| i.status == Status::Clean)
+            .map(|i| (i.change.id.clone(), Decision::BringIn))
+            .collect();
+        let out = Deck::open(&apply(&merged, &decisions).expect("writes")).expect("opens");
+        let ops = slide_ops(&base, &out).expect("steps");
+        assert!(!ops.ops.is_empty(), "{edited}");
+        let start: Vec<String> = base
+            .slides
+            .iter()
+            .filter_map(lineage_core::pptx::slides::office_id)
+            .collect();
+        assert_eq!(
+            simulate(&start, &ops.ops).expect("simulates"),
+            ops.order,
+            "{edited}"
+        );
+        let deletes = ops
+            .ops
+            .iter()
+            .filter(|o| matches!(o, SlideOp::Delete { .. }))
+            .count();
+        assert!(deletes <= 1, "{edited}: {:?}", ops.ops);
+        landed(&out, &theirs).unwrap_or_else(|e| panic!("{edited}: {e}"));
     }
 }

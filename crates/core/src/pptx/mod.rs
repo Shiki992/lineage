@@ -10,6 +10,7 @@ pub mod diff;
 pub mod merge;
 pub mod model;
 mod read;
+pub mod slides;
 pub mod summary;
 pub mod view;
 pub mod write;
