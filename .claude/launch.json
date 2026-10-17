@@ -1,0 +1,27 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "office-addin",
+      "runtimeExecutable": "C:/Users/hrish/AppData/Roaming/npm/pnpm.cmd",
+      "runtimeArgs": ["--filter", "@lineage/office-addin", "dev"],
+      "port": 3000,
+      "url": "https://localhost:3000"
+    },
+    {
+      "name": "family-app",
+      "runtimeExecutable": "C:/Users/hrish/AppData/Roaming/npm/pnpm.cmd",
+      "runtimeArgs": ["--filter", "@lineage/family-app", "dev"],
+      "port": 3001
+    },
+    {
+      "name": "family-app-test-account",
+      "runtimeExecutable": "C:/Users/hrish/AppData/Roaming/npm/pnpm.cmd",
+      "runtimeArgs": ["--filter", "@lineage/family-app", "dev"],
+      "port": 3001,
+      "env": {
+        "LINEAGE_DEV_STORAGE": "C:/Users/hrish/AppData/Local/Temp/claude/C--Users-hrish-src-lineage/803a6533-d14c-4e01-b617-2409352a931e/scratchpad/accounts/three-families"
+      }
+    }
+  ]
+}
