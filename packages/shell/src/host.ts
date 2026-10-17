@@ -5,8 +5,32 @@
 // (apps/office-addin/src/office/word-host.ts), a fake in tests, and later the
 // Google Docs API. Bytes only: the host never looks inside them.
 
-import type { Ids } from "./schemas.js";
+import type { Ids, SlideOp } from "./schemas.js";
 import type { FileLocation } from "./storage.js";
+
+/**
+ * A host that can change the slides of the open deck (PowerPoint), which
+ * can't replace the open file (decision 0019).
+ */
+export interface SlideHost {
+  /** True when this PowerPoint can carry out every kind of slide step. */
+  canChangeSlides(): boolean;
+  /**
+   * Carries out the steps in order, inserting slides from `source`. Stops at
+   * the first step that fails, with an error; the steps before it stay done.
+   */
+  applySlideOps(ops: readonly SlideOp[], source: Uint8Array): Promise<void>;
+}
+
+/** True when `host` can change the open deck's slides. */
+export function changesSlides(host: DocumentHost): host is DocumentHost & SlideHost {
+  const slides = host as Partial<SlideHost>;
+  return (
+    typeof slides.applySlideOps === "function" &&
+    typeof slides.canChangeSlides === "function" &&
+    slides.canChangeSlides()
+  );
+}
 
 export interface DocumentHost {
   /** The open document as a .docx, unsaved edits included. */

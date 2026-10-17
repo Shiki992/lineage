@@ -182,25 +182,54 @@ export type DeckPanel = v.InferOutput<typeof DeckPanel>;
 export const RunResult = v.picklist(["updated", "upToDate", "needsChoice", "notUpdated"]);
 export type RunResult = v.InferOutput<typeof RunResult>;
 
+/** One version's line after "Update N versions", or Bring in on an open deck. */
+export const VersionRun = v.strictObject({
+  node: Id,
+  name: Text,
+  result: RunResult,
+  text: Text,
+  broughtIn: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  savedEdits: v.boolean(),
+  left: WhatChanged,
+  hasFile: v.boolean(),
+  storageRef: Text,
+});
+export type VersionRun = v.InferOutput<typeof VersionRun>;
+
 /** "Update N versions": what to append, and a line per version. */
 export const UpdateRun = v.strictObject({
   outcome: Outcome,
   headline: Text,
-  versions: v.array(
-    v.strictObject({
-      node: Id,
-      name: Text,
-      result: RunResult,
-      text: Text,
-      broughtIn: v.pipe(v.number(), v.integer(), v.minValue(0)),
-      savedEdits: v.boolean(),
-      left: WhatChanged,
-      hasFile: v.boolean(),
-      storageRef: Text,
-    }),
-  ),
+  versions: v.array(VersionRun),
 });
 export type UpdateRun = v.InferOutput<typeof UpdateRun>;
+
+/** A slide as Office.js names it: "<sldId>#<creationId>" (decision 0019). */
+export const SlideName = v.pipe(v.string(), v.regex(/^\d{1,10}#\d{1,10}$/));
+
+/** One step PowerPoint takes on the open deck. */
+export const SlideOp = v.variant("kind", [
+  v.strictObject({ kind: v.literal("delete"), slide: SlideName }),
+  v.strictObject({ kind: v.literal("insert"), slide: SlideName, after: v.nullable(SlideName) }),
+  v.strictObject({
+    kind: v.literal("move"),
+    slide: SlideName,
+    index: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  }),
+]);
+export type SlideOp = v.InferOutput<typeof SlideOp>;
+
+/** The steps from the open deck to another, and the slide order they lead to. */
+export const SlideOps = v.strictObject({ ops: v.array(SlideOp), order: v.array(SlideName) });
+export type SlideOps = v.InferOutput<typeof SlideOps>;
+
+/** Bring in on an open deck, first half: its line, and the steps to the merged deck. */
+export const OpenDeckPlan = v.strictObject({
+  version: VersionRun,
+  steps: SlideOps,
+  hasFile: v.boolean(),
+});
+export type OpenDeckPlan = v.InferOutput<typeof OpenDeckPlan>;
 
 export const Updates = v.strictObject({
   headline: Text,
@@ -519,4 +548,7 @@ export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "send-copy-deck": Outcome,
   "deck-panel": DeckPanel,
   "update-versions": UpdateRun,
+  "prepare-open-deck": OpenDeckPlan,
+  "deck-slide-ops": SlideOps,
+  "finish-open-deck": Outcome,
 };
