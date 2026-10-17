@@ -161,6 +161,14 @@ pub enum ByHand {
     Markup,
     /// The engine cannot tell where it goes.
     Placement,
+    /// SmartArt, video, audio or an embedded object (decks).
+    Object,
+    /// The slide masters, layouts or theme (decks).
+    Design,
+    /// Animations (decks).
+    Animation,
+    /// The slide's layout is missing from this version (decks).
+    Layout,
 }
 
 /// One change between two states of a document.

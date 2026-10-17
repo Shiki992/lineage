@@ -39,13 +39,46 @@ pub struct SpecChange {
 pub struct Location {
     pub format: String,
     pub part: String,
-    pub block_index: usize,
+    /// docx: the block's index in the part.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_index: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_anchor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub char_range: Option<CharRange>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cell: Option<Box<CellLocation>>,
+    /// pptx: the slide's position in show order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slide_index: Option<usize>,
+    /// pptx: the slide's `p:sldId`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slide_id: Option<u32>,
+    /// pptx: the shape's `p:cNvPr` id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape_id: Option<u32>,
+    /// pptx: what changed when it is not one shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+impl Location {
+    /// A deck location.
+    #[must_use]
+    pub fn pptx(part: &str, slide_index: usize) -> Self {
+        Self {
+            format: "pptx".to_owned(),
+            part: part.to_owned(),
+            block_index: None,
+            block_anchor: None,
+            char_range: None,
+            cell: None,
+            slide_index: Some(slide_index),
+            slide_id: None,
+            shape_id: None,
+            target: None,
+        }
+    }
 }
 
 /// A place inside a table: a row, and optionally a cell and a block in it.
@@ -82,7 +115,7 @@ fn location(part: &str, path: &Path, change: &Change, with_range: bool) -> Locat
     Location {
         format: "docx".to_owned(),
         part: part.to_owned(),
-        block_index: path.block,
+        block_index: Some(path.block),
         block_anchor: change.anchor.clone(),
         char_range: if with_range {
             change
@@ -92,6 +125,10 @@ fn location(part: &str, path: &Path, change: &Change, with_range: bool) -> Locat
             None
         },
         cell: cell_location(&path.cells),
+        slide_index: None,
+        slide_id: None,
+        shape_id: None,
+        target: None,
     }
 }
 

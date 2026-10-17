@@ -1,0 +1,75 @@
+{
+  "specVersion": "0",
+  "format": "pptx",
+  "changes": [
+    {
+      "id": "c1",
+      "kind": "modify",
+      "location": {
+        "format": "pptx",
+        "part": "ppt/slides/slide6.xml",
+        "slideIndex": 5,
+        "slideId": 261,
+        "shapeId": 4
+      },
+      "before": "$1.2M ARR",
+      "after": "$2.0M ARR",
+      "formattingOnly": false,
+      "confidence": 100,
+      "summary": "'$1.2M' changed to '$2.0M'"
+    },
+    {
+      "id": "c2",
+      "kind": "insert",
+      "location": {
+        "format": "pptx",
+        "part": "ppt/slides/slide9.xml",
+        "slideIndex": 7,
+        "slideId": 264,
+        "target": "slide"
+      },
+      "before": null,
+      "after": "Why Northgate",
+      "formattingOnly": false,
+      "confidence": 100,
+      "summary": "Added slide 8 · Why Northgate"
+    },
+    {
+      "id": "c3",
+      "kind": "move",
+      "location": {
+        "format": "pptx",
+        "part": "ppt/slides/slide4.xml",
+        "slideIndex": 5,
+        "slideId": 259,
+        "target": "slide"
+      },
+      "fromLocation": {
+        "format": "pptx",
+        "part": "ppt/slides/slide4.xml",
+        "slideIndex": 3,
+        "slideId": 259,
+        "target": "slide"
+      },
+      "before": "Market",
+      "after": "Market",
+      "formattingOnly": false,
+      "confidence": 100
+    },
+    {
+      "id": "c4",
+      "kind": "modify",
+      "location": {
+        "format": "pptx",
+        "part": "ppt/slides/slide6.xml",
+        "slideIndex": 5,
+        "slideId": 261,
+        "target": "notes"
+      },
+      "before": "Numbers as of 30 September.",
+      "after": "Numbers as of 30 September.\nMention the two pilots starting in November.",
+      "formattingOnly": false,
+      "confidence": 100
+    }
+  ]
+}

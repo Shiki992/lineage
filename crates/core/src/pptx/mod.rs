@@ -4,8 +4,11 @@
 //! PowerPoint decks: opening a .pptx into the slide model, and everything the
 //! engine does with decks (what changed, merging, writing, clean copies).
 
+pub mod diff;
 pub mod model;
 mod read;
+pub mod summary;
+pub mod view;
 
 pub use model::*;
 

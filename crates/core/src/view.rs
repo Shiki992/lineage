@@ -160,6 +160,16 @@ pub fn by_hand_reason(reason: ByHand) -> &'static str {
         ByHand::Placement => {
             "Lineage can't tell where this goes in your version. Copy it in by hand."
         }
+        ByHand::Object => {
+            "This is SmartArt, a video or an embedded object. Copy it in by hand for now."
+        }
+        ByHand::Design => {
+            "This changes the slide master, layouts or theme. Copy it in by hand for now."
+        }
+        ByHand::Animation => "This changes animations. Copy it in by hand for now.",
+        ByHand::Layout => {
+            "Your version doesn't have this slide's layout. Copy the slide in by hand."
+        }
     }
 }
 

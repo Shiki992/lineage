@@ -126,6 +126,15 @@ impl<'a> Canon<'a> {
         h.str(">");
     }
 
+    /// The part a relationship id points at, when it is inside the package.
+    pub(crate) fn target_part(&self, id: &str) -> Option<String> {
+        let rel = self.rels.by_id(id)?;
+        if rel.external {
+            return None;
+        }
+        Some(resolve_target(self.part, &rel.target))
+    }
+
     pub(crate) fn key(&self, node: Node<'_, '_>, skip_xfrm: bool) -> u64 {
         let mut h = Fnv::new();
         self.hash(node, &mut h, skip_xfrm);
@@ -355,6 +364,13 @@ pub(crate) fn shape(node: Node<'_, '_>, canon: &Canon<'_>) -> Option<Shape> {
             }
             ShapeKind::Table
         } else if uri.ends_with("/chart") {
+            let chart = data
+                .and_then(|d| d.children().find(|c| xml::is(*c, ns::C, "chart")))
+                .and_then(|c| c.attribute((ns::R, "id")))
+                .and_then(|id| canon.target_part(id));
+            if let Some(chart) = chart {
+                paras = chart_figures(canon.package, &chart);
+            }
             ShapeKind::Chart
         } else if uri.ends_with("/diagram") {
             ShapeKind::Diagram
@@ -402,6 +418,70 @@ pub(crate) fn shape(node: Node<'_, '_>, canon: &Canon<'_>) -> Option<Shape> {
         span: node.range(),
         members,
     })
+}
+
+fn cached_values(node: Option<Node<'_, '_>>) -> Vec<(usize, String)> {
+    let Some(node) = node else {
+        return Vec::new();
+    };
+    let mut out: Vec<(usize, String)> = node
+        .descendants()
+        .filter(|n| xml::is(*n, ns::C, "pt"))
+        .filter_map(|pt| {
+            let idx = pt.attribute("idx")?.parse().ok()?;
+            let value = xml::child(pt, ns::C, "v")?.text().unwrap_or_default();
+            Some((idx, value.to_owned()))
+        })
+        .collect();
+    out.sort_by_key(|(idx, _)| *idx);
+    out
+}
+
+/// A chart's figures, from the values cached in the chart part: one line per
+/// point, "Q4 2026: 1200", with the series name first when there are several.
+/// What a person reads off the chart, so "1200 changed to 2000" can be shown.
+fn chart_figures(package: &Package, part: &str) -> Vec<Para> {
+    let Some(bytes) = package.part(part) else {
+        return Vec::new();
+    };
+    let Ok(text) = xml::text(part, bytes) else {
+        return Vec::new();
+    };
+    let Ok(doc) = xml::parse(part, text) else {
+        return Vec::new();
+    };
+    let series: Vec<Node<'_, '_>> = doc
+        .descendants()
+        .filter(|n| xml::is(*n, ns::C, "ser"))
+        .collect();
+    let mut out = Vec::new();
+    for ser in &series {
+        let name = xml::child(*ser, ns::C, "tx")
+            .and_then(|tx| tx.descendants().find(|n| xml::is(*n, ns::C, "v")))
+            .and_then(|v| v.text())
+            .unwrap_or_default();
+        let categories = cached_values(
+            ser.children()
+                .find(|c| xml::is(*c, ns::C, "cat") || xml::is(*c, ns::C, "xVal")),
+        );
+        let values = cached_values(
+            ser.children()
+                .find(|c| xml::is(*c, ns::C, "val") || xml::is(*c, ns::C, "yVal")),
+        );
+        for (idx, value) in values {
+            let category = categories
+                .iter()
+                .find(|(i, _)| *i == idx)
+                .map_or_else(|| format!("Point {}", idx + 1), |(_, c)| c.clone());
+            let text = if series.len() > 1 && !name.is_empty() {
+                format!("{name}, {category}: {value}")
+            } else {
+                format!("{category}: {value}")
+            };
+            out.push(Para { level: 0, text });
+        }
+    }
+    out
 }
 
 /// Layouts already read, by part.
