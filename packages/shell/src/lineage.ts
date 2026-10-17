@@ -853,15 +853,19 @@ export class Lineage {
       const { plan, merged } = await this.withBlobs(file.familyId, () =>
         this.engine.prepareOpenDeck(start, file.nodeId, original, choices, this.now()),
       );
-      if (!merged) {
+      if (!plan.records) {
         return plan.version;
       }
-      let held: Uint8Array;
-      try {
-        await host.applySlideOps(plan.steps.ops, merged);
-        held = await host.readBytes();
-      } catch (error) {
-        return this.putDeckBack(host, original, previousIds, TOOK_CHANGES, String(error));
+      // With nothing to bring in ("Keep mine" on everything), only the
+      // choices are recorded, and the deck stays as it is.
+      let held = original;
+      if (merged) {
+        try {
+          await host.applySlideOps(plan.steps.ops, merged);
+          held = await host.readBytes();
+        } catch (error) {
+          return this.putDeckBack(host, original, previousIds, TOOK_CHANGES, String(error));
+        }
       }
       for (let attempt = 0; ; attempt++) {
         const { bytes: ledger, version } = await this.storage.readLedger(file.familyId);

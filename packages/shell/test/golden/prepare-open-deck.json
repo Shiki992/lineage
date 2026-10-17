@@ -2,6 +2,7 @@
   "ok": true,
   "value": {
     "hasFile": true,
+    "records": true,
     "steps": {
       "ops": [
         {

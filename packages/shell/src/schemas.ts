@@ -228,6 +228,8 @@ export const OpenDeckPlan = v.strictObject({
   version: VersionRun,
   steps: SlideOps,
   hasFile: v.boolean(),
+  /** Something to record even when no slide changes ("Keep mine" on everything). */
+  records: v.boolean(),
 });
 export type OpenDeckPlan = v.InferOutput<typeof OpenDeckPlan>;
 

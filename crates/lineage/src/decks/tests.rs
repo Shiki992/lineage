@@ -561,3 +561,35 @@ fn a_deck_whose_slides_powerpoint_cannot_name_stays_for_the_master_deck() {
     assert!(plan.run.text.contains("Close it"), "{}", plan.run.text);
     assert!(plan.merged.is_none() && plan.ops.is_empty());
 }
+
+#[test]
+fn keeping_mine_on_everything_is_recorded_without_changing_a_slide() {
+    let mut host = Host::new();
+    let master_file = host.start_deck(&pitch_deck().to_bytes());
+    let master = host.master();
+    let (north, north_file) = host.make_version("Pitch deck – Northgate.pptx");
+    let north_file = host.save(
+        &north,
+        &deck_edit(&north_file, &with_box("$1.3M ARR")),
+        "Northgate numbers",
+    );
+    // The master changes only the text the version also changed.
+    let edited = deck_edit(&master_file, &with_box("$2.0M ARR"));
+    host.save(&master, &edited, "New ARR");
+    let plan = host.prepare(&north, &north_file, &[]);
+    assert_eq!(plan.run.result, RunResult::NeedsChoice);
+    assert!(!plan.records);
+    let overlap = plan.run.left.overlaps[0].id.clone();
+    let keep = [(north.clone(), overlap, Decision::KeepMine)];
+    let plan = host.prepare(&north, &north_file, &keep);
+    assert!(plan.merged.is_none() && plan.ops.is_empty());
+    assert!(plan.records);
+    let outcome = host
+        .finish(&north, &north_file, &north_file, &keep)
+        .expect("records the choice");
+    assert!(outcome.ids.is_some());
+    host.take(outcome);
+    let again = host.prepare(&north, &north_file, &[]);
+    assert_eq!(again.run.text, "Already up to date");
+    assert!(!again.records);
+}

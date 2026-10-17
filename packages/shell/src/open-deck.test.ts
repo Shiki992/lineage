@@ -194,6 +194,23 @@ describe("bringing changes into an open deck", () => {
     expect(done.text).toBe("Already up to date");
   });
 
+  it("records Keep mine without changing a slide", async () => {
+    const storage = new MemoryStorage();
+    const { host, pane, ledger } = await openVersion(storage, "pitch-deck-chart-edited.pptx");
+    const first = await pane.bringInOpenDeck();
+    const overlap = first.left.overlaps[0];
+    if (!overlap || !pane.file) throw new Error("no overlap");
+    expect(host.applied).toHaveLength(1);
+    const before = ledger().length;
+    const kept = await pane.bringInOpenDeck([
+      { node: pane.file.nodeId, card: overlap.id, decision: "keepMine" },
+    ]);
+    expect(kept.text).toBe("Nothing brought in");
+    expect(host.applied).toHaveLength(1);
+    expect(ledger().length).toBeGreaterThan(before);
+    expect((await pane.bringInOpenDeck()).text).toBe("Already up to date");
+  });
+
   it("leaves a PowerPoint that can't change slides to the master deck", async () => {
     const storage = new MemoryStorage();
     const { host, pane } = await openVersion(storage);

@@ -925,6 +925,8 @@ pub struct OpenDeckPlanDto {
     pub steps: SlideOpsDto,
     /// True when the reply's file is the merged deck to insert slides from.
     pub has_file: bool,
+    /// True when there is something to record, slides changing or not.
+    pub records: bool,
 }
 
 /// A node and a card decision, for "Update N versions".

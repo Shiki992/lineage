@@ -649,6 +649,7 @@ impl Session {
                     version: VersionRunDto::new(&plan.run, &state),
                     steps: SlideOpsDto::from(&plan.ops),
                     has_file: plan.merged.is_some(),
+                    records: plan.records,
                 });
                 reply.file = plan.merged;
                 reply

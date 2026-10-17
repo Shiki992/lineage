@@ -401,6 +401,10 @@ pub struct OpenPlan {
     /// The deck the slides come from. `None` when nothing changes.
     pub merged: Option<Vec<u8>>,
     pub ops: SlideOps,
+    /// True when the person's choices are to be recorded even though no slide
+    /// changes ("Keep mine" on everything): [`finish_open`] with the deck as
+    /// it is.
+    pub records: bool,
 }
 
 /// The first half of Bring in for a tailored deck open in PowerPoint, which
@@ -426,12 +430,16 @@ pub fn prepare_open(
         .pop()
         .ok_or_else(|| Error::NotAllowed("no version to update".to_owned()))?;
     let file = run.file.take();
+    let decided = done.outcome.records.iter().any(|r| {
+        matches!(&r.event, crate::event::Event::UpdateApplied { node_id, .. } if node_id == node)
+    });
     let merged = file.filter(|_| run.brought_in > 0);
     let Some(merged) = merged else {
         return Ok(OpenPlan {
             run,
             merged: None,
             ops: SlideOps::default(),
+            records: decided,
         });
     };
     match slide_ops(&Deck::open(bytes)?, &Deck::open(&merged)?) {
@@ -439,6 +447,7 @@ pub fn prepare_open(
             run,
             merged: Some(merged),
             ops,
+            records: true,
         }),
         Err(lineage_core::Error::CannotEdit(_)) => {
             run.result = RunResult::NotUpdated;
@@ -448,6 +457,7 @@ pub fn prepare_open(
                 run,
                 merged: None,
                 ops: SlideOps::default(),
+                records: false,
             })
         }
         Err(e) => Err(e.into()),
@@ -460,9 +470,12 @@ pub fn prepare_open(
 /// before the update" if there were any, the choices, and a checkpoint of
 /// `held`. The outcome's `ids` are the ones to set in the open deck.
 ///
+/// When the person only kept their own side, nothing changes in the deck and
+/// `held` is `original`: the choices are recorded, with no new checkpoint.
+///
 /// # Errors
 /// [`lineage_core::Error::NotLanded`] when `held` isn't the merged deck;
-/// otherwise as [`update_versions`], or when nothing could be brought in.
+/// otherwise as [`update_versions`], or when there was nothing to decide.
 pub fn finish_open(
     ctx: &mut Context<'_>,
     state: &FamilyState,
@@ -478,7 +491,10 @@ pub fn finish_open(
         .versions
         .first()
         .ok_or_else(|| Error::NotAllowed("no version to update".to_owned()))?;
-    if run.brought_in == 0 {
+    let decided = done.outcome.records.iter().any(|r| {
+        matches!(&r.event, crate::event::Event::UpdateApplied { node_id, .. } if node_id == node)
+    });
+    if !decided {
         return Err(Error::NotAllowed(format!(
             "nothing to bring in: {}",
             run.text
