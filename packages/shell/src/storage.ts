@@ -5,7 +5,7 @@
 // harness's `Storage` trait (crates/harness/src/storage.rs) method for method, so
 // the scenarios proved there hold here (decision 0001):
 //
-//   <files>/<name>.docx
+//   <files>/<name>.docx or .pptx
 //   Lineage/<familyId>/ledger.jsonl
 //   Lineage/<familyId>/blobs/<sha256>
 //
@@ -42,6 +42,13 @@ export interface Storage {
   /** The storage ref a file of this kind and name will have, before it is written. */
   refFor(kind: FileKind, name: string): string;
   readFile(ref: string): Promise<Uint8Array>;
+  /** A stored file and its version (OneDrive: its eTag), for [`replaceFile`]. */
+  readFileVersioned(ref: string): Promise<{ bytes: Uint8Array; version: string }>;
+  /**
+   * Replaces a stored file if it is still at `expected`, as "Update N versions"
+   * does (decision 0018). Fails with FileChanged if someone changed it since.
+   */
+  replaceFile(ref: string, bytes: Uint8Array, expected: string): Promise<string>;
   /** Writes a file. Fails with FileExists unless `replace` is set. */
   writeFile(
     kind: FileKind,
@@ -113,6 +120,37 @@ export class NotFound extends StorageError {
     );
   }
 }
+
+/** A file changed since it was read, so it wasn't replaced. */
+export class FileChanged extends StorageError {
+  override name = "FileChanged";
+
+  constructor(ref: string) {
+    super(
+      "A version changed in another window while Lineage was updating it. Nothing was written. Try again.",
+      `${ref} changed since it was read`,
+    );
+  }
+}
+
+/**
+ * A file is open in an app that keeps others from writing it (PowerPoint for
+ * Windows locks a deck it has open; OneDrive answers 423 Locked), so it
+ * wasn't replaced.
+ */
+export class FileLocked extends StorageError {
+  override name = "FileLocked";
+
+  constructor(ref: string) {
+    super(
+      "A version is open, so Lineage couldn't change it. Close it, then try again.",
+      `${ref} is locked`,
+    );
+  }
+}
+
+/** The Office files Lineage keeps: Word documents and PowerPoint decks. */
+export const OFFICE_FILE = /\.(docx|pptx)$/i;
 
 export class FileExists extends StorageError {
   override name = "FileExists";
@@ -196,6 +234,7 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
 export class MemoryStorage implements Storage {
   readonly label = "memory";
   readonly files = new Map<string, Uint8Array>();
+  private readonly fileVersions = new Map<string, number>();
   readonly ledgers = new Map<string, Uint8Array>();
   readonly blobs = new Map<string, Uint8Array>();
   index: { bytes: Uint8Array; version: number } | undefined;
@@ -215,6 +254,30 @@ export class MemoryStorage implements Storage {
     return bytes.slice();
   }
 
+  async readFileVersioned(ref: string): Promise<{ bytes: Uint8Array; version: string }> {
+    const bytes = await this.readFile(ref);
+    return { bytes, version: String(this.fileVersions.get(ref) ?? 0) };
+  }
+
+  async replaceFile(ref: string, bytes: Uint8Array, expected: string): Promise<string> {
+    await Promise.resolve();
+    if (!this.files.has(ref)) {
+      throw new NotFound(ref);
+    }
+    if (String(this.fileVersions.get(ref) ?? 0) !== expected) {
+      throw new FileChanged(ref);
+    }
+    return this.put(ref, bytes);
+  }
+
+  /** Puts a file at `ref`, as a person or another app saving it would. */
+  put(ref: string, bytes: Uint8Array): string {
+    this.files.set(ref, bytes.slice());
+    const next = (this.fileVersions.get(ref) ?? 0) + 1;
+    this.fileVersions.set(ref, next);
+    return String(next);
+  }
+
   async writeFile(
     kind: FileKind,
     name: string,
@@ -226,7 +289,7 @@ export class MemoryStorage implements Storage {
     if (!replace && this.files.has(ref)) {
       throw new FileExists(name);
     }
-    this.files.set(ref, bytes.slice());
+    this.put(ref, bytes);
     return { ref, name: checkFileName(name) };
   }
 

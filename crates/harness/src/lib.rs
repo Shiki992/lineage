@@ -111,6 +111,12 @@ impl<S: Storage> Panel<S> {
         self.now
     }
 
+    /// Sets the panel's clock, for accounts whose families were made at
+    /// different times.
+    pub fn set_now(&mut self, now: Timestamp) {
+        self.now = now;
+    }
+
     /// Opens the family a file belongs to (as the task pane does on open).
     ///
     /// # Errors
@@ -268,6 +274,99 @@ impl<S: Storage> Panel<S> {
             family,
         };
         Ok(views::version_panel(&state, &node, &blobs)?)
+    }
+
+    /// The pitch deck panel of the master deck. With `open`, the master file as
+    /// it is now (the deck open in PowerPoint), to show what just changed.
+    ///
+    /// # Errors
+    /// When the family isn't a deck, or the history can't be read.
+    pub fn deck_panel(&self, open: Option<&str>) -> Result<lineage::decks::DeckPanel> {
+        let state = self.state()?;
+        let bytes = match open {
+            Some(file) => Some(self.storage.read_file(file)?),
+            None => None,
+        };
+        let family = self.family()?;
+        let blobs = StoredBlobs {
+            storage: &self.storage,
+            family,
+        };
+        Ok(lineage::decks::deck_panel(
+            &state,
+            bytes.as_deref(),
+            &blobs,
+        )?)
+    }
+
+    /// "Update N versions" on the pitch deck panel, for the tailored versions
+    /// in `files`, with the person's `choices` on cards a previous run left
+    /// (file, card id, decision). Each version's file is written only if it
+    /// hasn't changed since it was read, then the history is appended once; if
+    /// that append fails, every file is put back as it was.
+    ///
+    /// # Errors
+    /// When a file changed while the update ran, or the history can't be written.
+    pub fn update_versions(
+        &mut self,
+        files: &[&str],
+        choices: &[(&str, &str, Decision)],
+    ) -> Result<lineage::decks::UpdateRun> {
+        let family = self.family()?.clone();
+        let (ledger, version) = self.storage.read_ledger(&family)?;
+        let state = FamilyState::from_records(&event::decode(&ledger)?)?;
+        let mut inputs = Vec::new();
+        for file in files {
+            inputs.push((Self::node_of(&state, file)?, self.storage.read_file(file)?));
+        }
+        let mut picked = Vec::new();
+        for (file, card, decision) in choices {
+            picked.push((Self::node_of(&state, file)?, (*card).to_owned(), *decision));
+        }
+        let run = {
+            let blobs = StoredBlobs {
+                storage: &self.storage,
+                family: &family,
+            };
+            let mut ctx = Context {
+                now: self.now,
+                ids: &mut self.ids,
+                author: None,
+            };
+            lineage::decks::update_versions(&mut ctx, &state, &inputs, &picked, &blobs)?
+        };
+        // Files first, each only if nobody changed it meanwhile.
+        let mut written: Vec<(&str, Vec<u8>)> = Vec::new();
+        for ((file, (_, before)), line) in files.iter().zip(&inputs).zip(&run.versions) {
+            let Some(bytes) = &line.file else {
+                continue;
+            };
+            if self.storage.read_file(file)? != *before {
+                for (done, original) in &written {
+                    self.storage.write_file(done, original)?;
+                }
+                return Err(HarnessError::Storage(StorageError::Conflict));
+            }
+            self.storage.write_file(file, bytes)?;
+            written.push((file, before.clone()));
+        }
+        for blob in &run.outcome.blobs {
+            self.storage.put_blob(&family, blob)?;
+        }
+        let lines = event::encode(&run.outcome.records)?;
+        match self.storage.append_ledger(&family, version, &lines) {
+            Ok(at) => {
+                self.index_after(&family, at, &[ledger.as_slice(), &lines].concat());
+                self.now = Timestamp(self.now.0 + 60_000);
+                Ok(run)
+            }
+            Err(e) => {
+                for (done, original) in &written {
+                    self.storage.write_file(done, original)?;
+                }
+                Err(e.into())
+            }
+        }
     }
 
     fn write_outcome(&mut self, file: &str, outcome: &Outcome) -> Result<()> {

@@ -1,0 +1,20 @@
+{
+  "specVersion": "0",
+  "format": "pptx",
+  "changes": [
+    {
+      "id": "c1",
+      "kind": "delete",
+      "location": {
+        "format": "pptx",
+        "part": "ppt/slides/slide7.xml",
+        "slideId": 262,
+        "target": "slide"
+      },
+      "before": "Team",
+      "after": null,
+      "formattingOnly": false,
+      "confidence": 100
+    }
+  ]
+}

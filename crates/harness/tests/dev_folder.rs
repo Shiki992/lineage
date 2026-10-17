@@ -1,16 +1,18 @@
 // Copyright 2026 Hrishikesh Vedantam
 // SPDX-License-Identifier: Apache-2.0
 
-//! Audits what the Word task pane wrote to its development folder
+//! Audits what the Word or PowerPoint task pane wrote to its development folder
 //! (`apps/office-addin/.dev-storage`, same layout as LocalFolderStorage), with
 //! the Rust engine and none of the TypeScript: every ledger folds, every blob
-//! matches its hash, every snapshot restores to a readable file, every tailored
-//! version on disk is a checkpoint of its node, every sent copy on disk is
-//! byte for byte one that was recorded, every file that came back is kept
-//! exactly, and every review's checkpoint is of the file it went into (and,
-//! with `LINEAGE_SMOKE_DIR`, written out for `word-smoke.ps1 -Compare`).
+//! matches its hash, every snapshot restores to a readable file (a deck's parts
+//! and relationships holding together), every tailored version on disk is a
+//! checkpoint of its node, every sent copy on disk is byte for byte one that
+//! was recorded (a deck's without hidden slides), every file that came back is
+//! kept exactly, and every review's checkpoint is of the file it went into
+//! (and, with `LINEAGE_SMOKE_DIR`, Word files are written out for
+//! `word-smoke.ps1 -Compare`).
 //!
-//! Run after trying the panel in Word (ignored otherwise):
+//! Run after trying the panel in Word or PowerPoint (ignored otherwise):
 //!   cargo test -p lineage-harness --test dev_folder -- --ignored --nocapture
 //! `LINEAGE_DEV_STORAGE` points at another folder. Prints counts only.
 
@@ -19,8 +21,9 @@ use std::path::PathBuf;
 use lineage::blob::{BlobHash, BlobSource, referenced, restore};
 use lineage::event;
 use lineage::state::FamilyState;
+use lineage_core::doc::Doc;
 use lineage_core::docx::props::read_ids;
-use lineage_core::{Docx, Package};
+use lineage_core::{Deck, Docx, Package};
 use lineage_harness::{LocalFolderStorage, Storage};
 
 struct Stored<'a> {
@@ -31,6 +34,16 @@ struct Stored<'a> {
 impl BlobSource for Stored<'_> {
     fn blob(&self, hash: &BlobHash) -> Option<Vec<u8>> {
         self.storage.get_blob(self.family, hash)
+    }
+}
+
+/// A file of the family's format that opens, and for a deck, whose parts and
+/// relationships hold together.
+fn readable(bytes: &[u8], format: &str, what: &str) {
+    Doc::open_as(bytes, format).unwrap_or_else(|e| panic!("{what} is a readable .{format}: {e}"));
+    if format == "pptx" {
+        lineage_core::pptx::check::structure(bytes)
+            .unwrap_or_else(|e| panic!("{what} holds together: {e}"));
     }
 }
 
@@ -58,7 +71,7 @@ fn smoke(name: &str, bytes: &[u8]) {
 }
 
 #[test]
-#[ignore = "reads the task pane's development folder; run by hand after a Word session"]
+#[ignore = "reads the task pane's development folder; run by hand after a Word or PowerPoint session"]
 fn the_task_pane_wrote_a_sound_history() {
     let root = std::env::var_os("LINEAGE_DEV_STORAGE").map_or_else(
         || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../apps/office-addin/.dev-storage"),
@@ -68,13 +81,13 @@ fn the_task_pane_wrote_a_sound_history() {
     let families = storage.families().expect("families");
     assert!(!families.is_empty(), "no families in {}", root.display());
     let (mut checkpoints, mut blobs, mut versions, mut sent_files) = (0, 0, 0, 0);
-    let (mut returned, mut reviews) = (0, 0);
+    let (mut returned, mut reviews, mut decks) = (0, 0, 0);
     for family in &families {
         let (ledger, _) = storage.read_ledger(family).expect("ledger");
         let state = FamilyState::from_records(&event::decode(&ledger).expect("decodes"))
             .expect("the ledger folds");
         if !lineage::library::readable_format(&state.format) {
-            // A deck or workbook: this version of Lineage only shows its history.
+            // A workbook: this version of Lineage only shows its history.
             println!("skipped a {} family", state.format);
             continue;
         }
@@ -82,6 +95,10 @@ fn the_task_pane_wrote_a_sound_history() {
             storage: &storage,
             family,
         };
+        let format = state.format.as_str();
+        if format == "pptx" {
+            decks += 1;
+        }
         for hash in referenced(&state) {
             let bytes = source.blob(&hash).expect("referenced blob is stored");
             assert_eq!(BlobHash::of(&bytes), hash, "blob matches its name");
@@ -89,17 +106,25 @@ fn the_task_pane_wrote_a_sound_history() {
         }
         for checkpoint in &state.checkpoints {
             let bytes = restore(&checkpoint.snapshot, &source).expect("snapshot restores");
-            Docx::open(&bytes).expect("snapshot is a readable .docx");
+            readable(&bytes, format, "a snapshot");
             checkpoints += 1;
         }
         for copy in &state.sent {
             let bytes = source.blob(&copy.file).expect("sent copy is stored");
             assert_eq!(BlobHash::of(&bytes), copy.file);
+            readable(&bytes, format, "a sent copy");
+            if format == "pptx" {
+                let deck = Deck::open(&bytes).expect("opens");
+                assert!(
+                    deck.slides.iter().all(|s| !s.hidden),
+                    "a sent deck has no hidden slides"
+                );
+            }
         }
         for back in &state.returned {
             let bytes = source.blob(&back.file).expect("a returned file is stored");
             assert_eq!(BlobHash::of(&bytes), back.file, "kept exactly as it came");
-            Docx::open(&bytes).expect("a returned file is a readable .docx");
+            readable(&bytes, format, "a returned file");
             if let Some(sent) = &back.sent {
                 assert_eq!(
                     state.sent_copy(sent).expect("its sent copy").from,
@@ -113,7 +138,9 @@ fn the_task_pane_wrote_a_sound_history() {
                     let saved = state.checkpoint(result).expect("the review's checkpoint");
                     assert_eq!(saved.node, review.into);
                     let bytes = restore(&saved.snapshot, &source).expect("restores");
-                    smoke(&format!("kept-{reviews}"), &bytes);
+                    if format == "docx" {
+                        smoke(&format!("kept-{reviews}"), &bytes);
+                    }
                 }
                 reviews += 1;
             }
@@ -133,7 +160,10 @@ fn the_task_pane_wrote_a_sound_history() {
                     .any(|c| c.as_str() == ids.checkpoint),
                 "the version on disk is one of its node's checkpoints"
             );
-            smoke(&format!("version-{versions}"), &bytes);
+            readable(&bytes, format, "a tailored version");
+            if format == "docx" {
+                smoke(&format!("version-{versions}"), &bytes);
+            }
             versions += 1;
         }
         let sent_dir = root.join("Sent copies");
@@ -148,7 +178,7 @@ fn the_task_pane_wrote_a_sound_history() {
         }
     }
     println!(
-        "{} families, {checkpoints} checkpoints restored, {blobs} blobs checked, \
+        "{} families ({decks} decks), {checkpoints} checkpoints restored, {blobs} blobs checked, \
          {versions} tailored versions on disk, {sent_files} sent copies on disk match the record, \
          {returned} files came back, {reviews} reviews",
         families.len()

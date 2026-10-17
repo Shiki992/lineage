@@ -138,8 +138,8 @@ function SignIn({
         family tree.
       </p>
       <p className="secondary">
-        There&apos;s no Lineage account. Sign in with the account you use for Lineage in Word, and
-        your history is read from {account.where}, in this browser only.
+        There&apos;s no Lineage account. Sign in with the account you use for Lineage in Word or
+        PowerPoint, and your history is read from {account.where}, in this browser only.
       </p>
       {message && <Alert>{message}</Alert>}
       <div>

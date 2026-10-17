@@ -8,7 +8,14 @@
 
 import { describe, expect, it } from "vitest";
 import type { Storage } from "../storage.js";
-import { BadBlob, FileExists, NotFound, StorageConflict, sha256Hex } from "../storage.js";
+import {
+  BadBlob,
+  FileChanged,
+  FileExists,
+  NotFound,
+  StorageConflict,
+  sha256Hex,
+} from "../storage.js";
 
 const FAMILY = "0123456789abcdef0123456789abcdef";
 const OTHER = "fedcba9876543210fedcba9876543210";
@@ -54,6 +61,25 @@ export function storageConformance(name: string, make: () => Promise<Storage> | 
       const storage = await make();
       await expect(storage.readLedger("../escape")).rejects.toThrow();
       await expect(storage.getBlob(FAMILY, "../../ledger.jsonl")).rejects.toThrow();
+    });
+
+    it("replaces a file only at the version it was read, and lists decks too", async () => {
+      const storage = await make();
+      const stored = await storage.writeFile(
+        "version",
+        "Pitch deck – Seed fund.pptx",
+        text.encode("v1"),
+      );
+      const read = await storage.readFileVersioned(stored.ref);
+      expect(new TextDecoder().decode(read.bytes)).toBe("v1");
+      const next = await storage.replaceFile(stored.ref, text.encode("v2"), read.version);
+      expect(next).not.toBe(read.version);
+      expect(new TextDecoder().decode(await storage.readFile(stored.ref))).toBe("v2");
+      await expect(
+        storage.replaceFile(stored.ref, text.encode("stale"), read.version),
+      ).rejects.toBeInstanceOf(FileChanged);
+      expect(new TextDecoder().decode(await storage.readFile(stored.ref))).toBe("v2");
+      expect(await storage.fileNames("version")).toContain("Pitch deck – Seed fund.pptx");
     });
 
     it("writes files by kind, refuses to overwrite unless asked, and finds them again", async () => {

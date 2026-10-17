@@ -10,7 +10,8 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { storageConformance } from "@lineage/shell/testing";
-import { afterAll, describe, expect, it } from "vitest";
+import { FileLocked } from "@lineage/shell";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { LocalFolderStorage } from "./client.js";
 import { ROUTE, handle } from "./plugin.js";
 
@@ -48,5 +49,25 @@ describe("LocalFolderStorage on disk", () => {
     const { storage, root } = await serve();
     await storage.writeIndex(new TextEncoder().encode("{}"), undefined);
     expect(fs.readFileSync(path.join(root, "Lineage", "index.json"), "utf8")).toBe("{}");
+  });
+
+  it("says when a file is open and can't be replaced, and leaves nothing behind", async () => {
+    // PowerPoint for Windows keeps a deck it has open from being replaced.
+    const { storage, root } = await serve();
+    const stored = await storage.writeFile("version", "Deck.pptx", new Uint8Array([1, 2, 3]));
+    const read = await storage.readFileVersioned(stored.ref);
+    const rename = vi.spyOn(fs, "renameSync").mockImplementation(() => {
+      throw Object.assign(new Error("busy"), { code: "EBUSY" });
+    });
+    try {
+      await expect(
+        storage.replaceFile(stored.ref, new Uint8Array([4, 5, 6]), read.version),
+      ).rejects.toBeInstanceOf(FileLocked);
+    } finally {
+      rename.mockRestore();
+    }
+    const folder = path.dirname(path.join(root, stored.ref));
+    expect(fs.readdirSync(folder)).toEqual(["Deck.pptx"]);
+    expect((await storage.readFileVersioned(stored.ref)).bytes).toEqual(new Uint8Array([1, 2, 3]));
   });
 });

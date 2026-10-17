@@ -4,8 +4,11 @@
 //! Word documents: opening a .docx into the canonical model.
 
 pub mod model;
-pub mod props;
 mod read;
+
+/// Custom properties are the same in every Office package; kept here under
+/// their old path.
+pub use crate::package::props;
 
 use std::collections::BTreeMap;
 

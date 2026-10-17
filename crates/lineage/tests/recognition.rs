@@ -350,10 +350,12 @@ fn build() -> (World, Vec<Case>) {
     let near: Vec<Id> = all
         .iter()
         .filter(|s| {
-            let a = Docx::open(&s.bytes).expect("opens");
+            let a = lineage_core::doc::Doc::open(&s.bytes).expect("opens");
             all.iter().any(|t| {
                 t.sent != s.sent
-                    && content_match(&a, &Docx::open(&t.bytes).expect("opens")).changed < LEAD
+                    && content_match(&a, &lineage_core::doc::Doc::open(&t.bytes).expect("opens"))
+                        .changed
+                        < LEAD
             })
         })
         .map(|s| s.sent.clone())

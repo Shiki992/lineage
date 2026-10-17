@@ -11,8 +11,8 @@
 //   <root>/Lineage/<familyId>/ledger.jsonl
 //   <root>/Lineage/<familyId>/blobs/<sha256>
 //   <root>/Lineage/index.json              the library index (decision 0015)
-//   <root>/Tailored versions/<name>.docx
-//   <root>/Sent copies/<name>.docx
+//   <root>/Tailored versions/<name>.docx or .pptx
+//   <root>/Sent copies/<name>.docx or .pptx
 //
 // It also takes timings from the panel (`/log`) for the budgets, never document
 // text, and serves Word smoke-test files for the write spike (`/spike`).
@@ -48,6 +48,12 @@ async function body(req: IncomingMessage): Promise<Buffer> {
     chunks.push(chunk as Buffer);
   }
   return Buffer.concat(chunks);
+}
+
+/** A file another program has open and won't let us replace (Windows: EBUSY, EPERM). */
+function locked(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "EBUSY" || code === "EPERM" || code === "EACCES";
 }
 
 function send(res: ServerResponse, status: number, data?: Buffer | string | object): void {
@@ -86,6 +92,11 @@ function refPath(root: string, ref: string): string | undefined {
     return inside(root, ref);
   }
   return undefined;
+}
+
+/** A stored file's version: the start of its hash. */
+function fileVersion(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex").slice(0, 16);
 }
 
 /** The index's version: the start of its hash, as the harness computes it. */
@@ -216,7 +227,7 @@ export async function handle(
       const names = fs.existsSync(dir)
         ? fs
             .readdirSync(dir)
-            .filter((n) => /\.docx$/i.test(n))
+            .filter((n) => /\.(docx|pptx)$/i.test(n))
             .sort()
         : [];
       send(res, 200, names);
@@ -243,7 +254,42 @@ export async function handle(
       send(res, 404);
       return;
     }
-    send(res, 200, route === "file" ? fs.readFileSync(file) : { path: file });
+    if (route === "file") {
+      const data = fs.readFileSync(file);
+      res.setHeader("X-File-Version", fileVersion(data));
+      send(res, 200, data);
+    } else {
+      send(res, 200, { path: file });
+    }
+    return;
+  }
+  if (route === "file" && method === "PUT") {
+    // Replacing a stored file only if it is still the version that was read.
+    const file = refPath(root, url.searchParams.get("ref") ?? "");
+    if (!file || !fs.existsSync(file)) {
+      send(res, 404);
+      return;
+    }
+    if (fileVersion(fs.readFileSync(file)) !== url.searchParams.get("expected")) {
+      send(res, 409, { error: "changed" });
+      return;
+    }
+    const bytes = await body(req);
+    fs.writeFileSync(`${file}.lineage-tmp`, bytes);
+    try {
+      fs.renameSync(`${file}.lineage-tmp`, file);
+    } catch (error) {
+      // unlinkSync, not rmSync: on Windows, rmSync with `force` right after a
+      // refused rename returned without removing the file (Node 24).
+      fs.unlinkSync(`${file}.lineage-tmp`);
+      // PowerPoint for Windows keeps a deck it has open from being replaced.
+      if (locked(error)) {
+        send(res, 423, { error: "locked" });
+        return;
+      }
+      throw error;
+    }
+    send(res, 200, { version: fileVersion(bytes) });
     return;
   }
   if (route === "log" && method === "POST") {
@@ -277,7 +323,7 @@ export async function handle(
       const names = fs.existsSync(dir)
         ? fs
             .readdirSync(dir)
-            .filter((n) => n.endsWith(".docx"))
+            .filter((n) => /\.(docx|pptx)$/i.test(n))
             .sort()
         : [];
       send(res, 200, names);

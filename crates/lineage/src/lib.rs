@@ -11,6 +11,7 @@
 //! - [`state`]: the family folded from it.
 //! - [`commands`]: one function per panel button.
 //! - [`changes`]: change states, the merge base, detection.
+//! - [`decks`]: the pitch deck panel and "Update N versions".
 //! - [`identity`]: fingerprints and content matching.
 //! - [`returned`]: files that come back: recognising, reviewing, keeping.
 //! - [`blob`]: content-addressed blobs and snapshots.
@@ -24,6 +25,7 @@
 pub mod blob;
 pub mod changes;
 pub mod commands;
+pub mod decks;
 pub mod error;
 pub mod event;
 pub mod graph;

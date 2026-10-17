@@ -19,8 +19,8 @@
   },
   "$defs": {
     "format": {
-      "description": "Document format the change list describes. v0 covers Word only.",
-      "enum": ["docx"]
+      "description": "Document format the change list describes. v0 covers Word and PowerPoint.",
+      "enum": ["docx", "pptx"]
     },
     "changeId": {
       "description": "Stable identifier for one change within its change list.",
@@ -92,7 +92,39 @@
     },
     "location": {
       "description": "Where a change is, keyed by format. Each format adds its own shape in later versions.",
-      "oneOf": [{ "$ref": "#/$defs/docxLocation" }]
+      "oneOf": [{ "$ref": "#/$defs/docxLocation" }, { "$ref": "#/$defs/pptxLocation" }]
+    },
+    "pptxLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "part", "slideIndex"],
+      "properties": {
+        "format": { "const": "pptx" },
+        "part": {
+          "description": "Package part holding the slide, for example ppt/slides/slide6.xml.",
+          "type": "string",
+          "pattern": "^ppt/[A-Za-z0-9_./-]+\\.xml$"
+        },
+        "slideIndex": {
+          "description": "Zero-based position of the slide in the deck's show order.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "slideId": {
+          "description": "The slide's id in the deck (p:sldId), which survives reordering.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "shapeId": {
+          "description": "The shape's id on the slide (p:cNvPr), when the change is to one shape.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "target": {
+          "description": "What on the slide changed, when not a shape: the slide itself, its speaker notes, its settings (hidden, layout, background, transition) or its animations; design means the slide masters, layouts and theme.",
+          "enum": ["slide", "notes", "settings", "animations", "design"]
+        }
+      }
     },
     "docxLocation": {
       "type": "object",

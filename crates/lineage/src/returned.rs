@@ -19,7 +19,7 @@
 
 use std::collections::BTreeSet;
 
-use lineage_core::diff::diff;
+use lineage_core::doc::Doc;
 use lineage_core::docx::props::{LineageIds, read_ids};
 use lineage_core::merge::{self, Decision};
 use lineage_core::origin::{Unreliable, formatting_trust};
@@ -96,7 +96,7 @@ pub struct Family<'a> {
 
 /// A returned file, read once.
 pub struct Prepared {
-    pub docx: Docx,
+    pub doc: Doc,
     pub ids: Option<LineageIds>,
     pub print: Fingerprint,
 }
@@ -104,13 +104,21 @@ pub struct Prepared {
 /// Reads a returned file. It is untrusted input: the reader's limits apply.
 ///
 /// # Errors
-/// When the file is not a Word document Lineage can read.
+/// When the file is not a Word document or deck Lineage can read.
 pub fn prepare(bytes: &[u8]) -> Result<Prepared> {
+    let kind = lineage_core::pptx::kind_of(bytes)?;
     let package = Package::read(bytes)?;
     let ids = read_ids(&package)?;
-    let docx = Docx::from_package(package, lineage_core::View::Accepted)?;
-    let print = fingerprint(&docx);
-    Ok(Prepared { docx, ids, print })
+    let doc = match kind {
+        lineage_core::pptx::Kind::Word => {
+            Doc::Word(Docx::from_package(package, lineage_core::View::Accepted)?)
+        }
+        lineage_core::pptx::Kind::PowerPoint => {
+            Doc::Deck(lineage_core::Deck::from_package(package)?)
+        }
+    };
+    let print = fingerprint(&doc);
+    Ok(Prepared { doc, ids, print })
 }
 
 /// What the file's ids say, if they name something in these families.
@@ -246,6 +254,9 @@ pub fn score(
 ) -> Result<Vec<Candidate>> {
     let mut out = Vec::new();
     let mut missing = None;
+    if state.format != prepared.doc.format() {
+        return Ok(out);
+    }
     for checkpoint in checkpoints {
         let copies: Vec<&Id> = state
             .sent
@@ -262,7 +273,7 @@ pub fn score(
             }
             Err(e) => return Err(e),
         };
-        let found = content_match(&Docx::open(&base)?, &prepared.docx);
+        let found = content_match(&Doc::open_as(&base, &state.format)?, &prepared.doc);
         let sent: Vec<Option<Id>> = if copies.is_empty() {
             vec![None]
         } else {
@@ -397,9 +408,7 @@ pub struct RecognitionView {
     pub candidates: Vec<CandidateRow>,
 }
 
-fn stem(name: &str) -> &str {
-    name.strip_suffix(".docx").unwrap_or(name)
-}
+use crate::commands::stem;
 
 /// What the panel shows for a recognition.
 #[must_use]
@@ -500,7 +509,12 @@ pub fn record(
     blobs: &dyn BlobSource,
 ) -> Result<Outcome> {
     let prepared = prepare(bytes)?;
-    let base = Docx::open(&base_bytes(state, checkpoint, sent, blobs)?)?;
+    if prepared.doc.format() != state.format {
+        return Err(Error::NotAllowed(
+            "the file isn't the same kind as the family's".to_owned(),
+        ));
+    }
+    let base = Doc::open_as(&base_bytes(state, checkpoint, sent, blobs)?, &state.format)?;
     if how == MatchedBy::Ids {
         let named = prepared.ids.as_ref().is_some_and(|ids| {
             ids.family == state.family_id.as_str()
@@ -525,11 +539,12 @@ pub fn record(
             ..Outcome::default()
         });
     }
-    let changes = diff(&base, &prepared.docx).changes;
-    let formatting = changes.iter().filter(|c| c.formatting_only).count();
+    let view = lineage_core::doc::what_changed(&base, &prepared.doc)?;
+    let formatting = view.formatting.len();
+    let content = view.changes.len();
     let confidence = match how {
         MatchedBy::Ids => 100,
-        MatchedBy::Content | MatchedBy::Person => content_match(&base, &prepared.docx).percent,
+        MatchedBy::Content | MatchedBy::Person => content_match(&base, &prepared.doc).percent,
     };
     let name = display_name.trim();
     let returned = ctx.ids.next_id();
@@ -539,14 +554,14 @@ pub fn record(
         sent_copy_id: sent.cloned(),
         from_checkpoint_id: checkpoint.clone(),
         display_name: if name.is_empty() {
-            "Returned file.docx".to_owned()
+            format!("Returned file{}", crate::commands::extension(&state.format))
         } else {
             name.to_owned()
         },
         file: file.hash.clone(),
         matched_by: how,
         confidence,
-        change_count: changes.len() - formatting,
+        change_count: content,
         formatting_count: formatting,
     })?;
     builder.blobs(vec![file]);
@@ -633,6 +648,11 @@ fn documents(
     bytes: &[u8],
     blobs: &dyn BlobSource,
 ) -> Result<(Docx, Docx, Docx)> {
+    if state.format != "docx" {
+        return Err(Error::NotAllowed(
+            "reviewing a deck that came back comes later".to_owned(),
+        ));
+    }
     check_file(state, node, bytes)?;
     let r = state
         .returned_file(returned)

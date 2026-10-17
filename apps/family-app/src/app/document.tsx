@@ -214,6 +214,16 @@ function stem(name: string): string {
   return name.replace(/\.(docx|pptx|xlsx)$/i, "");
 }
 
+/** "docx" or "pptx", from a file's name. */
+function formatOf(name: string): string {
+  return /\.(docx|pptx|xlsx)$/i.exec(name)?.[1]?.toLowerCase() ?? "docx";
+}
+
+/** The app a format opens in, for "In Word, …". */
+function appFor(format: string): string {
+  return format === "pptx" ? "PowerPoint" : "Word";
+}
+
 function Versions({
   documents,
   view,
@@ -339,8 +349,9 @@ function FileCard({
         <p className="secondary small">{file.status}</p>
         {file.role === "master" && (
           <p className="secondary small">
-            Word last saw it at <span className="mono">{file.storageRef}</span>. If you moved it,
-            open it in Word and Lineage will find it again.
+            {appFor(view.page.format)} last saw it at{" "}
+            <span className="mono">{file.storageRef}</span>. If you moved it, open it in{" "}
+            {appFor(view.page.format)} and Lineage will find it again.
           </p>
         )}
       </div>
@@ -450,6 +461,7 @@ function Entry({
           familyId={familyId}
           checkpoint={entry.id}
           suggested={`${stem(file.name)} (${entry.label})`}
+          format={formatOf(file.name)}
           from={name}
           onDone={(message) => {
             setForm(undefined);
@@ -525,6 +537,7 @@ function RestoreForm({
   familyId,
   checkpoint,
   suggested,
+  format,
   from,
   onDone,
 }: {
@@ -532,6 +545,8 @@ function RestoreForm({
   familyId: string;
   checkpoint: string;
   suggested: string;
+  /** The family's format: the new version's extension. */
+  format: string;
   from: string;
   onDone: (message: string) => void;
 }) {
@@ -539,10 +554,10 @@ function RestoreForm({
   const { busy, error, run } = useAction();
   useEffect(() => {
     let live = true;
-    void documents.freeName(suggested).then(
+    void documents.freeName(suggested, format).then(
       (free) => {
         if (live) {
-          setName(free.replace(/\.docx$/i, ""));
+          setName(stem(free));
         }
       },
       () => undefined,
@@ -550,14 +565,14 @@ function RestoreForm({
     return () => {
       live = false;
     };
-  }, [documents, suggested]);
+  }, [documents, suggested, format]);
   return (
     <Form
       label={`Restore ${from} as a new version`}
       error={error}
       onSubmit={() =>
         run(async () => {
-          const made = await documents.restoreAsNewVersion(familyId, checkpoint, name);
+          const made = await documents.restoreAsNewVersion(familyId, checkpoint, name, format);
           onDone(`Saved “${made.name}” as a new tailored version. Nothing else was changed.`);
         })
       }
@@ -742,7 +757,7 @@ function Sent({ documents, view }: { documents: Documents; view: DocumentView })
       <p className="secondary">{sent.note}</p>
       {empty ? (
         <p className="panel">
-          No copies sent yet. In Word, choose Send a copy in the Lineage panel.
+          No copies sent yet. In {appFor(page.format)}, choose Send a copy in the Lineage panel.
         </p>
       ) : (
         sent.groups.map((g) => (
@@ -755,6 +770,7 @@ function Sent({ documents, view }: { documents: Documents; view: DocumentView })
                   documents={documents}
                   familyId={page.familyId}
                   row={row}
+                  format={page.format}
                   canOpen={page.canChange}
                 />
               ))}
@@ -770,11 +786,13 @@ function SentCard({
   documents,
   familyId,
   row,
+  format,
   canOpen,
 }: {
   documents: Documents;
   familyId: string;
   row: SentRow;
+  format: string;
   canOpen: boolean;
 }) {
   const { busy, error, run } = useAction();
@@ -801,7 +819,7 @@ function SentCard({
         onClick={() =>
           void run(async () => {
             const bytes = await documents.sentCopy(familyId, row.id);
-            saveFile(bytes, sentFileName(row.version, row.recipient));
+            saveFile(bytes, sentFileName(row.version, row.recipient, format));
           })
         }
       >
@@ -983,7 +1001,7 @@ function Details({
               void run(async () => {
                 saveFile(
                   await documents.sentCopy(page.familyId, sentRow.id),
-                  sentFileName(sentRow.version, sentRow.recipient),
+                  sentFileName(sentRow.version, sentRow.recipient, page.format),
                 );
               })
             }
@@ -1000,6 +1018,7 @@ function Details({
           familyId={page.familyId}
           checkpoint={entry.id}
           suggested={`${stem(file.name)} (${entry.label})`}
+          format={page.format}
           from={`${stem(file.name)} ${entry.label}`}
           onDone={onChanged}
         />

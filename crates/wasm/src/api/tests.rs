@@ -384,7 +384,7 @@ fn the_wrong_file_is_refused_and_tracking_twice_is_not_allowed() {
     assert_eq!(e["kind"], "engine");
     assert_eq!(
         e["userMessage"],
-        "This file isn't a Word document Lineage can open."
+        "This file isn't a document Lineage can open."
     );
 }
 

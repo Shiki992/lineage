@@ -9,14 +9,15 @@
 // new ledger. Files that can be made again from history (tailored versions, sent
 // copies) are written after the append.
 
-import type { CommandResult, Engine, FamilyLedger } from "./engine.js";
+import type { CommandResult, Engine, FamilyLedger, UpdateResult } from "./engine.js";
 import type { DocumentHost } from "./host.js";
 import type * as s from "./schemas.js";
 import type { Storage } from "./storage.js";
 import type { FileLocation } from "./storage.js";
 import { LineageError } from "./errors.js";
-import { History, concat } from "./history.js";
-import { FileExists, StorageConflict, checkFileName } from "./storage.js";
+import { FETCH_ROUNDS, History, concat } from "./history.js";
+import { numbered, withExtension } from "./names.js";
+import { FileExists, FileLocked, StorageConflict, checkFileName } from "./storage.js";
 
 export { LineageError, userMessage } from "./errors.js";
 
@@ -64,17 +65,6 @@ function addressKind(ref: string): string {
   } catch {
     return "path";
   }
-}
-
-function docx(name: string): string {
-  const trimmed = name.trim();
-  return /\.docx$/i.test(trimmed) ? trimmed : `${trimmed}.docx`;
-}
-
-/** "Name.docx" → "Name (2).docx", for a file name that is taken. */
-function numbered(name: string, n: number): string {
-  const stem = name.replace(/\.docx$/i, "");
-  return `${stem} (${String(n)}).docx`;
 }
 
 export class Lineage {
@@ -161,7 +151,7 @@ export class Lineage {
   }
 
   private storeBlobs(family: string, result: CommandResult): Promise<void> {
-    return this.history.storeBlobs(family, result);
+    return this.history.storeBlobs(family, result.blobs);
   }
 
   /**
@@ -361,7 +351,7 @@ export class Lineage {
   makeTailoredVersion(name: string): Promise<{ name: string; ref: string; nodeId: string }> {
     return this.serial("makeTailoredVersion", async () => {
       const file = this.requireFile();
-      const clean = checkFileName(docx(name));
+      const clean = checkFileName(withExtension(name, file.format));
       if (
         (await this.storage.fileNames("version")).some(
           (n) => n.toLowerCase() === clean.toLowerCase(),
@@ -697,6 +687,129 @@ export class Lineage {
         this.engine.openSentCopy(ledger, sent),
       );
       await this.host.openCopy(bytes);
+    });
+  }
+
+  /**
+   * The pitch deck panel of the open master deck, with what changed in it
+   * since its last checkpoint (decision 0018).
+   */
+  deckPanel(): Promise<s.DeckPanel> {
+    return this.serial("deckPanel", async () => {
+      const file = this.requireFile();
+      const bytes = await this.host.readBytes();
+      const ledger = await this.ledger(file.familyId);
+      return this.withBlobs(file.familyId, () => this.engine.deckPanel(ledger, bytes));
+    });
+  }
+
+  /**
+   * "Update N versions" from the master deck's panel (decision 0018). Saves a
+   * checkpoint of the open master first when it has changes. Then each chosen
+   * version's file is read as stored, the engine updates it, and each new file
+   * replaces the stored one only if nobody changed it meanwhile. The history is
+   * appended once, after every file; if any write or the append fails, every
+   * file already replaced is put back and nothing is recorded. A version whose
+   * file is open where it can't be changed (FileLocked) is left as it is, and
+   * the run goes again without it, saying so on its line.
+   */
+  updateVersions(
+    versions: readonly string[],
+    choices: readonly s.VersionChoice[] = [],
+    note = "Before updating the versions",
+  ): Promise<s.UpdateRun> {
+    return this.serial("updateVersions", async () => {
+      const file = this.requireFile();
+      if (file.role !== "master") {
+        throw new LineageError(
+          "Versions are updated from the master deck.",
+          "updateVersions on a tailored version",
+        );
+      }
+      // The master's changes go into a checkpoint first, as "Save checkpoint" does.
+      const master = await this.host.readBytes();
+      const previousIds = await this.host.readIds();
+      await this.press(
+        file.familyId,
+        (ledger) => this.engine.saveCheckpoint(ledger, file.nodeId, master, note, this.now()),
+        async ({ outcome }) => {
+          if (!outcome.ids) {
+            return undefined;
+          }
+          await this.host.writeIds(outcome.ids);
+          await this.host.save();
+          return async () => {
+            await this.host.writeIds(previousIds);
+          };
+        },
+      );
+      // Versions whose files are open somewhere that won't let them change
+      // (FileLocked): the run goes again without them, and says so for each.
+      const open = new Set<string>();
+      for (let conflicts = 0; ;) {
+        const { bytes: ledger, version } = await this.storage.readLedger(file.familyId);
+        // Every checkpoint's manifest, including the one just saved, so that a
+        // missing part brings its whole snapshot in one round.
+        await this.fetchBlobs(file.familyId, this.engine.referencedBlobs(ledger));
+        const nodes = this.engine.family(ledger).nodes;
+        const inputs: { node: string; file: Uint8Array; ref: string; version: string }[] = [];
+        for (const node of versions) {
+          const stored = nodes.find((n) => n.id === node && n.role === "variant");
+          if (!stored) {
+            throw new LineageError(
+              "That version isn't in this deck's family.",
+              `node ${node} is not a tailored version`,
+            );
+          }
+          if (open.has(node)) {
+            continue;
+          }
+          const read = await this.storage.readFileVersioned(stored.storageRef);
+          inputs.push({ node, file: read.bytes, ref: stored.storageRef, version: read.version });
+        }
+        // Each version reads its own snapshots: a round for each layer of them
+        // (all versions at once), with room for more versions than a resume has.
+        const result: UpdateResult = await this.withBlobs(
+          file.familyId,
+          () => this.engine.updateVersions(ledger, inputs, choices, this.now(), [...open]),
+          FETCH_ROUNDS + 2 * inputs.length,
+        );
+        const replaced: { ref: string; bytes: Uint8Array }[] = [];
+        const putBack = async () => {
+          for (const done of replaced.reverse()) {
+            const now = await this.storage.readFileVersioned(done.ref);
+            await this.storage.replaceFile(done.ref, done.bytes, now.version);
+          }
+        };
+        let locked: string | undefined;
+        try {
+          for (const input of inputs) {
+            const bytes = result.files.get(input.node);
+            if (bytes) {
+              locked = input.node;
+              await this.storage.replaceFile(input.ref, bytes, input.version);
+              locked = undefined;
+              replaced.push({ ref: input.ref, bytes: input.file });
+            }
+          }
+          if (result.run.outcome.records > 0) {
+            await this.history.storeBlobs(file.familyId, result.blobs);
+            await this.append(file.familyId, version, ledger, result.run.outcome.ledgerLines);
+          }
+          return result.run;
+        } catch (error) {
+          await putBack();
+          if (error instanceof FileLocked && locked !== undefined) {
+            open.add(locked);
+            continue;
+          }
+          if (error instanceof StorageConflict && conflicts === 0) {
+            conflicts += 1;
+            continue;
+          }
+          throw error;
+        }
+      }
     });
   }
 

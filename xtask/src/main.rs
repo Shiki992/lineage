@@ -3,7 +3,8 @@
 
 //! Repository tasks. Run with `cargo xtask <task>`:
 //!
-//! - `fixtures`: write the synthetic .docx fixtures to `fixtures/docx/synthetic/`.
+//! - `fixtures`: write the synthetic fixtures to `fixtures/docx/synthetic/` and
+//!   `fixtures/pptx/synthetic/`.
 //! - `check-fixtures`: fail if the committed fixtures differ from what the generator
 //!   produces now, or if the folder holds files the generator doesn't make.
 //! - `check-headers`: fail if any source file lacks the licence header.
@@ -18,7 +19,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use lineage_testkit::{fixtures, returned};
+use lineage_testkit::{decks, fixtures, returned};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -27,33 +28,61 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
+/// A fixture folder's files: names and bytes.
+type Files = Vec<(&'static str, Vec<u8>)>;
+
+/// Every generated fixture folder, with its files.
+fn generated() -> Vec<(&'static str, Files)> {
+    vec![
+        (
+            fixtures::OUT_DIR,
+            fixtures::all()
+                .into_iter()
+                .map(|(name, package)| (name, package.to_bytes()))
+                .collect(),
+        ),
+        (
+            decks::OUT_DIR,
+            decks::all()
+                .into_iter()
+                .map(|(name, deck)| (name, deck.to_bytes()))
+                .collect(),
+        ),
+    ]
+}
+
 fn write_fixtures(root: &Path) -> std::io::Result<()> {
-    let dir = root.join(fixtures::OUT_DIR);
-    fs::create_dir_all(&dir)?;
-    for (name, package) in fixtures::all() {
-        fs::write(dir.join(name), package.to_bytes())?;
-        println!("wrote {}/{name}", fixtures::OUT_DIR);
+    for (out_dir, files) in generated() {
+        let dir = root.join(out_dir);
+        fs::create_dir_all(&dir)?;
+        for (name, bytes) in files {
+            fs::write(dir.join(name), bytes)?;
+            println!("wrote {out_dir}/{name}");
+        }
     }
     Ok(())
 }
 
 fn check_fixtures(root: &Path) -> std::io::Result<Vec<String>> {
-    let dir = root.join(fixtures::OUT_DIR);
     let mut problems = Vec::new();
-    let generated = fixtures::all();
-    for (name, package) in &generated {
-        match fs::read(dir.join(name)) {
-            Ok(on_disk) if on_disk == package.to_bytes() => {}
-            Ok(_) => problems.push(format!("{name} differs from the generator output")),
-            Err(_) => problems.push(format!("{name} is missing")),
+    for (out_dir, files) in generated() {
+        let dir = root.join(out_dir);
+        for (name, bytes) in &files {
+            match fs::read(dir.join(name)) {
+                Ok(on_disk) if on_disk == *bytes => {}
+                Ok(_) => problems.push(format!(
+                    "{out_dir}/{name} differs from the generator output"
+                )),
+                Err(_) => problems.push(format!("{out_dir}/{name} is missing")),
+            }
         }
-    }
-    if dir.is_dir() {
-        for entry in fs::read_dir(&dir)? {
-            let file_name = entry?.file_name();
-            let name = file_name.to_string_lossy();
-            if !generated.iter().any(|(known, _)| *known == name) {
-                problems.push(format!("{name} is not made by the generator"));
+        if dir.is_dir() {
+            for entry in fs::read_dir(&dir)? {
+                let file_name = entry?.file_name();
+                let name = file_name.to_string_lossy();
+                if !files.iter().any(|(known, _)| *known == name) {
+                    problems.push(format!("{out_dir}/{name} is not made by the generator"));
+                }
             }
         }
     }

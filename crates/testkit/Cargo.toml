@@ -1,6 +1,6 @@
 [package]
 name = "lineage-testkit"
-description = "Test-only builder for synthetic .docx files, used by the fixture generator and engine tests. Never shipped."
+description = "Test-only builder for synthetic .docx and .pptx files, used by the fixture generator and engine tests. Never shipped."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

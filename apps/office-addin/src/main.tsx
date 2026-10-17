@@ -15,6 +15,7 @@ import { App } from "./app/App";
 import { signIn } from "./auth/sign-in";
 import { pageStart, timing } from "./metrics";
 import { myDocumentsOpener } from "./office/my-documents";
+import { NEEDED, PowerPointHost } from "./office/powerpoint-host";
 import { WordHost } from "./office/word-host";
 import { chooseStorage } from "./storage/choose";
 
@@ -29,8 +30,30 @@ function root() {
 async function boot(info: { host: Office.HostType | null }): Promise<void> {
   timing("office.ready", performance.now() - pageStart);
   const view = root();
-  if (info.host !== Office.HostType.Word) {
-    view.render(<p className="panel">Lineage works in Word. Open a Word document to use it.</p>);
+  const inWord = info.host === Office.HostType.Word;
+  const inPowerPoint = info.host === Office.HostType.PowerPoint;
+  if (!inWord && !inPowerPoint) {
+    view.render(
+      <p className="panel">
+        Lineage works in Word and PowerPoint. Open a document or a deck to use it.
+      </p>,
+    );
+    return;
+  }
+  if (inWord && !Office.context.requirements.isSetSupported("WordApi", "1.5")) {
+    view.render(
+      <p className="alert" role="alert">
+        Lineage needs a newer Word. Update Word, then open the panel again.
+      </p>,
+    );
+    return;
+  }
+  if (inPowerPoint && !Office.context.requirements.isSetSupported("PowerPointApi", NEEDED)) {
+    view.render(
+      <p className="alert" role="alert">
+        Lineage needs a newer PowerPoint. Update PowerPoint, then open the panel again.
+      </p>,
+    );
     return;
   }
   try {
@@ -56,7 +79,7 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
       <StrictMode>
         <App
           engine={engine}
-          host={new WordHost()}
+          host={inPowerPoint ? new PowerPointHost() : new WordHost()}
           storage={storage}
           signIn={interactive}
           openMyDocuments={myDocumentsOpener()}

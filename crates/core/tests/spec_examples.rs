@@ -76,3 +76,31 @@ fn invalid_examples_fail() {
         );
     }
 }
+
+#[test]
+fn deck_change_lists_from_the_engine_are_valid() {
+    use lineage_core::Deck;
+    use lineage_core::pptx::{diff::diff, view::change_list};
+    use lineage_testkit::decks::{edits, pitch_deck};
+
+    let (schemas, index) = compile_schema();
+    let base = Deck::open(&pitch_deck().to_bytes()).expect("opens");
+    for edited in [
+        edits::northgate(edits::traction_update(pitch_deck())),
+        edits::reordered(edits::team_removed(pitch_deck())),
+        edits::layout_changed(edits::hidden_appendix(pitch_deck())),
+        edits::animation(edits::notes_edited(pitch_deck())),
+        edits::picture_moved(edits::made_bold(pitch_deck())),
+    ] {
+        let after = Deck::open(&edited.to_bytes()).expect("opens");
+        let list = change_list(&diff(&base, &after), &base, &after);
+        assert!(!list.changes.is_empty());
+        let instance: Value = serde_json::from_str(&list.to_json()).expect("json");
+        if let Err(error) = schemas.validate(&instance, index) {
+            panic!(
+                "engine output should be valid:\n{error:#}\n{}",
+                list.to_json()
+            );
+        }
+    }
+}

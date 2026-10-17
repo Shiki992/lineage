@@ -12,9 +12,7 @@
 //! - [`content_match`] compares two whole documents word by word, through the
 //!   engine's "what changed", to tell near-identical candidates apart.
 
-use lineage_core::Docx;
-use lineage_core::diff::{SegmentKind, diff};
-use lineage_core::docx::{Block, StoryKey};
+use lineage_core::doc::{Doc, changed_words};
 use lineage_core::hash::{Fnv, fnv};
 use serde::{Deserialize, Serialize};
 
@@ -41,36 +39,19 @@ fn split_words(text: &str) -> impl Iterator<Item = &str> {
         .filter(|w| !w.is_empty())
 }
 
-fn words_of(docx: &Docx) -> (Vec<String>, u64) {
-    let mut words = Vec::new();
-    let mut structure = Fnv::new();
-    fn walk(blocks: &[Block], words: &mut Vec<String>, structure: &mut Fnv) {
-        for block in blocks {
-            match block {
-                Block::Paragraph(p) => {
-                    structure.str(p.props.style.as_deref().unwrap_or(""));
-                    words.extend(split_words(&p.text()).map(str::to_lowercase));
-                }
-                Block::Table(t) => {
-                    structure.str("table");
-                    for row in &t.rows {
-                        for cell in &row.cells {
-                            walk(&cell.blocks, words, structure);
-                        }
-                    }
-                }
-                Block::SectionBreak(_) | Block::Opaque(_) => {}
-            }
-        }
-    }
-    walk(&docx.body().blocks, &mut words, &mut structure);
-    (words, structure.finish())
+fn words_of(doc: &Doc) -> (Vec<String>, u64) {
+    let (lines, structure) = doc.text_and_structure();
+    let words = lines
+        .iter()
+        .flat_map(|line| split_words(line).map(str::to_lowercase))
+        .collect();
+    (words, structure)
 }
 
 /// The fingerprint of a document.
 #[must_use]
-pub fn fingerprint(docx: &Docx) -> Fingerprint {
-    let (words, structure) = words_of(docx);
+pub fn fingerprint(doc: &Doc) -> Fingerprint {
+    let (words, structure) = words_of(doc);
     let mut hashes: Vec<u32> = if words.len() < SHINGLE {
         words.iter().map(|w| truncate(fnv(w))).collect()
     } else {
@@ -134,9 +115,15 @@ pub struct Match {
 /// sentence costs only its changed words and a moved paragraph costs nothing.
 /// Formatting is ignored.
 #[must_use]
-pub fn content_match(a: &Docx, b: &Docx) -> Match {
+pub fn content_match(a: &Doc, b: &Doc) -> Match {
     let count = |text: &str| split_words(text).count();
-    let total = |d: &Docx| d.body_lines().iter().map(|l| count(l)).sum::<usize>();
+    let total = |d: &Doc| {
+        d.text_and_structure()
+            .0
+            .iter()
+            .map(|l| count(l))
+            .sum::<usize>()
+    };
     let (wa, wb) = (total(a), total(b));
     if wa + wb == 0 {
         return Match {
@@ -144,20 +131,7 @@ pub fn content_match(a: &Docx, b: &Docx) -> Match {
             changed: 0,
         };
     }
-    let (mut removed, mut added) = (0, 0);
-    for change in diff(a, b)
-        .changes
-        .iter()
-        .filter(|c| c.story == StoryKey::Body)
-    {
-        for segment in &change.segments {
-            match segment.kind {
-                SegmentKind::Removed => removed += count(&segment.text),
-                SegmentKind::Added => added += count(&segment.text),
-                SegmentKind::Same | SegmentKind::Reformatted => {}
-            }
-        }
-    }
+    let (removed, added) = changed_words(a, b);
     let common = wa.saturating_sub(removed).min(wb.saturating_sub(added));
     Match {
         percent: u8::try_from(200 * common / (wa + wb)).unwrap_or(100),
@@ -171,7 +145,7 @@ mod tests {
     use lineage_testkit::{fixtures, resume};
 
     fn print(lines: &[resume::Line]) -> Fingerprint {
-        fingerprint(&Docx::open(&resume::package("t", lines).to_bytes()).expect("opens"))
+        fingerprint(&Doc::open(&resume::package("t", lines).to_bytes()).expect("opens"))
     }
 
     #[test]
@@ -196,7 +170,7 @@ mod tests {
             "{}",
             similarity(&master, &newer)
         );
-        let pitch = fingerprint(&Docx::open(&fixtures::all()[2].1.to_bytes()).expect("opens"));
+        let pitch = fingerprint(&Doc::open(&fixtures::all()[2].1.to_bytes()).expect("opens"));
         assert!(
             similarity(&master, &pitch) <= 5,
             "{}",
@@ -204,8 +178,8 @@ mod tests {
         );
     }
 
-    fn open(lines: &[resume::Line]) -> Docx {
-        Docx::open(&resume::package("t", lines).to_bytes()).expect("opens")
+    fn open(lines: &[resume::Line]) -> Doc {
+        Doc::open(&resume::package("t", lines).to_bytes()).expect("opens")
     }
 
     #[test]
@@ -231,7 +205,7 @@ mod tests {
         let v3 = open(&resume::master_v3_lines());
         let lead = content_match(&v2, &v3);
         assert!((1..=3).contains(&lead.changed), "{lead:?}");
-        let pitch = Docx::open(&fixtures::all()[2].1.to_bytes()).expect("opens");
+        let pitch = Doc::open(&fixtures::all()[2].1.to_bytes()).expect("opens");
         let far = content_match(&v1, &pitch);
         assert!(far.percent <= 10, "{far:?}");
     }

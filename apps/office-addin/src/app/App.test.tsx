@@ -185,7 +185,7 @@ describe("the task pane", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "Start tracking" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "This file isn't a Word document Lineage can open.",
+      "This file isn't a document Lineage can open.",
     );
   });
 });

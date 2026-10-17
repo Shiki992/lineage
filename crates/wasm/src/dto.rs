@@ -284,6 +284,8 @@ pub struct OpenFileDto {
     pub role: RoleDto,
     pub display_name: String,
     pub storage_ref: String,
+    /// The family's format: "docx" or "pptx".
+    pub format: String,
     /// "v3".
     pub checkpoint_label: String,
     /// False when the file is an older checkpoint than the file's latest, such
@@ -792,4 +794,144 @@ impl From<&Written> for WrittenDto {
 pub fn ledger_lines(outcome: &Outcome) -> lineage::Result<String> {
     let bytes = event::encode(&outcome.records)?;
     String::from_utf8(bytes).map_err(|e| lineage::Error::Ledger(e.to_string()))
+}
+
+/// One version's line after "Update N versions".
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionRunDto {
+    pub node: Id,
+    pub name: String,
+    /// "updated", "upToDate", "needsChoice" or "notUpdated".
+    pub result: &'static str,
+    pub text: String,
+    pub brought_in: usize,
+    pub saved_edits: bool,
+    pub left: WhatChangedDto,
+    /// True when the reply has new bytes for this version's file
+    /// (`takeVersionFile`).
+    pub has_file: bool,
+    /// Where the version's file is, for writing it back.
+    pub storage_ref: String,
+}
+
+/// "Update N versions": what to append, and a line per version.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateRunDto {
+    pub outcome: OutcomeDto,
+    pub headline: String,
+    pub versions: Vec<VersionRunDto>,
+}
+
+impl UpdateRunDto {
+    pub fn new(run: &lineage::decks::UpdateRun, lines: String, state: &FamilyState) -> Self {
+        use lineage::decks::RunResult;
+        Self {
+            outcome: OutcomeDto::new(&run.outcome, lines, None),
+            headline: run.headline.clone(),
+            versions: run
+                .versions
+                .iter()
+                .map(|v| VersionRunDto {
+                    node: v.node.clone(),
+                    name: v.name.clone(),
+                    result: match v.result {
+                        RunResult::Updated => "updated",
+                        RunResult::UpToDate => "upToDate",
+                        RunResult::NeedsChoice => "needsChoice",
+                        RunResult::NotUpdated => "notUpdated",
+                    },
+                    text: v.text.clone(),
+                    brought_in: v.brought_in,
+                    saved_edits: v.saved_edits,
+                    left: WhatChangedDto::from(&v.left),
+                    has_file: v.file.is_some(),
+                    storage_ref: state
+                        .node(&v.node)
+                        .map(|n| n.storage_ref.clone())
+                        .unwrap_or_default(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// A node and a card decision, for "Update N versions".
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct VersionChoice {
+    pub node: Id,
+    pub card: String,
+    pub decision: DecisionDto,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JustChangedDto {
+    pub headline: String,
+    pub cards: Vec<ChangeCardDto>,
+    pub unsaved: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetDto {
+    pub id: Id,
+    pub name: String,
+    pub checked: bool,
+    pub context: String,
+    pub storage_ref: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastSentDto {
+    pub sent: Id,
+    pub text: String,
+    pub button: String,
+}
+
+/// The pitch deck panel.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeckPanelDto {
+    pub master: MasterPanelDto,
+    pub just_changed: Option<JustChangedDto>,
+    pub targets: Vec<TargetDto>,
+    pub button: Option<String>,
+    pub last_sent: Option<LastSentDto>,
+}
+
+impl DeckPanelDto {
+    pub fn new(panel: &lineage::decks::DeckPanel, state: &FamilyState, master: Id) -> Self {
+        Self {
+            master: MasterPanelDto::new(&panel.master, state, master),
+            just_changed: panel.just_changed.as_ref().map(|j| JustChangedDto {
+                headline: j.headline.clone(),
+                cards: j.cards.iter().map(ChangeCardDto::from).collect(),
+                unsaved: j.unsaved,
+            }),
+            targets: panel
+                .targets
+                .iter()
+                .map(|t| TargetDto {
+                    id: t.id.clone(),
+                    name: t.name.clone(),
+                    checked: t.checked,
+                    context: t.context.clone(),
+                    storage_ref: state
+                        .node(&t.id)
+                        .map(|n| n.storage_ref.clone())
+                        .unwrap_or_default(),
+                })
+                .collect(),
+            button: panel.button.clone(),
+            last_sent: panel.last_sent.as_ref().map(|l| LastSentDto {
+                sent: l.sent.clone(),
+                text: l.text.clone(),
+                button: l.button.clone(),
+            }),
+        }
+    }
 }

@@ -49,6 +49,14 @@ export interface CommandResult {
   readonly blobs: ReadonlyMap<string, Uint8Array>;
 }
 
+/** "Update N versions": the run, the blobs to store, and each version's new bytes. */
+export interface UpdateResult {
+  readonly run: s.UpdateRun;
+  readonly blobs: ReadonlyMap<string, Uint8Array>;
+  /** New bytes for each version written, by node id. */
+  readonly files: ReadonlyMap<string, Uint8Array>;
+}
+
 /** The engine as the TypeScript shell sees it. Every method is synchronous. */
 export interface Engine {
   /** Engine version, from the Rust workspace manifest. */
@@ -88,6 +96,20 @@ export interface Engine {
   versionPanel(ledger: Uint8Array, node: string): s.VersionPanel;
   offerToVersions(ledger: Uint8Array, versions: readonly string[], nowMs: number): CommandResult;
   updates(ledger: Uint8Array, node: string, file: Uint8Array): s.Updates;
+  /** The pitch deck panel; `open` is the open deck, to show what just changed. */
+  deckPanel(ledger: Uint8Array, open: Uint8Array | undefined): s.DeckPanel;
+  /**
+   * "Update N versions" for `versions` (each node and its file as stored).
+   * `open` are chosen versions whose files can't be changed now: each gets a
+   * line saying so, and nothing is recorded for it.
+   */
+  updateVersions(
+    ledger: Uint8Array,
+    versions: readonly { readonly node: string; readonly file: Uint8Array }[],
+    choices: readonly s.VersionChoice[],
+    nowMs: number,
+    open?: readonly string[],
+  ): UpdateResult;
   decide(
     ledger: Uint8Array,
     node: string,
@@ -383,6 +405,48 @@ function wrap(seed: Uint8Array): Engine {
       ),
     updates: (ledger, node, file) =>
       view("updates", s.Updates, (e) => e.updates(ledger, node, file)),
+    deckPanel: (ledger, open) => view("deckPanel", s.DeckPanel, (e) => e.deckPanel(ledger, open)),
+    updateVersions(ledger, versions, choices, nowMs, open = []) {
+      for (const version of versions) {
+        view("stageVersionFile", v.null(), (e) =>
+          e.stageVersionFile(checked(s.Id, version.node, "updateVersions"), version.file),
+        );
+      }
+      for (const node of open) {
+        view("markVersionOpen", v.null(), (e) =>
+          e.markVersionOpen(checked(s.Id, node, "updateVersions")),
+        );
+      }
+      const { value, reply } = call("updateVersions", (e) =>
+        e.updateVersions(
+          ledger,
+          json(checked(v.array(s.VersionChoice), choices, "updateVersions")),
+          nowMs,
+        ),
+      );
+      try {
+        const run = checked(s.UpdateRun, value, "updateVersions");
+        const blobs = new Map<string, Uint8Array>();
+        for (const hash of run.outcome.blobs) {
+          const blob = reply.blob(hash);
+          if (!(blob instanceof Uint8Array)) {
+            throw new EngineBoundaryError(`updateVersions: blob ${hash} is listed but missing`);
+          }
+          blobs.set(hash, blob);
+        }
+        const files = new Map<string, Uint8Array>();
+        for (const line of run.versions) {
+          const file = reply.takeVersionFile(line.node);
+          if (line.hasFile !== (file !== undefined)) {
+            throw new EngineBoundaryError("updateVersions: hasFile does not match the bytes");
+          }
+          if (file !== undefined) files.set(line.node, file);
+        }
+        return { run, blobs, files };
+      } finally {
+        reply.free();
+      }
+    },
     decide: (ledger, node, file, cards, nowMs) =>
       command("decide", (e) =>
         e.decide(

@@ -21,14 +21,16 @@
 import type { FileKind, FileLocation, LedgerVersion, Storage, StoredFile } from "@lineage/shell";
 import {
   BadBlob,
-  FileExists,
-  NotFound,
-  StorageConflict,
-  StorageError,
   checkFamily,
   checkFileName,
   checkHash,
+  FileChanged,
+  FileExists,
+  NotFound,
+  OFFICE_FILE,
   sha256Hex,
+  StorageConflict,
+  StorageError,
 } from "@lineage/shell";
 import type { Graph } from "./graph.js";
 import { GRAPH, encodePath } from "./graph.js";
@@ -246,6 +248,33 @@ export class OneDriveStorage implements Storage {
     return this.download(ref, item);
   }
 
+  async readFileVersioned(ref: string): Promise<{ bytes: Uint8Array; version: string }> {
+    const item = await this.meta(ref, "id,eTag,@microsoft.graph.downloadUrl");
+    if (!item?.eTag) {
+      throw new NotFound(ref);
+    }
+    // The eTag first, then the bytes, as for ledgers: newer bytes than the
+    // eTag can only make the replace refused, never lose a change.
+    return { bytes: await this.download(ref, item), version: item.eTag };
+  }
+
+  async replaceFile(ref: string, bytes: Uint8Array, expected: string): Promise<string> {
+    let written: DriveItem;
+    try {
+      written = await this.upload(ref, bytes, { ifMatch: expected });
+    } catch (error) {
+      if (error instanceof StorageConflict) {
+        throw new FileChanged(ref);
+      }
+      throw error;
+    }
+    const eTag = written.eTag ?? (await this.meta(ref, "id,eTag"))?.eTag;
+    if (!eTag) {
+      throw new StorageError("OneDrive couldn't save that version just now.", "no eTag");
+    }
+    return eTag;
+  }
+
   async writeFile(
     kind: FileKind,
     name: string,
@@ -262,7 +291,7 @@ export class OneDriveStorage implements Storage {
 
   async fileNames(kind: FileKind): Promise<string[]> {
     return (await this.children(this.layout.folder(kind)))
-      .filter((i) => i.file !== undefined && /\.docx$/i.test(i.name))
+      .filter((i) => i.file !== undefined && OFFICE_FILE.test(i.name))
       .map((i) => i.name)
       .sort();
   }

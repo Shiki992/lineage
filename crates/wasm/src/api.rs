@@ -25,10 +25,10 @@ use serde::Serialize;
 
 use crate::cache::{BlobCache, DEFAULT_LIMIT, Recording};
 use crate::dto::{
-    CardDecision, CopyOfDto, DocumentDto, DocumentPageDto, FamilyDto, FamilyGraphDto, IdsDto,
-    LedgerDto, LibraryDto, MasterPanelDto, ObservedDto, OpenFileDto, OutcomeDto, RecognitionDto,
-    RecordArgs, RefreshedDto, ReturnReviewDto, SendArgs, SentListDto, UpdatesDto, VersionPanelDto,
-    WhatChangedDto, WrittenDto, ledger_lines,
+    CardDecision, CopyOfDto, DeckPanelDto, DocumentDto, DocumentPageDto, FamilyDto, FamilyGraphDto,
+    IdsDto, LedgerDto, LibraryDto, MasterPanelDto, ObservedDto, OpenFileDto, OutcomeDto,
+    RecognitionDto, RecordArgs, RefreshedDto, ReturnReviewDto, SendArgs, SentListDto, UpdateRunDto,
+    UpdatesDto, VersionChoice, VersionPanelDto, WhatChangedDto, WrittenDto, ledger_lines,
 };
 
 /// What a call returns: the JSON envelope and any bytes.
@@ -41,6 +41,9 @@ pub struct Reply {
     pub new_file: Option<Vec<u8>>,
     /// Blobs to store before appending the ledger lines.
     pub blobs: Vec<Blob>,
+    /// New bytes for other files: tailored versions "Update N versions" wrote,
+    /// by node id.
+    pub files: Vec<(String, Vec<u8>)>,
 }
 
 impl Reply {
@@ -189,6 +192,11 @@ pub struct Session {
     cache: BlobCache,
     ids: SeededIds,
     author: Option<String>,
+    /// Tailored versions' files for the next "Update N versions".
+    staged: Vec<(Id, Vec<u8>)>,
+    /// Chosen versions whose files are open and can't be changed, for the next
+    /// "Update N versions".
+    open: Vec<Id>,
 }
 
 impl Session {
@@ -203,6 +211,8 @@ impl Session {
             cache: BlobCache::new(limit),
             ids: SeededIds::new(seed),
             author: None,
+            staged: Vec::new(),
+            open: Vec::new(),
         }
     }
 
@@ -370,6 +380,7 @@ impl Session {
                 role: node.role.into(),
                 display_name: node.display_name.clone(),
                 storage_ref: node.storage_ref.clone(),
+                format: state.format.clone(),
                 checkpoint_label: state.label(&checkpoint),
                 is_latest: node.checkpoints.last() == Some(&checkpoint) && copy.is_none(),
                 copy_of: copy.map(|s| CopyOfDto {
@@ -492,6 +503,103 @@ impl Session {
             views::version_panel(&state, &node, source)
                 .map(|p| VersionPanelDto::new(&p, node.clone()))
         })
+    }
+
+    /// The pitch deck panel, with what changed in the open deck (`open`).
+    #[must_use]
+    pub fn deck_panel(&self, ledger: &[u8], open: Option<&[u8]>) -> Reply {
+        let state = match fold(ledger) {
+            Ok(s) => s,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.view(|source| {
+            let master = state.master()?.id.clone();
+            lineage::decks::deck_panel(&state, open, source)
+                .map(|p| DeckPanelDto::new(&p, &state, master))
+        })
+    }
+
+    /// Stages a tailored version's file (as stored) for the next
+    /// [`Session::update_versions`].
+    pub fn stage_version_file(&mut self, node: &str, file: &[u8]) -> Reply {
+        match id(node) {
+            Ok(node) => {
+                self.staged.retain(|(n, _)| *n != node);
+                self.staged.push((node, file.to_vec()));
+                Reply::ok(&serde_json::Value::Null)
+            }
+            Err(e) => Reply::failure(&e),
+        }
+    }
+
+    /// Marks a chosen tailored version as open somewhere that won't let its
+    /// file be changed, for the next [`Session::update_versions`].
+    pub fn mark_version_open(&mut self, node: &str) -> Reply {
+        match id(node) {
+            Ok(node) => {
+                self.staged.retain(|(n, _)| *n != node);
+                if !self.open.contains(&node) {
+                    self.open.push(node);
+                }
+                Reply::ok(&serde_json::Value::Null)
+            }
+            Err(e) => Reply::failure(&e),
+        }
+    }
+
+    /// "Update N versions" for the staged files and the versions marked open;
+    /// `choices` is a JSON array of `{node, card, decision}`. New bytes for
+    /// each version are in the reply (`files`). Every run takes what was
+    /// staged, whatever its result: the host stages again for each run,
+    /// missing-blobs rounds included, so nothing from a failed run carries over.
+    pub fn update_versions(&mut self, ledger: &[u8], choices: &str, now_ms: f64) -> Reply {
+        let inputs = std::mem::take(&mut self.staged);
+        let open = std::mem::take(&mut self.open);
+        let prepared = fold(ledger).and_then(|s| Ok((s, json::<Vec<VersionChoice>>(choices)?)));
+        let (state, choices) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        let now = match timestamp(now_ms) {
+            Ok(t) => t,
+            Err(e) => return Reply::failure(&e),
+        };
+        let choices: Vec<(Id, String, lineage_core::merge::Decision)> = choices
+            .into_iter()
+            .map(|c| (c.node, c.card, c.decision.into()))
+            .collect();
+        let run = {
+            let source = Recording::new(&self.cache);
+            let mut ctx = Context {
+                now,
+                ids: &mut self.ids,
+                author: self.author.clone(),
+            };
+            let result = lineage::decks::update_versions_leaving_open(
+                &mut ctx, &state, &inputs, &open, &choices, &source,
+            )
+            .map_err(Failure::from);
+            Self::finish(result, &source)
+        };
+        let run = match run {
+            Ok(r) => r,
+            Err(e) => return Reply::failure(&e),
+        };
+        let lines = match ledger_lines(&run.outcome) {
+            Ok(l) => l,
+            Err(e) => return Reply::failure(&Failure::Lineage(e)),
+        };
+        for blob in &run.outcome.blobs {
+            self.cache.insert(blob.hash.clone(), blob.bytes.clone());
+        }
+        let mut reply = Reply::ok(&UpdateRunDto::new(&run, lines, &state));
+        reply.blobs = run.outcome.blobs.clone();
+        reply.files = run
+            .versions
+            .iter()
+            .filter_map(|v| Some((v.node.as_str().to_owned(), v.file.clone()?)))
+            .collect();
+        reply
     }
 
     /// "Offer it to …": `versions` is a JSON array of node ids.

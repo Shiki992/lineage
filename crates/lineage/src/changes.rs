@@ -15,9 +15,9 @@
 //!   (detected) and the version is linked to that checkpoint. A merged change the
 //!   version no longer contains (rejected in Word) is tagged declined (detected).
 
-use lineage_core::Docx;
 use lineage_core::diff::spec::ChangeList;
-use lineage_core::merge::{self, DETECTED_CONFIDENCE, Status};
+use lineage_core::doc::{self, Doc};
+use lineage_core::merge::{DETECTED_CONFIDENCE, Status};
 
 use crate::blob::{BlobSource, restore};
 use crate::error::{Error, Result};
@@ -181,7 +181,7 @@ pub(crate) fn checkpoint_pair(
     state: &FamilyState,
     checkpoint: &Checkpoint,
     blobs: &dyn BlobSource,
-) -> Result<(Docx, Docx)> {
+) -> Result<(Doc, Doc)> {
     let parent = checkpoint
         .parents
         .first()
@@ -189,8 +189,8 @@ pub(crate) fn checkpoint_pair(
         .ok_or_else(|| {
             Error::Ledger("a master checkpoint without a parent has no changes".to_owned())
         })?;
-    let before = Docx::open(&restore(&parent.snapshot, blobs)?)?;
-    let after = Docx::open(&restore(&checkpoint.snapshot, blobs)?)?;
+    let before = Doc::open_as(&restore(&parent.snapshot, blobs)?, &state.format)?;
+    let after = Doc::open_as(&restore(&checkpoint.snapshot, blobs)?, &state.format)?;
     Ok((before, after))
 }
 
@@ -202,7 +202,7 @@ pub(crate) fn checkpoint_pair(
 pub fn detect(
     state: &FamilyState,
     variant: &Id,
-    ours: &Docx,
+    ours: &Doc,
     checkpoint: &Id,
     blobs: &dyn BlobSource,
 ) -> Result<Vec<Event>> {
@@ -219,16 +219,16 @@ pub fn detect(
             continue;
         }
         let (before, after) = checkpoint_pair(state, master, blobs)?;
-        let plan = merge::plan(&before, ours, &after);
+        let plan = doc::plan(&before, ours, &after)?;
         let mut all_merged = true;
         let mut detected_any = false;
         for change in &changes {
             let current = decided(state, variant, &master.id, &change.id);
-            let item = plan.item(&change.id);
-            let found = item.is_some_and(|i| {
-                matches!(i.status, Status::AlreadyThere { confidence } if confidence >= DETECTED_CONFIDENCE)
+            let item = plan.status(&change.id);
+            let found = item.is_some_and(|s| {
+                matches!(s, Status::AlreadyThere { confidence } if *confidence >= DETECTED_CONFIDENCE)
             });
-            let gone = item.is_some_and(|i| i.status == Status::Clean);
+            let gone = item.is_some_and(|s| *s == Status::Clean);
             match current {
                 None if found => {
                     events.push(Event::ChangeStateRecorded {

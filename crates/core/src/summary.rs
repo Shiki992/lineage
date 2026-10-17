@@ -102,7 +102,8 @@ fn join_phrases(phrases: &[String]) -> String {
 
 /// The changed part of an edit, snapped to whole words, with "…" where text was
 /// left out. Returns (before, after).
-fn changed_words(before: &str, after: &str) -> (String, String) {
+#[must_use]
+pub fn changed_words(before: &str, after: &str) -> (String, String) {
     let a: Vec<&str> = before.split(' ').collect();
     let b: Vec<&str> = after.split(' ').collect();
     let prefix = a.iter().zip(&b).take_while(|(x, y)| x == y).count();

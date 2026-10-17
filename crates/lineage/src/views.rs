@@ -133,6 +133,14 @@ pub struct VersionPanel {
     pub footer: String,
 }
 
+/// The text with its first letter in lower case, for the middle of a sentence.
+fn lower_first(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_lowercase().chain(chars).collect()
+    })
+}
+
 fn card(state: &FamilyState, node: &Id) -> Option<CheckpointCard> {
     let latest = state.latest(node)?;
     Some(CheckpointCard {
@@ -263,7 +271,8 @@ pub fn version_panel(
     Ok(VersionPanel {
         file_name: info.display_name.clone(),
         chip: "Tailored version".to_owned(),
-        status: format!("Made from master {made_from} · {}", has.to_lowercase()),
+        // "Has v1 · last sent 17 Oct" → "has v1 · last sent 17 Oct".
+        status: format!("Made from master {made_from} · {}", lower_first(&has)),
         latest: card(state, node)
             .ok_or_else(|| crate::Error::Ledger("no checkpoint".to_owned()))?,
         updates: match offered {
@@ -329,8 +338,7 @@ pub fn sent_list(state: &FamilyState, search: Option<&str>) -> SentList {
             .and_then(|c| state.node(&c.node));
         let version = format!(
             "{} · {}",
-            node.map_or("", |n| n.display_name.as_str())
-                .trim_end_matches(".docx"),
+            crate::commands::stem(node.map_or("", |n| n.display_name.as_str())),
             state.label(&copy.from)
         );
         if let Some(needle) = &needle {
@@ -370,7 +378,7 @@ pub fn sent_list(state: &FamilyState, search: Option<&str>) -> SentList {
             recipient: copy.recipient.clone(),
             version,
             purpose: copy.purpose.clone(),
-            format: if copy.format == "pdf" { "PDF" } else { "Word" }.to_owned(),
+            format: crate::library::format_label(&copy.format).to_owned(),
             date: copy.at.day_label(),
             chip,
             returned: returned.map(|r| r.id.clone()),
@@ -446,7 +454,6 @@ pub fn document_page(state: &FamilyState, damage: Option<String>) -> DocumentPag
     let readable = crate::library::readable_format(&state.format);
     let note = damage.clone().or_else(|| {
         (!readable).then(|| match state.format.as_str() {
-            "pptx" => "Comes with PowerPoint support. You can see this deck's history, but not open or compare it yet.".to_owned(),
             "xlsx" => "Comes with Excel support. You can see this workbook's history, but not open or compare it yet.".to_owned(),
             _ => "This version of Lineage can't open these files yet.".to_owned(),
         })
