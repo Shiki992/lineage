@@ -10,24 +10,15 @@
 // copies) are written after the append.
 
 import type { CommandResult, Engine, FamilyLedger } from "./engine.js";
-import { EngineError } from "./engine.js";
 import type { DocumentHost } from "./host.js";
 import type * as s from "./schemas.js";
 import type { Storage } from "./storage.js";
 import type { FileLocation } from "./storage.js";
-import { FileExists, StorageConflict, StorageError, checkFileName } from "./storage.js";
+import { LineageError } from "./errors.js";
+import { History, concat } from "./history.js";
+import { FileExists, StorageConflict, checkFileName } from "./storage.js";
 
-/** A failure the person can act on, with the words the panel shows. */
-export class LineageError extends Error {
-  override name = "LineageError";
-
-  constructor(
-    readonly userMessage: string,
-    detail: string,
-  ) {
-    super(detail);
-  }
-}
+export { LineageError, userMessage } from "./errors.js";
 
 /** A file that came back, held while the person confirms which copy it is. */
 export interface Returning {
@@ -61,12 +52,19 @@ export interface LineageOptions {
   readonly onTiming?: (name: string, ms: number) => void;
 }
 
-/** How many times a command fetches missing blobs before giving up. */
-const FETCH_ROUNDS = 6;
-/** Blobs fetched at once. */
-const FETCH_AT_ONCE = 6;
-
 const utf8 = new TextEncoder();
+
+/** "d.docs.live.net" for a web address, "path" for a file on this computer. */
+function addressKind(ref: string): string {
+  if (!/^https?:\/\//i.test(ref)) {
+    return "path";
+  }
+  try {
+    return new URL(ref).host.toLowerCase();
+  } catch {
+    return "path";
+  }
+}
 
 function docx(name: string): string {
   const trimmed = name.trim();
@@ -85,8 +83,11 @@ export class Lineage {
   private readonly host: DocumentHost;
   private readonly now: () => number;
   private readonly onTiming: (name: string, ms: number) => void;
+  private readonly history: History;
   private openFile: s.OpenFile | undefined;
   private queue: Promise<unknown> = Promise.resolve();
+  /** Library index updates, one after another, after the commands that wrote. */
+  private indexing: Promise<unknown> = Promise.resolve();
 
   constructor(options: LineageOptions) {
     this.engine = options.engine;
@@ -94,6 +95,26 @@ export class Lineage {
     this.host = options.host;
     this.now = options.now ?? Date.now;
     this.onTiming = options.onTiming ?? (() => undefined);
+    this.history = new History(this.engine, this.storage);
+  }
+
+  /** Resolves once every library index update started so far has finished. */
+  indexed(): Promise<void> {
+    return this.indexing.then(() => undefined);
+  }
+
+  /** Appends lines, then (without holding up the panel) updates the library index. */
+  private async append(
+    family: string,
+    version: string,
+    before: Uint8Array,
+    lines: string,
+  ): Promise<void> {
+    const encoded = utf8.encode(lines);
+    const written = await this.storage.appendLedger(family, version, encoded);
+    this.indexing = this.indexing.then(() =>
+      this.history.updateIndex(family, written, concat(before, encoded)),
+    );
   }
 
   /** The open file of the family, once `open` or `startTracking` found it. */
@@ -123,55 +144,24 @@ export class Lineage {
     return this.openFile;
   }
 
-  private async fetchBlobs(family: string, hashes: readonly string[]): Promise<void> {
-    const wanted = hashes.filter((h) => !this.engine.hasBlob(h));
-    for (let i = 0; i < wanted.length; i += FETCH_AT_ONCE) {
-      const batch = wanted.slice(i, i + FETCH_AT_ONCE);
-      const fetched = await Promise.all(batch.map((h) => this.storage.getBlob(family, h)));
-      batch.forEach((hash, j) => {
-        const bytes = fetched[j];
-        if (!bytes) {
-          throw new LineageError(
-            "Lineage's history for this file is incomplete. Nothing was changed.",
-            `blob ${hash} is not in storage`,
-          );
-        }
-        this.engine.addBlob(hash, bytes);
-      });
-    }
+  private fetchBlobs(family: string, hashes: readonly string[]): Promise<void> {
+    return this.history.fetchBlobs(family, hashes);
   }
 
   /**
    * Runs an engine call, fetching whatever blobs it reports missing: from the
    * family the engine names, else from `family`.
    */
-  private async withBlobs<T>(family: string, run: () => T, rounds = FETCH_ROUNDS): Promise<T> {
-    for (let round = 0; ; round++) {
-      try {
-        return run();
-      } catch (error) {
-        if (error instanceof EngineError && error.kind === "missingBlobs" && round < rounds) {
-          await this.fetchBlobs(error.family ?? family, error.hashes);
-          continue;
-        }
-        throw error;
-      }
-    }
+  private withBlobs<T>(family: string, run: () => T, rounds?: number): Promise<T> {
+    return this.history.withBlobs(family, run, rounds);
   }
 
   private async ledger(family: string): Promise<Uint8Array> {
     return (await this.storage.readLedger(family)).bytes;
   }
 
-  private async storeBlobs(family: string, result: CommandResult): Promise<void> {
-    const entries = [...result.blobs];
-    for (let i = 0; i < entries.length; i += FETCH_AT_ONCE) {
-      await Promise.all(
-        entries
-          .slice(i, i + FETCH_AT_ONCE)
-          .map(([hash, bytes]) => this.storage.putBlob(family, hash, bytes)),
-      );
-    }
+  private storeBlobs(family: string, result: CommandResult): Promise<void> {
+    return this.history.storeBlobs(family, result);
   }
 
   /**
@@ -193,7 +183,7 @@ export class Lineage {
       await this.storeBlobs(family, result);
       const undo = await change(result);
       try {
-        await this.storage.appendLedger(family, version, utf8.encode(result.outcome.ledgerLines));
+        await this.append(family, version, ledger, result.outcome.ledgerLines);
         return result;
       } catch (error) {
         if (undo) {
@@ -217,13 +207,17 @@ export class Lineage {
         const { name, url } = await this.host.describe();
         return { kind: "untracked", name, saved: url !== null };
       }
-      const ledger = await this.ledger(ids.family);
+      let ledger = await this.ledger(ids.family);
       if (ledger.length === 0) {
         this.openFile = undefined;
         return { kind: "elsewhere", ids };
       }
       await this.fetchBlobs(ids.family, this.engine.referencedBlobs(ledger));
-      const file = this.engine.openFile(ledger, ids.checkpoint);
+      let file = this.engine.openFile(ledger, ids.checkpoint);
+      if (file.copyOf === null && file.isLatest && (await this.followMove(file))) {
+        ledger = await this.ledger(ids.family);
+        file = this.engine.openFile(ledger, ids.checkpoint);
+      }
       if (file.copyOf !== null || !file.isLatest) {
         this.openFile = undefined;
         const { name } = await this.host.describe();
@@ -233,6 +227,32 @@ export class Lineage {
       this.openFile = file;
       return this.panelFor(file, ledger);
     });
+  }
+
+  /**
+   * The master, opened from somewhere new (moved or renamed in OneDrive or on
+   * this computer): records where it is now, so My documents shows the right
+   * place (decision 0015). Word reports one file differently on the web and on
+   * the desktop, so only a new address of the same kind counts as a move. Only
+   * a convenience: if it can't be recorded, the panel opens anyway.
+   */
+  private async followMove(file: s.OpenFile): Promise<boolean> {
+    if (file.role !== "master") {
+      return false;
+    }
+    const { url } = await this.host.describe();
+    if (!url || url === file.storageRef || addressKind(url) !== addressKind(file.storageRef)) {
+      return false;
+    }
+    try {
+      const bytes = await this.host.readBytes();
+      const result = await this.press(file.familyId, (ledger) =>
+        this.engine.relink(ledger, file.nodeId, url, bytes, this.now()),
+      );
+      return result.outcome.records > 0;
+    } catch {
+      return false;
+    }
   }
 
   private async panelFor(file: s.OpenFile, ledger: Uint8Array): Promise<Opened> {
@@ -289,7 +309,7 @@ export class Lineage {
       await this.host.writeIds(ids);
       try {
         await this.host.save();
-        await this.storage.appendLedger(familyId, version, utf8.encode(result.outcome.ledgerLines));
+        await this.append(familyId, version, existing, result.outcome.ledgerLines);
       } catch (error) {
         await this.host.writeIds(null);
         throw error;
@@ -513,15 +533,29 @@ export class Lineage {
    * tracked changes by Lineage, read back and checked, then a checkpoint is
    * saved; skipped ones are recorded. As with `decide`, if Word didn't take the
    * changes exactly, the original goes back and nothing is recorded.
+   * `wordsOnly` brings only their words, in this file's formatting: the
+   * review's `formatting.wordsOnly` says when Lineage suggests it.
    */
-  decideReturned(returned: string, cards: readonly s.CardDecision[]): Promise<{ wrote: boolean }> {
+  decideReturned(
+    returned: string,
+    cards: readonly s.CardDecision[],
+    { wordsOnly }: { wordsOnly: boolean },
+  ): Promise<{ wrote: boolean }> {
     return this.serial("decideReturned", async () => {
       const file = this.requireFile();
       const original = await this.host.readBytes();
       const result = await this.press(
         file.familyId,
         (ledger) =>
-          this.engine.decideReturned(ledger, file.nodeId, original, returned, cards, this.now()),
+          this.engine.decideReturned(
+            ledger,
+            file.nodeId,
+            original,
+            returned,
+            cards,
+            wordsOnly,
+            this.now(),
+          ),
         (made) => this.writeAndSave(made, original),
       );
       return { wrote: result.file !== undefined };
@@ -672,16 +706,4 @@ export class Lineage {
       await this.host.openFile(await this.storage.fileLocation(ref));
     });
   }
-}
-
-/** The words to show for any error a panel action threw. */
-export function userMessage(error: unknown): string {
-  if (
-    error instanceof LineageError ||
-    error instanceof StorageError ||
-    error instanceof EngineError
-  ) {
-    return error.userMessage;
-  }
-  return "Something went wrong. Nothing was changed. Try again.";
 }

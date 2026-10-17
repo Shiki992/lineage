@@ -3,11 +3,12 @@
 
 use std::collections::BTreeSet;
 
-use lineage_testkit::docx::{Package, Rel, para, plain, run, styled};
+use lineage_testkit::docx::{Package, Rel, para, plain, run, run_with, styled};
 use lineage_testkit::resume::{self, Line};
+use lineage_testkit::returned::{self as kit, LIBREOFFICE, Saved};
 
 use super::*;
-use crate::docx::View;
+use crate::docx::{ParaProps, RunProps, View};
 use crate::merge::{self, Decision, Status};
 use crate::testutil::{open, open_lines, open_view, resume_bytes, smoke};
 
@@ -656,4 +657,388 @@ fn bad_revision_dates_are_refused() {
         .map(|i| (i.change.id.clone(), Decision::BringIn))
         .collect();
     assert!(apply(&plan, &decisions, &Revision::lineage("yesterday")).is_err());
+}
+
+// Words only (decision 0014): keeping a change from a file another app saved
+// brings in the words, in this file's formatting.
+
+/// Keeps every clean change to the words, words only, and checks the output.
+fn keep_words(name: &str, base: &Docx, ours: &Docx, theirs: &Docx) -> Vec<u8> {
+    let plan = merge::plan(base, ours, theirs);
+    let decisions: Vec<(String, Decision)> = plan
+        .items
+        .iter()
+        .filter(|i| i.status == Status::Clean && !i.change.formatting_only)
+        .map(|i| (i.change.id.clone(), Decision::BringIn))
+        .collect();
+    assert!(!decisions.is_empty(), "{name}: nothing to keep");
+    let bytes = apply_with(&plan, &decisions, &rev(), Bring::WordsOnly)
+        .unwrap_or_else(|e| panic!("{name}: {e}"));
+    check_output(name, ours, &bytes);
+    bytes
+}
+
+/// How every body paragraph looks: its text, its formatting, and the run
+/// formatting of every character.
+fn looks(docx: &Docx) -> Vec<(String, ParaProps, Vec<RunProps>)> {
+    docx.body()
+        .blocks
+        .iter()
+        .filter_map(|b| match b {
+            Block::Paragraph(p) => {
+                let mut runs = Vec::new();
+                for inline in &p.inlines {
+                    if let Inline::Text { text, run } = inline {
+                        runs.extend(std::iter::repeat_n(
+                            p.runs[*run].props.clone(),
+                            text.chars().count(),
+                        ));
+                    }
+                }
+                Some((p.text(), p.props.clone(), runs))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn main_xml(bytes: &[u8]) -> String {
+    let docx = open(bytes);
+    docx.part_text(&docx.main_part).expect("text").to_owned()
+}
+
+/// Nothing of another app's formatting arrived, and no run formatting was
+/// tracked. (Paragraph formatting can be: where the end of the document
+/// changes, the last paragraph mark passes between two of this file's own
+/// paragraph formats, see `ends.rs`.)
+fn assert_words_only(name: &str, bytes: &[u8], ours: &Docx) {
+    let xml = main_xml(bytes);
+    let before = ours.part_text(&ours.main_part).expect("text");
+    for trace in ["Arial", "w:rtl", r#"w:line="276""#, "rPrChange"] {
+        assert_eq!(
+            xml.matches(trace).count(),
+            before.matches(trace).count(),
+            "{name}: {trace}"
+        );
+    }
+}
+
+#[test]
+fn words_from_a_google_docs_export_come_in_with_our_formatting() {
+    let base_lines = resume::master_v1_lines();
+    let base = open_lines(&base_lines);
+    for (name, edited) in [
+        ("words-google-light", kit::light_edits(&base_lines)),
+        ("words-google-heavy", kit::heavy_edits(&base_lines)),
+        ("words-google-moved", resume::reordered_lines()),
+    ] {
+        let theirs = open(&kit::package("t", &edited, Saved::GoogleExport).to_bytes());
+        let bytes = keep_words(name, &base, &base, &theirs);
+        assert_words_only(name, &bytes, &base);
+        if name != "words-google-moved" {
+            assert!(!main_xml(&bytes).contains("pPrChange"), "{name}");
+        }
+        // Exactly as if the same words had been typed into this file.
+        assert_eq!(looks(&open(&bytes)), looks(&open_lines(&edited)), "{name}");
+    }
+}
+
+#[test]
+fn the_end_of_the_document_changes_words_only() {
+    let base_lines = resume::master_v1_lines();
+    let n = base_lines.len();
+    let mut added = base_lines.clone();
+    added.push(Line::H1("References".into()));
+    added.push(Line::Plain("Available on request.".into()));
+    let mut replaced = base_lines.clone();
+    replaced.pop();
+    replaced.push(Line::Plain("Data science certificate, 2021".into()));
+    replaced.push(Line::H1("Volunteering".into()));
+    replaced.push(Line::Bullet("Runs a weekend coding club.".into()));
+    let mut edited = base_lines.clone();
+    edited[n - 1] =
+        Line::Plain("BSc Computer Science (honours), Northbridge University, 2018".into());
+    edited.push(Line::Bullet(
+        "On the dean\u{2019}s list for three years.".into(),
+    ));
+    let base = open_lines(&base_lines);
+    for (name, lines) in [
+        ("words-end-added", added),
+        ("words-end-replaced", replaced),
+        ("words-end-edited-and-added", edited),
+    ] {
+        let theirs = open(&kit::package("t", &lines, Saved::GoogleExport).to_bytes());
+        let bytes = keep_words(name, &base, &base, &theirs);
+        assert_words_only(name, &bytes, &base);
+        assert_eq!(looks(&open(&bytes)), looks(&open_lines(&lines)), "{name}");
+    }
+}
+
+/// Keeps every change to the words in each edited real re-save in `folder`
+/// (made from the inputs in `kit::LIBREOFFICE`), words only: none of `traces`
+/// arrive, and the result looks exactly as if the same words had been typed
+/// into the file that left.
+fn real_resaves_bring_only_their_words(folder: &str, traces: &[&str]) {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/docx/returned")
+        .join(folder);
+    let mut kept = 0;
+    for input in LIBREOFFICE.iter().filter(|i| i.edits != kit::Edits::None) {
+        let base = open(&resume::package("t", &input.source.lines()).to_bytes());
+        let theirs = open(&std::fs::read(root.join(input.name)).expect("fixture"));
+        let expected = input.edits.apply(&input.source.lines());
+        // The real app kept every word that went in.
+        assert_eq!(theirs.body_lines(), lines_of(&expected), "{}", input.name);
+        let name = format!("words-{folder}-{}", input.name.trim_end_matches(".docx"));
+        let bytes = keep_words(&name, &base, &base, &theirs);
+        let xml = main_xml(&bytes);
+        for trace in traces.iter().chain(&["pPrChange", "rPrChange"]) {
+            assert!(!xml.contains(trace), "{name}: {trace}");
+        }
+        assert_eq!(
+            looks(&open(&bytes)),
+            looks(&open_lines(&expected)),
+            "{name}"
+        );
+        kept += 1;
+    }
+    assert_eq!(kept, 4);
+}
+
+#[test]
+fn real_libreoffice_saves_bring_only_their_words() {
+    real_resaves_bring_only_their_words(
+        "libreoffice",
+        &[r#"w:val="Normal""#, "widowControl", "w:bidi"],
+    );
+}
+
+#[test]
+fn real_google_docs_exports_bring_only_their_words() {
+    // Google writes `w:rtl` on every run and `w14:paraId` on every paragraph.
+    real_resaves_bring_only_their_words("google", &["w:rtl", "w14:"]);
+}
+
+/// A paragraph of runs, each `(rpr, text)`.
+fn runs_para(ppr: &str, runs: &[(&str, &str)]) -> String {
+    let content: String = runs
+        .iter()
+        .map(|(rpr, text)| {
+            if rpr.is_empty() {
+                run(text)
+            } else {
+                run_with(rpr, text)
+            }
+        })
+        .collect();
+    para(ppr, &content)
+}
+
+fn one_para_doc(body: &str) -> Docx {
+    open(
+        &Package::new(
+            "t",
+            [
+                styled("Title", "Avery Quinn"),
+                body.to_owned(),
+                plain("After."),
+            ]
+            .concat(),
+        )
+        .to_bytes(),
+    )
+}
+
+/// The text and the run formatting under each character of the paragraph
+/// after the title.
+fn chars_of(bytes: &[u8]) -> (String, Vec<RunProps>) {
+    let all = looks(&open(bytes));
+    (all[1].0.clone(), all[1].2.clone())
+}
+
+const ARIAL: &str = r#"<w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>"#;
+
+#[test]
+fn added_words_take_the_formatting_of_their_neighbours() {
+    // A bold label: words added inside it are bold, words added after it are not.
+    let ours = one_para_doc(&runs_para(
+        "",
+        &[("<w:b/>", "Languages:"), ("", " SQL and Python")],
+    ));
+    let bold_arial = format!("{ARIAL}<w:b/>");
+    let theirs = one_para_doc(&runs_para(
+        "",
+        &[
+            (&bold_arial, "Languages and tools:"),
+            (ARIAL, " SQL, Python and dbt"),
+        ],
+    ));
+    let bytes = keep_words("words-neighbours", &ours, &ours, &theirs);
+    assert_words_only("words-neighbours", &bytes, &ours);
+    let (text, props) = chars_of(&bytes);
+    assert_eq!(text, "Languages and tools: SQL, Python and dbt");
+    let label = "Languages and tools:".chars().count();
+    for (i, p) in props.iter().enumerate() {
+        assert_eq!(p.direct.get("b").is_some(), i < label, "character {i}");
+    }
+
+    // A replaced word takes the formatting of the word it replaces.
+    let ours = one_para_doc(&runs_para(
+        "",
+        &[("", "Led "), ("<w:i/>", "three"), ("", " projects")],
+    ));
+    let italic_arial = format!("{ARIAL}<w:i/>");
+    let theirs = one_para_doc(&runs_para(
+        "",
+        &[
+            (ARIAL, "Led "),
+            (&italic_arial, "four"),
+            (ARIAL, " projects"),
+        ],
+    ));
+    let bytes = keep_words("words-replaced", &ours, &ours, &theirs);
+    assert_words_only("words-replaced", &bytes, &ours);
+    let (text, props) = chars_of(&bytes);
+    assert_eq!(text, "Led four projects");
+    let italic: Vec<bool> = props.iter().map(|p| p.direct.get("i").is_some()).collect();
+    assert_eq!(
+        italic,
+        [[false; 4].as_slice(), &[true; 4], &[false; 9]].concat()
+    );
+}
+
+#[test]
+fn a_new_paragraph_with_nothing_alike_keeps_its_own_formatting() {
+    let base_lines = resume::master_v1_lines();
+    let mut lines = base_lines.clone();
+    lines.push(Line::Raw(styled("Quote", "Avery always ships on time.")));
+    let base = open_lines(&base_lines);
+    let theirs = open_lines(&lines);
+    let bytes = keep_words("words-nothing-alike", &base, &base, &theirs);
+    let last = looks(&open(&bytes)).pop().expect("a paragraph");
+    assert_eq!(last.0, "Avery always ships on time.");
+    assert_eq!(last.1.style.as_deref(), Some("Quote"));
+}
+
+#[test]
+fn keeping_a_formatting_change_in_words_only_mode_brings_the_formatting() {
+    let base = open_lines(&resume::master_v2_lines());
+    let theirs = open_lines(&resume::master_v3_lines());
+    let plan = merge::plan(&base, &base, &theirs);
+    let decisions: Vec<(String, Decision)> = plan
+        .items
+        .iter()
+        .filter(|i| i.status == Status::Clean)
+        .map(|i| (i.change.id.clone(), Decision::BringIn))
+        .collect();
+    assert!(plan.items.iter().any(|i| i.change.formatting_only));
+    let words = apply_with(&plan, &decisions, &rev(), Bring::WordsOnly).expect("writes");
+    let everything = apply(&plan, &decisions, &rev()).expect("writes");
+    check_output("words-format-kept", &base, &words);
+    // The name made bold comes in either way; the edit is the same words.
+    assert_eq!(looks(&open(&words)), looks(&open(&everything)));
+}
+
+#[test]
+fn words_only_in_a_table_cell() {
+    let doc = |cells: [&str; 3], rpr: &str| {
+        let tc = |t: &str| {
+            format!(
+                r#"<w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/></w:tcPr>{}</w:tc>"#,
+                runs_para("", &[(rpr, t)])
+            )
+        };
+        let table = format!(
+            r#"<w:tbl><w:tblPr><w:tblW w:w="9000" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="3000"/><w:gridCol w:w="3000"/><w:gridCol w:w="3000"/></w:tblGrid><w:tr>{}{}{}</w:tr></w:tbl>"#,
+            tc(cells[0]),
+            tc(cells[1]),
+            tc(cells[2])
+        );
+        open(
+            &Package::new(
+                "t",
+                [styled("Title", "Traction"), table, plain("After.")].concat(),
+            )
+            .to_bytes(),
+        )
+    };
+    let ours = doc(["Q3", "$26k", "17 customers"], "<w:b/>");
+    let theirs = doc(["Q3", "$31k", "17 customers"], &format!("{ARIAL}<w:b/>"));
+    let bytes = keep_words("words-cell", &ours, &ours, &theirs);
+    assert_words_only("words-cell", &bytes, &ours);
+    assert!(open(&bytes).body_lines().contains(&"$31k".to_owned()));
+}
+
+#[test]
+fn using_their_side_of_an_overlap_words_only() {
+    let base_lines = resume::master_v1_lines();
+    let base = open_lines(&base_lines);
+    let theirs_of =
+        |lines: &[Line]| open(&kit::package("t", lines, Saved::GoogleExport).to_bytes());
+    let mut with_mine = base_lines.clone();
+    let experience = with_mine
+        .iter()
+        .position(|l| *l == Line::H1("Experience".into()))
+        .expect("experience");
+    with_mine.insert(
+        experience + 1,
+        Line::Plain("Open to contract roles.".into()),
+    );
+    let cases: [(&str, Vec<Line>, Vec<Line>, Decision); 3] = [
+        (
+            "words-overlap-both-edited",
+            resume::tailored_same_para_lines(),
+            resume::master_v3_lines(),
+            Decision::UseMasters,
+        ),
+        (
+            "words-overlap-edited-vs-deleted",
+            resume::tailored_deleted_job_lines(),
+            resume::master_v3_lines(),
+            Decision::UseMasters,
+        ),
+        (
+            "words-overlap-both-added",
+            with_mine,
+            resume::master_v2_lines(),
+            Decision::KeepBoth {
+                masters_first: false,
+            },
+        ),
+    ];
+    for (name, ours_lines, theirs_lines, decision) in cases {
+        let ours = open_lines(&ours_lines);
+        let theirs = theirs_of(&theirs_lines);
+        let plan = merge::plan(&base, &ours, &theirs);
+        let decisions: Vec<(String, Decision)> = plan
+            .items
+            .iter()
+            .filter(|i| {
+                matches!(i.status, Status::Overlap(_)) && i.change.kind != ChangeKind::Format
+            })
+            .map(|i| (i.change.id.clone(), decision))
+            .collect();
+        assert!(!decisions.is_empty(), "{name}: no overlap");
+        let bytes = apply_with(&plan, &decisions, &rev(), Bring::WordsOnly)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        check_output(name, &ours, &bytes);
+        assert_words_only(name, &bytes, &ours);
+        // Their words, laid out the way the same decision lays out a Word file.
+        let word_theirs = open_lines(&theirs_lines);
+        let word_plan = merge::plan(&base, &ours, &word_theirs);
+        let word_decisions: Vec<(String, Decision)> = word_plan
+            .items
+            .iter()
+            .filter(|i| {
+                matches!(i.status, Status::Overlap(_)) && i.change.kind != ChangeKind::Format
+            })
+            .map(|i| (i.change.id.clone(), decision))
+            .collect();
+        let expected = apply(&word_plan, &word_decisions, &rev()).expect("writes");
+        assert_eq!(
+            open(&bytes).body_lines(),
+            open(&expected).body_lines(),
+            "{name}"
+        );
+    }
 }

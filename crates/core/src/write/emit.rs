@@ -7,11 +7,16 @@
 //! `w:pPrChange`; in a paragraph mark's `w:rPr`, `w:ins`/`w:del` come first; in
 //! `w:rPr`, `w:rPrChange` comes last; in `w:trPr`, `w:ins`/`w:del` come after the
 //! row properties.
+//!
+//! Content brought in from theirs takes its formatting from a [`Look`]:
+//! theirs' own (the whole change), or ours' (words only, decision 0014).
+
+use std::collections::BTreeMap;
 
 use roxmltree::Node;
 
 use super::Writer;
-use crate::diff::inline::{Step, diff_paragraphs};
+use crate::diff::inline::{InlineDiff, Step, diff_paragraphs, inline_props};
 use crate::docx::{Atom, AtomKind, Block, Inline, Paragraph, Row, Table};
 use crate::error::{Error, Result};
 use crate::xml::{self, Edits, escape_text, ns};
@@ -41,6 +46,35 @@ struct Piece {
     inline: usize,
     /// Text for text pieces; `None` for atoms and markers.
     text: Option<String>,
+    /// Run properties (a whole `w:rPr`, or nothing) to use instead of the
+    /// piece's own: words brought in in ours' formatting.
+    rpr: Option<String>,
+}
+
+/// Where the formatting of words brought in from theirs comes from.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Look<'l> {
+    /// Theirs' own: the whole change, formatting included.
+    Theirs,
+    /// Words only, rewriting one of ours' paragraphs: its paragraph and run
+    /// formatting stay, and added words take a neighbouring run's.
+    Ours,
+    /// Words only: the formatting of one of ours' paragraphs.
+    Like(&'l Like),
+}
+
+/// One of ours' paragraphs whose formatting words from theirs take (words
+/// only): for a paragraph new to ours, the nearest paragraph of theirs
+/// formatted alike, as it is in ours; for a move, the paragraph itself.
+#[derive(Clone, Debug)]
+pub(crate) struct Like {
+    pub part: String,
+    pub para: Paragraph,
+    /// Theirs' run formatting (a token's formatting key) → the run of `para`
+    /// that formatting has in ours.
+    pub runs: BTreeMap<u64, usize>,
+    /// The run of `para` with the most text, for formatting not in `runs`.
+    pub main_run: Option<usize>,
 }
 
 /// Atoms the writer can wrap in a deletion.
@@ -178,8 +212,9 @@ impl<'a> Writer<'a> {
                 _ => Err(cannot("marker expected")),
             };
         }
-        let rpr = match piece.op {
-            Op::Reformatted { old_inline } => {
+        let rpr = match (&piece.rpr, piece.op) {
+            (Some(rpr), _) => rpr.clone(),
+            (None, Op::Reformatted { old_inline }) => {
                 let po = po.ok_or_else(|| cannot("no paragraph"))?;
                 let old =
                     self.rpr_inner(From::Ours, part_o, po, Self::inline_run(po, old_inline))?;
@@ -309,12 +344,14 @@ impl<'a> Writer<'a> {
                     op,
                     inline: index,
                     text: Some(text.clone()),
+                    rpr: None,
                 }),
                 Inline::Atom(_) => pieces.push(Piece {
                     from,
                     op,
                     inline: index,
                     text: None,
+                    rpr: None,
                 }),
                 Inline::Marker(_) => {
                     // Markers stay with ours; content copied from theirs drops its
@@ -325,12 +362,155 @@ impl<'a> Writer<'a> {
                             op: Op::Marker,
                             inline: index,
                             text: None,
+                            rpr: None,
                         });
                     }
                 }
             }
         }
         pieces
+    }
+
+    /// The [`Like`] for theirs' paragraph `pt` dressed as ours' `po`: which
+    /// of `po`'s runs each of `pt`'s run formattings maps to, by the words they
+    /// share, weighted by length.
+    pub(crate) fn like(
+        &self,
+        part_o: &str,
+        po: &Paragraph,
+        part_t: &str,
+        pt: &Paragraph,
+    ) -> Result<Like> {
+        let d = diff_paragraphs(
+            po,
+            pt,
+            Some(self.src(From::Ours, part_o)?),
+            Some(self.src(From::Theirs, part_t)?),
+        );
+        let mut tally: BTreeMap<u64, BTreeMap<usize, usize>> = BTreeMap::new();
+        for step in &d.steps {
+            if let Step::Same { a, b, .. } = *step
+                && Self::inline_container(po, d.a[a].inline).is_none()
+                && let Some(run) = Self::inline_run(po, d.a[a].inline)
+            {
+                *tally
+                    .entry(d.b[b].props)
+                    .or_default()
+                    .entry(run)
+                    .or_default() += d.a[a].text.chars().count().max(1);
+            }
+        }
+        // The run with the most characters; the first such run on a tie.
+        let most = |counts: &BTreeMap<usize, usize>| {
+            counts
+                .iter()
+                .max_by(|x, y| x.1.cmp(y.1).then(y.0.cmp(x.0)))
+                .map(|(run, _)| *run)
+        };
+        let runs = tally
+            .iter()
+            .filter_map(|(key, counts)| most(counts).map(|run| (*key, run)))
+            .collect();
+        let mut sizes: BTreeMap<usize, usize> = BTreeMap::new();
+        for (index, inline) in po.inlines.iter().enumerate() {
+            if let Inline::Text { text, run } = inline
+                && Self::inline_container(po, index).is_none()
+            {
+                *sizes.entry(*run).or_default() += text.chars().count();
+            }
+        }
+        Ok(Like {
+            part: part_o.to_owned(),
+            para: po.clone(),
+            runs,
+            main_run: most(&sizes),
+        })
+    }
+
+    /// The paragraph mark's run properties as a run's `w:rPr` (or nothing):
+    /// what Word gives text typed into an empty paragraph.
+    fn mark_rpr(&self, part: &str, p: &Paragraph) -> Result<String> {
+        let inner = self.mark_rpr_inner(From::Ours, part, p)?;
+        Ok(if inner.is_empty() {
+            String::new()
+        } else {
+            format!("<{r}>{inner}</{r}>", r = self.tag("rPr"))
+        })
+    }
+
+    /// The `w:rPr` for words of theirs with formatting key `key`, dressed as `like`.
+    fn like_rpr(&self, like: &Like, key: u64) -> Result<String> {
+        match like.runs.get(&key).copied().or(like.main_run) {
+            Some(run) => self.rpr_of(From::Ours, &like.part, &like.para, Some(run)),
+            None => self.mark_rpr(&like.part, &like.para),
+        }
+    }
+
+    /// True when a piece of theirs takes ours' formatting in words-only mode:
+    /// anything in a run, outside a link (a link's look comes with it).
+    fn dressable(p: &Paragraph, inline: usize) -> bool {
+        Self::inline_container(p, inline).is_none() && Self::inline_run(p, inline).is_some()
+    }
+
+    /// Gives theirs' pieces of `pt` the formatting of `like`.
+    fn dress(&self, pieces: &mut [Piece], part_t: &str, pt: &Paragraph, like: &Like) -> Result<()> {
+        let src_t = self.src(From::Theirs, part_t)?;
+        for piece in pieces.iter_mut() {
+            if piece.from == From::Theirs
+                && piece.op != Op::Marker
+                && Self::dressable(pt, piece.inline)
+            {
+                let key = inline_props(pt, piece.inline, Some(src_t));
+                piece.rpr = Some(self.like_rpr(like, key)?);
+            }
+        }
+        Ok(())
+    }
+
+    /// Words only: the `w:rPr` for theirs' added token at step `at`, from a
+    /// neighbouring run of ours: the nearest unchanged token before or after it
+    /// when theirs formats it alike, else the nearest token of ours before it
+    /// (so replaced words take the formatting of what they replace), else
+    /// after it, else the paragraph mark's. Runs in links are passed over.
+    fn neighbour_rpr(
+        &self,
+        d: &InlineDiff,
+        at: usize,
+        part_o: &str,
+        po: &Paragraph,
+    ) -> Result<String> {
+        let Step::Added { b } = d.steps[at] else {
+            return Err(cannot("not an added token"));
+        };
+        let key = d.b[b].props;
+        let own_run = |inline: usize| {
+            Self::inline_container(po, inline)
+                .is_none()
+                .then(|| Self::inline_run(po, inline))
+                .flatten()
+        };
+        let alike = |step: &Step| match *step {
+            Step::Same { a, b, .. } if d.b[b].props == key => own_run(d.a[a].inline),
+            _ => None,
+        };
+        let ours = |step: &Step| match *step {
+            Step::Same { a, .. } | Step::Removed { a } => own_run(d.a[a].inline),
+            Step::Added { .. } => None,
+        };
+        let same = |step: &&Step| matches!(step, Step::Same { .. });
+        let (before, after) = (&d.steps[..at], &d.steps[at + 1..]);
+        let run = before
+            .iter()
+            .rev()
+            .find(same)
+            .and_then(alike)
+            .or_else(|| after.iter().find(same).and_then(alike))
+            .or_else(|| before.iter().rev().find_map(ours))
+            .or_else(|| after.iter().find_map(ours));
+        match run {
+            Some(run) => self.rpr_of(From::Ours, part_o, po, Some(run)),
+            None => self.mark_rpr(part_o, po),
+        }
     }
 
     /// Children of a `w:pPr` (as raw XML) except the named ones.
@@ -368,12 +548,20 @@ impl<'a> Writer<'a> {
             .unwrap_or_default())
     }
 
-    /// `w:pPr` with the paragraph mark marked inserted or deleted.
-    fn ppr_with_mark(&self, from: From, part: &str, p: &Paragraph, mark: &str) -> Result<String> {
+    /// `w:pPr` with the paragraph mark marked inserted or deleted. `sect`
+    /// keeps the paragraph's own section break (for one of ours that stays).
+    fn ppr_with_mark(
+        &self,
+        from: From,
+        part: &str,
+        p: &Paragraph,
+        mark: &str,
+        sect: bool,
+    ) -> Result<String> {
         let rest = self
             .ppr_children(from, part, p, &["rPr", "sectPr", "pPrChange"])?
             .concat();
-        let sect = if from == From::Ours {
+        let sect = if sect {
             self.ppr_children(from, part, p, &[])?
                 .into_iter()
                 .filter(|c| is_element(c, &self.w, "sectPr"))
@@ -390,15 +578,23 @@ impl<'a> Writer<'a> {
         ))
     }
 
-    /// A new paragraph from theirs, as a tracked insertion.
+    /// A new paragraph from theirs, as a tracked insertion: in its own
+    /// formatting, or dressed as `like` (words only).
     pub(crate) fn inserted_paragraph(
         &self,
         part_t: &str,
         pt: &Paragraph,
         part_o: &str,
+        like: Option<&Like>,
     ) -> Result<String> {
-        let ppr = self.ppr_with_mark(From::Theirs, part_t, pt, "ins")?;
-        let pieces = Self::whole(pt, From::Theirs, Op::Added);
+        let ppr = match like {
+            Some(l) => self.ppr_with_mark(From::Ours, &l.part, &l.para, "ins", false)?,
+            None => self.ppr_with_mark(From::Theirs, part_t, pt, "ins", false)?,
+        };
+        let mut pieces = Self::whole(pt, From::Theirs, Op::Added);
+        if let Some(l) = like {
+            self.dress(&mut pieces, part_t, pt, l)?;
+        }
         let content = self.content_xml(&pieces, part_o, None, part_t, Some(pt))?;
         let p = self.tag("p");
         Ok(format!("<{p}>{ppr}{content}</{p}>"))
@@ -420,7 +616,7 @@ impl<'a> Writer<'a> {
                 .map(|s| src[s].to_owned())
                 .unwrap_or_default()
         } else {
-            self.ppr_with_mark(From::Ours, part_o, po, "del")?
+            self.ppr_with_mark(From::Ours, part_o, po, "del", true)?
         };
         let pieces = Self::whole(po, From::Ours, Op::Removed);
         let content = self.content_xml(&pieces, part_o, Some(po), part_o, None)?;
@@ -477,15 +673,24 @@ impl<'a> Writer<'a> {
     /// not marked inserted (the anchor's is, see `ends.rs`), and its properties
     /// record the anchor's as the old ones. Accepting gives both paragraphs;
     /// rejecting gives the anchor back exactly, with no empty paragraph left.
+    /// Dressed as `like` in words-only mode.
     pub(crate) fn final_inserted_paragraph(
         &self,
         part_t: &str,
         pt: &Paragraph,
         part_o: &str,
         anchor: &Paragraph,
+        like: Option<&Like>,
     ) -> Result<String> {
-        let ppr = self.swapped_ppr((From::Theirs, part_t, pt), (From::Ours, part_o, anchor))?;
-        let pieces = Self::whole(pt, From::Theirs, Op::Added);
+        let new = match like {
+            Some(l) => (From::Ours, l.part.as_str(), &l.para),
+            None => (From::Theirs, part_t, pt),
+        };
+        let ppr = self.swapped_ppr(new, (From::Ours, part_o, anchor))?;
+        let mut pieces = Self::whole(pt, From::Theirs, Op::Added);
+        if let Some(l) = like {
+            self.dress(&mut pieces, part_t, pt, l)?;
+        }
         let content = self.content_xml(&pieces, part_o, None, part_t, Some(pt))?;
         let p = self.tag("p");
         Ok(format!("<{p}>{ppr}{content}</{p}>"))
@@ -577,39 +782,50 @@ impl<'a> Writer<'a> {
     }
 
     /// One of ours' paragraphs rewritten into theirs, with every difference
-    /// tracked: removed and added text, changed run and paragraph formatting.
+    /// tracked. With [`Look::Theirs`], removed and added text and changed run
+    /// and paragraph formatting; with [`Look::Ours`], only the words (added
+    /// words take a neighbouring run's formatting); with [`Look::Like`], the
+    /// words with that paragraph's formatting.
     pub(crate) fn modified_paragraph(
         &self,
         part_o: &str,
         po: &Paragraph,
         part_t: &str,
         pt: &Paragraph,
+        look: Look<'_>,
     ) -> Result<String> {
         let src_o = self.src(From::Ours, part_o)?;
         let src_t = self.src(From::Theirs, part_t)?;
-        let ppr = if po.props == pt.props {
-            po.ppr
+        let new_props = match look {
+            Look::Theirs => Some((From::Theirs, part_t, pt)),
+            Look::Ours => None,
+            Look::Like(like) => Some((From::Ours, like.part.as_str(), &like.para)),
+        };
+        let ppr = match new_props {
+            Some((from, part, p)) if p.props != po.props => {
+                let new = self
+                    .ppr_children(from, part, p, &["rPr", "sectPr", "pPrChange"])?
+                    .concat();
+                let keep = self
+                    .ppr_children(From::Ours, part_o, po, &[])?
+                    .into_iter()
+                    .filter(|c| is_element(c, &self.w, "rPr") || is_element(c, &self.w, "sectPr"))
+                    .collect::<String>();
+                let old = self
+                    .ppr_children(From::Ours, part_o, po, &["rPr", "sectPr", "pPrChange"])?
+                    .concat();
+                let tag = self.tag("pPr");
+                format!(
+                    "<{tag}>{new}{keep}<{c} {rev}><{tag}>{old}</{tag}></{c}></{tag}>",
+                    c = self.tag("pPrChange"),
+                    rev = self.rev_attrs()
+                )
+            }
+            _ => po
+                .ppr
                 .clone()
                 .map(|s| src_o[s].to_owned())
-                .unwrap_or_default()
-        } else {
-            let new = self
-                .ppr_children(From::Theirs, part_t, pt, &["rPr", "sectPr", "pPrChange"])?
-                .concat();
-            let keep = self
-                .ppr_children(From::Ours, part_o, po, &[])?
-                .into_iter()
-                .filter(|c| is_element(c, &self.w, "rPr") || is_element(c, &self.w, "sectPr"))
-                .collect::<String>();
-            let old = self
-                .ppr_children(From::Ours, part_o, po, &["rPr", "sectPr", "pPrChange"])?
-                .concat();
-            let tag = self.tag("pPr");
-            format!(
-                "<{tag}>{new}{keep}<{c} {rev}><{tag}>{old}</{tag}></{c}></{tag}>",
-                c = self.tag("pPrChange"),
-                rev = self.rev_attrs()
-            )
+                .unwrap_or_default(),
         };
         let d = diff_paragraphs(po, pt, Some(src_o), Some(src_t));
         let mut pieces: Vec<Piece> = Vec::new();
@@ -622,6 +838,7 @@ impl<'a> Writer<'a> {
                         op: Op::Marker,
                         inline: *cursor,
                         text: None,
+                        rpr: None,
                     });
                 }
                 *cursor += 1;
@@ -632,13 +849,15 @@ impl<'a> Writer<'a> {
                     op: Op,
                     inline: usize,
                     text: Option<&str>,
-                    is_atom: bool| {
+                    is_atom: bool,
+                    rpr: Option<String>| {
             if !is_atom
                 && let Some(last) = pieces.last_mut()
                 && last.from == from
                 && last.op == op
                 && last.inline == inline
                 && last.text.is_some()
+                && last.rpr == rpr
             {
                 if let (Some(t), Some(add)) = (last.text.as_mut(), text) {
                     t.push_str(add);
@@ -654,9 +873,10 @@ impl<'a> Writer<'a> {
                 } else {
                     text.map(str::to_owned)
                 },
+                rpr,
             });
         };
-        for step in &d.steps {
+        for (at, step) in d.steps.iter().enumerate() {
             match *step {
                 Step::Same {
                     a,
@@ -665,7 +885,7 @@ impl<'a> Writer<'a> {
                 } => {
                     let ta = &d.a[a];
                     flush_markers(ta.inline, &mut pieces, &mut marker_cursor);
-                    if format_changed {
+                    if format_changed && matches!(look, Look::Theirs) {
                         let tb = &d.b[b];
                         push(
                             &mut pieces,
@@ -676,6 +896,7 @@ impl<'a> Writer<'a> {
                             tb.inline,
                             Some(&tb.text),
                             tb.is_atom,
+                            None,
                         );
                     } else {
                         push(
@@ -685,6 +906,7 @@ impl<'a> Writer<'a> {
                             ta.inline,
                             Some(&ta.text),
                             ta.is_atom,
+                            None,
                         );
                     }
                 }
@@ -698,10 +920,17 @@ impl<'a> Writer<'a> {
                         ta.inline,
                         Some(&ta.text),
                         ta.is_atom,
+                        None,
                     );
                 }
                 Step::Added { b } => {
                     let tb = &d.b[b];
+                    let rpr = match look {
+                        _ if !Self::dressable(pt, tb.inline) => None,
+                        Look::Theirs => None,
+                        Look::Ours => Some(self.neighbour_rpr(&d, at, part_o, po)?),
+                        Look::Like(like) => Some(self.like_rpr(like, tb.props)?),
+                    };
                     push(
                         &mut pieces,
                         From::Theirs,
@@ -709,6 +938,7 @@ impl<'a> Writer<'a> {
                         tb.inline,
                         Some(&tb.text),
                         tb.is_atom,
+                        rpr,
                     );
                 }
             }
@@ -763,7 +993,7 @@ impl<'a> Writer<'a> {
             for block in &cell.blocks {
                 match block {
                     Block::Paragraph(p) => {
-                        inner.push_str(&self.inserted_paragraph(part_t, p, part_o)?)
+                        inner.push_str(&self.inserted_paragraph(part_t, p, part_o, None)?)
                     }
                     _ => return Err(cannot("a table inside a new row")),
                 }

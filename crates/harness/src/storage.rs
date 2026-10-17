@@ -11,7 +11,11 @@
 //! <folder>/<file>.docx
 //! <folder>/Lineage/<familyId>/ledger.jsonl
 //! <folder>/Lineage/<familyId>/blobs/<sha256>
+//! <folder>/Lineage/index.json             the library index (decision 0015)
 //! ```
+//!
+//! Files may also be in the two folders the task pane uses, `Tailored
+//! versions/` and `Sent copies/`.
 //!
 //! Appends are optimistic: the caller passes the ledger version it read (its
 //! length in bytes, standing in for an ETag), and the append fails if the ledger
@@ -79,6 +83,81 @@ pub trait Storage {
     fn put_blob(&mut self, family: &Id, blob: &Blob) -> Result<(), StorageError>;
     fn get_blob(&self, family: &Id, hash: &BlobHash) -> Option<Vec<u8>>;
     fn families(&self) -> Result<Vec<Id>, StorageError>;
+    /// The library index and its version, if there is one.
+    fn read_index(&self) -> Result<Option<(Vec<u8>, String)>, StorageError>;
+    /// Writes the index if it is still at `expected` (`None`: there must be
+    /// none yet); returns the new version.
+    fn write_index(&mut self, bytes: &[u8], expected: Option<&str>)
+    -> Result<String, StorageError>;
+    /// Each family's ledger version now, as `read_ledger` reports it.
+    fn ledger_versions(&self, families: &[Id]) -> Result<BTreeMap<Id, Version>, StorageError> {
+        families
+            .iter()
+            .map(|f| Ok((f.clone(), self.read_ledger(f)?.1)))
+            .collect()
+    }
+}
+
+/// What a person or a broken sync can do to storage behind Lineage's back,
+/// for scenario tests and the accounts made for them: delete or move a file,
+/// leave a ledger cut short.
+pub trait Tamper {
+    fn remove_file(&mut self, name: &str) -> Result<(), StorageError>;
+    /// Replaces a ledger's bytes outright (it must still be at `expected`).
+    fn replace_ledger(
+        &mut self,
+        family: &Id,
+        expected: Version,
+        bytes: &[u8],
+    ) -> Result<(), StorageError>;
+}
+
+impl Tamper for MemoryStorage {
+    fn remove_file(&mut self, name: &str) -> Result<(), StorageError> {
+        self.files
+            .remove(name)
+            .map(|_| ())
+            .ok_or_else(|| StorageError::NotFound(name.to_owned()))
+    }
+
+    fn replace_ledger(
+        &mut self,
+        family: &Id,
+        expected: Version,
+        bytes: &[u8],
+    ) -> Result<(), StorageError> {
+        let ledger = self.ledgers.entry(family.clone()).or_default();
+        if ledger.len() as u64 != expected {
+            return Err(StorageError::Conflict);
+        }
+        *ledger = bytes.to_vec();
+        Ok(())
+    }
+}
+
+impl Tamper for LocalFolderStorage {
+    fn remove_file(&mut self, name: &str) -> Result<(), StorageError> {
+        Ok(std::fs::remove_file(self.file_path(name)?)?)
+    }
+
+    fn replace_ledger(
+        &mut self,
+        family: &Id,
+        expected: Version,
+        bytes: &[u8],
+    ) -> Result<(), StorageError> {
+        let path = self.family_dir(family).join("ledger.jsonl");
+        if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) != expected {
+            return Err(StorageError::Conflict);
+        }
+        Ok(std::fs::write(path, bytes)?)
+    }
+}
+
+/// An index's version: the hash of its bytes, so a rewrite with other bytes
+/// is always noticed.
+fn index_version(bytes: &[u8]) -> String {
+    BlobHash::of(bytes).as_str()[..16].to_owned()
 }
 
 /// Everything in memory.
@@ -87,6 +166,7 @@ pub struct MemoryStorage {
     pub files: BTreeMap<String, Vec<u8>>,
     pub ledgers: BTreeMap<Id, Vec<u8>>,
     pub blobs: BTreeMap<(Id, BlobHash), Vec<u8>>,
+    pub index: Option<Vec<u8>>,
 }
 
 impl Storage for MemoryStorage {
@@ -143,6 +223,25 @@ impl Storage for MemoryStorage {
     fn families(&self) -> Result<Vec<Id>, StorageError> {
         Ok(self.ledgers.keys().cloned().collect())
     }
+
+    fn read_index(&self) -> Result<Option<(Vec<u8>, String)>, StorageError> {
+        Ok(self.index.clone().map(|b| {
+            let v = index_version(&b);
+            (b, v)
+        }))
+    }
+
+    fn write_index(
+        &mut self,
+        bytes: &[u8],
+        expected: Option<&str>,
+    ) -> Result<String, StorageError> {
+        if self.index.as_deref().map(index_version).as_deref() != expected {
+            return Err(StorageError::Conflict);
+        }
+        self.index = Some(bytes.to_vec());
+        Ok(index_version(bytes))
+    }
 }
 
 /// A folder on disk.
@@ -173,16 +272,28 @@ impl LocalFolderStorage {
     }
 
     fn file_path(&self, name: &str) -> Result<PathBuf, StorageError> {
-        // Only plain file names in the folder: no separators, no "..".
-        if name.is_empty()
-            || name.contains(['/', '\\'])
-            || name == "."
-            || name == ".."
-            || name.contains(':')
+        // Plain file names, in the folder or in one of the task pane's two
+        // folders: no other separators, no "..".
+        let (folder, file) = match name.split_once('/') {
+            Some((folder @ ("Tailored versions" | "Sent copies"), file)) => (Some(folder), file),
+            Some(_) => return Err(StorageError::NotFound(name.to_owned())),
+            None => (None, name),
+        };
+        if file.is_empty()
+            || file.contains(['/', '\\'])
+            || file == "."
+            || file == ".."
+            || file.contains(':')
         {
             return Err(StorageError::NotFound(name.to_owned()));
         }
-        Ok(self.root.join(name))
+        Ok(folder
+            .map_or_else(|| self.root.clone(), |f| self.root.join(f))
+            .join(file))
+    }
+
+    fn index_path(&self) -> PathBuf {
+        self.root.join("Lineage").join("index.json")
     }
 }
 
@@ -193,6 +304,9 @@ impl Storage for LocalFolderStorage {
 
     fn write_file(&mut self, name: &str, bytes: &[u8]) -> Result<(), StorageError> {
         let path = self.file_path(name)?;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
         // Write next to it, then rename, so a crash never leaves half a file.
         let temp = path.with_extension("lineage-tmp");
         std::fs::write(&temp, bytes)?;
@@ -279,5 +393,35 @@ impl Storage for LocalFolderStorage {
         }
         out.sort();
         Ok(out)
+    }
+
+    fn read_index(&self) -> Result<Option<(Vec<u8>, String)>, StorageError> {
+        match std::fs::read(self.index_path()) {
+            Ok(bytes) => {
+                let v = index_version(&bytes);
+                Ok(Some((bytes, v)))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn write_index(
+        &mut self,
+        bytes: &[u8],
+        expected: Option<&str>,
+    ) -> Result<String, StorageError> {
+        let current = self.read_index()?.map(|(_, v)| v);
+        if current.as_deref() != expected {
+            return Err(StorageError::Conflict);
+        }
+        let path = self.index_path();
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let temp = path.with_extension("json.tmp");
+        std::fs::write(&temp, bytes)?;
+        std::fs::rename(&temp, &path)?;
+        Ok(index_version(bytes))
     }
 }

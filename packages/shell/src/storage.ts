@@ -16,6 +16,9 @@
 // Two additions the panel needs and the harness doesn't: files are written into a
 // folder by kind (tailored versions or sent copies), and `fileLocation` says how
 // to open one.
+//
+// "My documents" adds the library index, `index.json` beside the family folders
+// (decision 0015), and `ledgerVersions` to check it against every ledger.
 
 /** A ledger version, as returned by `readLedger` and `appendLedger`. */
 export type LedgerVersion = string;
@@ -56,6 +59,15 @@ export interface Storage {
   putBlob(family: string, hash: string, bytes: Uint8Array): Promise<void>;
   getBlob(family: string, hash: string): Promise<Uint8Array | undefined>;
   families(): Promise<string[]>;
+  /** The library index and its version, or undefined when there is none yet. */
+  readIndex(): Promise<{ bytes: Uint8Array; version: LedgerVersion } | undefined>;
+  /**
+   * Writes the index if it is still at `expected` (undefined: there must be none
+   * yet); returns the new version. Fails with StorageConflict otherwise.
+   */
+  writeIndex(bytes: Uint8Array, expected: LedgerVersion | undefined): Promise<LedgerVersion>;
+  /** Each family's ledger version now, as `readLedger` would report it. */
+  ledgerVersions(families: readonly string[]): Promise<Map<string, LedgerVersion>>;
 }
 
 /** A storage failure, with the words the panel shows. */
@@ -186,6 +198,7 @@ export class MemoryStorage implements Storage {
   readonly files = new Map<string, Uint8Array>();
   readonly ledgers = new Map<string, Uint8Array>();
   readonly blobs = new Map<string, Uint8Array>();
+  index: { bytes: Uint8Array; version: number } | undefined;
   /** Called before every append, so tests can sneak another device's append in. */
   beforeAppend: ((family: string) => Promise<void> | void) | undefined;
 
@@ -273,5 +286,25 @@ export class MemoryStorage implements Storage {
   async families(): Promise<string[]> {
     await Promise.resolve();
     return [...this.ledgers.keys()].sort();
+  }
+
+  async readIndex(): Promise<{ bytes: Uint8Array; version: LedgerVersion } | undefined> {
+    await Promise.resolve();
+    return this.index && { bytes: this.index.bytes.slice(), version: String(this.index.version) };
+  }
+
+  async writeIndex(bytes: Uint8Array, expected: LedgerVersion | undefined): Promise<LedgerVersion> {
+    await Promise.resolve();
+    const current = this.index === undefined ? undefined : String(this.index.version);
+    if (current !== expected) {
+      throw new StorageConflict("the index changed since it was read");
+    }
+    this.index = { bytes: bytes.slice(), version: (this.index?.version ?? 0) + 1 };
+    return String(this.index.version);
+  }
+
+  async ledgerVersions(families: readonly string[]): Promise<Map<string, LedgerVersion>> {
+    await Promise.resolve();
+    return new Map(families.map((f) => [f, String(this.ledgers.get(checkFamily(f))?.length ?? 0)]));
   }
 }

@@ -55,19 +55,20 @@ All 38 were opened in Microsoft Word (Windows) with `scripts/word-smoke.ps1` on 
 
 The recognition test (`crates/lineage/tests/recognition.rs`) brings every sent copy back in each of the ways below, then reports precision and recall (decision 0013). Most of the set is built in memory from `crates/testkit/src/returned.rs`; only the LibreOffice re-saves are files.
 
-| Kind                   | How it is made                                                                                                                                                                                                               | Real app?                                           |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| Ids kept, ids stripped | The engine's own sent copy, with its body replaced by the edited text; stripped through the engine's clean copy with the id switched off                                                                                     | Built in memory                                     |
-| Renamed                | Names are never used to recognise a file; the harness scenario returns the copy under a new name                                                                                                                             | Built in memory                                     |
-| Light and heavy edits  | `light_edits` (a word changed, a line added, a few words added) and `heavy_edits` (every other line rewritten, two lines removed, a section added)                                                                           | Built in memory                                     |
-| Google Docs export     | **An imitation**, not made by Google: Google's style sheet, explicit Arial runs, `w:rtl`, rsid attributes of zeros, `_heading=h.` bookmarks, explicit spacing, a rewritten page setup, no `app.xml` and no custom properties | No. Real exports can go in `returned/google/` later |
-| Heavily reformatted    | Fonts, sizes, colours and heading styles changed throughout, numbered instead of bulleted lists, the same text                                                                                                               | Built in memory                                     |
-| LibreOffice re-save    | `returned/libreoffice/`, below                                                                                                                                                                                               | Yes                                                 |
-| Never seen (negatives) | The synthetic fixtures above (except the resume series), and a stranger's resume on the same template                                                                                                                        | Built in memory                                     |
+| Kind                   | How it is made                                                                                                                                                                                                               | Real app?                                             |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Ids kept, ids stripped | The engine's own sent copy, with its body replaced by the edited text; stripped through the engine's clean copy with the id switched off                                                                                     | Built in memory                                       |
+| Renamed                | Names are never used to recognise a file; the harness scenario returns the copy under a new name                                                                                                                             | Built in memory                                       |
+| Light and heavy edits  | `light_edits` (a word changed, a line added, a few words added) and `heavy_edits` (every other line rewritten, two lines removed, a section added)                                                                           | Built in memory                                       |
+| Google Docs export     | **An imitation**, not made by Google: Google's style sheet, explicit Arial runs, `w:rtl`, rsid attributes of zeros, `_heading=h.` bookmarks, explicit spacing, a rewritten page setup, no `app.xml` and no custom properties | No. The real exports are in `returned/google/`, below |
+| Google Docs download   | `returned/google/`, below                                                                                                                                                                                                    | Yes                                                   |
+| Heavily reformatted    | Fonts, sizes, colours and heading styles changed throughout, numbered instead of bulleted lists, the same text                                                                                                               | Built in memory                                       |
+| LibreOffice re-save    | `returned/libreoffice/`, below                                                                                                                                                                                               | Yes                                                   |
+| Never seen (negatives) | The synthetic fixtures above (except the resume series), and a stranger's resume on the same template                                                                                                                        | Built in memory                                       |
 
 ### `returned/libreoffice/`
 
-Real re-saves by **LibreOffice 26.8.1.1** (Windows, installed with winget), made by `scripts/libreoffice-resave.ps1` on 2026-10-15: `cargo xtask returned-inputs` writes the inputs from `crates/testkit/src/returned.rs` (`LIBREOFFICE`), and LibreOffice opens each one headless and saves it as Word 2007-365 (`--convert-to docx:"MS Word 2007 XML"`). Invented content; licence Apache-2.0. LibreOffice keeps custom document properties, so the inputs that carried ids still carry them.
+Real re-saves by **LibreOffice 26.8.1.1** (Windows, installed with winget), made by `scripts/libreoffice-resave.ps1` on 2026-10-15: `cargo xtask returned-inputs` writes the inputs from `crates/testkit/src/returned.rs` (`LIBREOFFICE`), and LibreOffice opens each one headless and saves it as Word 2007-365 (`--convert-to docx:"MS Word 2007 XML"`). Invented content; licence Apache-2.0. LibreOffice keeps custom document properties, so the inputs that carried ids still carry them. They are also write fixtures: `crates/core/src/write/tests.rs` keeps every content change from the four edited ones words only (decision 0014), and `origin.rs` checks each is recognised as saved by LibreOffice.
 
 | File                                     | From                          | Outside edits | Ids |
 | ---------------------------------------- | ----------------------------- | ------------- | --- |
@@ -77,6 +78,21 @@ Real re-saves by **LibreOffice 26.8.1.1** (Windows, installed with winget), made
 | `tailored-unchanged.docx`                | Tailored version (data roles) | None          | No  |
 | `tailored-light-edits.docx`              | Tailored version (data roles) | Light         | No  |
 | `cover-letter-light-edits-with-ids.docx` | Cover letter v1               | Light         | Yes |
+
+### `returned/google/`
+
+Real downloads from **Google Docs**, made on 2026-10-16 from the same six inputs as the LibreOffice files (`cargo xtask returned-inputs`). Each input was uploaded to the maintainer's Google Drive and converted to a Google Doc, then exported as Word (`application/vnd.openxmlformats-officedocument.wordprocessingml.document`), which is what **File › Download › Microsoft Word (.docx)** does. The Drive copies were moved to the trash afterwards. Invented content; licence Apache-2.0. Every zip entry's CRC was checked, and each file's text matches its input (`write/tests.rs`).
+
+What a real export has, compared with the imitation:
+
+- **No `docProps/app.xml` or `core.xml`**, as imitated. This is what `origin.rs` reads as "exported".
+- **Custom properties are kept**, so Lineage ids survive a trip through Google Docs (the imitation drops them).
+- `w:rtl w:val="0"` on every run, rsid attributes of zeros and `w14:paraId` on every paragraph, as imitated.
+- **Fonts and spacing are mostly in Google's own `styles.xml`.** Plain paragraphs and headings carry only their style, not explicit Arial and spacing. List items do carry a long block of explicit paragraph and run properties: `keepNext`, `pageBreakBefore`, `widowControl`, borders, numbering, the font, colour, size, underline and shading.
+- No `_heading=h.` bookmarks on these files, and a rewritten page setup (`pgNumType`, header and footer margins).
+- The document element declares an unusual default namespace (`…/office/tasks/2019/documenttasks`); the engine reads and writes these files without trouble.
+
+Same names as `returned/libreoffice/`. To make them again: run `cargo xtask returned-inputs <folder>`, upload each file to Google Drive, open it with Google Docs, and use **File › Download › Microsoft Word (.docx)**.
 
 ## Adding a fixture
 

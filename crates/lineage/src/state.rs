@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use crate::blob::BlobHash;
 use crate::error::{Error, Result};
 use crate::event::{
-    ChangeState, CleanSummary, Event, How, MatchedBy, RECORD_VERSION, Record, Role,
+    ChangeState, CleanSummary, Event, How, MILESTONE_MAX, MatchedBy, RECORD_VERSION, Record, Role,
 };
 use crate::identity::Fingerprint;
 use crate::ids::{Id, Timestamp};
@@ -43,6 +43,8 @@ pub struct Checkpoint {
     pub changes: Option<BlobHash>,
     /// 1 for the node's first checkpoint, and so on: shown as "v1".
     pub number: usize,
+    /// "Sent to ten companies", once marked.
+    pub milestone: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -277,6 +279,7 @@ impl FamilyState {
                     at,
                     changes: changes.clone(),
                     number,
+                    milestone: None,
                 });
             }
             Event::UpdateOffered {
@@ -454,6 +457,38 @@ impl FamilyState {
                     .find(|n| &n.id == node_id)
                     .ok_or_else(|| bad("archiving an unknown node"))?;
                 node.archived = true;
+            }
+            Event::MilestoneMarked {
+                checkpoint_id,
+                label,
+            } => {
+                if let Some(label) = label
+                    && (label.trim().is_empty()
+                        || label.trim() != label
+                        || label.chars().count() > MILESTONE_MAX)
+                {
+                    return Err(bad("a milestone label that is empty, padded or too long"));
+                }
+                let checkpoint = self
+                    .checkpoints
+                    .iter_mut()
+                    .find(|c| &c.id == checkpoint_id)
+                    .ok_or_else(|| bad("a milestone on an unknown checkpoint"))?;
+                checkpoint.milestone.clone_from(label);
+            }
+            Event::NodeRelinked {
+                node_id,
+                storage_ref,
+            } => {
+                if storage_ref.trim().is_empty() {
+                    return Err(bad("a file relinked to nowhere"));
+                }
+                let node = self
+                    .nodes
+                    .iter_mut()
+                    .find(|n| &n.id == node_id)
+                    .ok_or_else(|| bad("relinking an unknown node"))?;
+                node.storage_ref.clone_from(storage_ref);
             }
         }
         self.last_seq = record.seq;

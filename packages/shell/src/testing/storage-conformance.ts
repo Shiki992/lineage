@@ -80,5 +80,38 @@ export function storageConformance(name: string, make: () => Promise<Storage> | 
       ).rejects.toBeInstanceOf(NotFound);
       await expect(storage.writeFile("version", "a/b.docx", text.encode("x"))).rejects.toThrow();
     });
+
+    it("keeps one library index, written only at the version it was read", async () => {
+      const storage = await make();
+      expect(await storage.readIndex()).toBeUndefined();
+      const v1 = await storage.writeIndex(text.encode("first"), undefined);
+      await expect(storage.writeIndex(text.encode("again"), undefined)).rejects.toBeInstanceOf(
+        StorageConflict,
+      );
+      const read = await storage.readIndex();
+      expect(read && new TextDecoder().decode(read.bytes)).toBe("first");
+      expect(read?.version).toBe(v1);
+      const v2 = await storage.writeIndex(text.encode("second"), v1);
+      expect(v2).not.toBe(v1);
+      await expect(storage.writeIndex(text.encode("stale"), v1)).rejects.toBeInstanceOf(
+        StorageConflict,
+      );
+      const after = await storage.readIndex();
+      expect(after && new TextDecoder().decode(after.bytes)).toBe("second");
+      expect(await storage.families()).not.toContain("index.json");
+    });
+
+    it("reports every ledger's version as readLedger does", async () => {
+      const storage = await make();
+      const empty = await storage.readLedger(FAMILY);
+      const before = await storage.ledgerVersions([FAMILY, OTHER]);
+      expect(before.get(FAMILY)).toBe(empty.version);
+      const v1 = await storage.appendLedger(FAMILY, empty.version, text.encode("one\n"));
+      const after = await storage.ledgerVersions([FAMILY, OTHER]);
+      expect(after.get(FAMILY)).toBe(v1);
+      expect(after.get(OTHER)).toBe((await storage.readLedger(OTHER)).version);
+      expect([...after.keys()].sort()).toEqual([FAMILY, OTHER].sort());
+      await expect(storage.ledgerVersions(["../escape"])).rejects.toThrow();
+    });
   });
 }

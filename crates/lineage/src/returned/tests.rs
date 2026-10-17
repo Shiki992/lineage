@@ -8,7 +8,7 @@ use lineage_core::docx::props::read_ids;
 use lineage_core::merge::Decision;
 use lineage_core::{Docx, Package, View};
 use lineage_testkit::resume::{self, Line};
-use lineage_testkit::returned::{light_edits, stranger_lines};
+use lineage_testkit::returned::{Saved, light_edits, stranger_lines};
 
 use super::*;
 use crate::commands;
@@ -17,7 +17,13 @@ use crate::tests::{Host, edit, lines};
 use crate::views;
 
 impl Host {
-    fn send(&mut self, node: &Id, bytes: &[u8], recipient: &str, embed_id: bool) -> (Id, Vec<u8>) {
+    pub(crate) fn send(
+        &mut self,
+        node: &Id,
+        bytes: &[u8],
+        recipient: &str,
+        embed_id: bool,
+    ) -> (Id, Vec<u8>) {
         let state = self.state().clone();
         let mut ctx = Context {
             now: self.now,
@@ -42,7 +48,7 @@ impl Host {
         )
     }
 
-    fn recognise(&self, bytes: &[u8]) -> Recognition {
+    pub(crate) fn recognise(&self, bytes: &[u8]) -> Recognition {
         let family = Family {
             state: self.state(),
             blobs: &self.blobs,
@@ -50,7 +56,7 @@ impl Host {
         recognise(bytes, &[family]).expect("recognises")
     }
 
-    fn record(&mut self, bytes: &[u8], found: &Recognition, how: MatchedBy) -> Id {
+    pub(crate) fn record(&mut self, bytes: &[u8], found: &Recognition, how: MatchedBy) -> Id {
         let candidate = found.candidates[0].clone();
         let state = self.state().clone();
         let mut ctx = Context {
@@ -72,12 +78,23 @@ impl Host {
         self.take(outcome).created.expect("returned file")
     }
 
-    fn keep(
+    pub(crate) fn keep(
         &mut self,
         returned: &Id,
         node: &Id,
         bytes: &[u8],
         cards: &[(String, Decision)],
+    ) -> Outcome {
+        self.keep_with(returned, node, bytes, cards, Bring::Everything)
+    }
+
+    pub(crate) fn keep_with(
+        &mut self,
+        returned: &Id,
+        node: &Id,
+        bytes: &[u8],
+        cards: &[(String, Decision)],
+        bring: Bring,
     ) -> Outcome {
         let state = self.state().clone();
         let mut ctx = Context {
@@ -85,8 +102,17 @@ impl Host {
             ids: &mut self.ids,
             author: None,
         };
-        let outcome =
-            decide(&mut ctx, &state, returned, node, bytes, cards, &self.blobs).expect("decides");
+        let outcome = decide(
+            &mut ctx,
+            &state,
+            returned,
+            node,
+            bytes,
+            cards,
+            bring,
+            &self.blobs,
+        )
+        .expect("decides");
         self.take(outcome)
     }
 }
@@ -198,6 +224,8 @@ fn a_copy_that_comes_back_is_recognised_by_its_ids_and_reviewed() {
         ["Your file has changed since this copy left (it's now v2). Only their changes are shown."]
     );
     assert_eq!(review.theirs, "Mentor");
+    // Saved by Word: their formatting can come with their words.
+    assert_eq!(review.formatting, KeepFormatting::default());
     assert!(review.view.overlaps.is_empty());
     let ids: Vec<String> = review.view.changes.iter().map(|c| c.id.clone()).collect();
     assert_eq!(ids.len(), 3);
@@ -302,6 +330,7 @@ fn a_review_can_be_finished_later() {
         &master,
         &file,
         &[(id, Decision::BringIn)],
+        Bring::Everything,
         &host.blobs,
     );
     assert!(matches!(again, Err(Error::NotAllowed(_))));
@@ -313,6 +342,7 @@ fn a_review_can_be_finished_later() {
         &master,
         &file,
         &[(other, Decision::UseMasters)],
+        Bring::Everything,
         &host.blobs,
     );
     assert!(matches!(wrong, Err(Error::NotAllowed(_))));
@@ -543,5 +573,153 @@ fn a_returned_record_must_match_its_copy() {
     assert!(
         state.apply(&bad).is_err(),
         "an unknown sent copy is refused"
+    );
+}
+
+/// Every kept change from a review, words only or not, and what came of it.
+fn keep_all(host: &mut Host, returned: &Id, file: &[u8], bring: Bring) -> (ReturnReview, Vec<u8>) {
+    let master = host.master();
+    let review = review(host.state(), returned, &master, file, &host.blobs).expect("reviews");
+    let cards: Vec<(String, Decision)> = review
+        .view
+        .changes
+        .iter()
+        .map(|c| (c.id.clone(), Decision::BringIn))
+        .collect();
+    assert!(!cards.is_empty());
+    let written = host
+        .keep_with(returned, &master, file, &cards, bring)
+        .file
+        .expect("written");
+    (review, written)
+}
+
+fn main_part(bytes: &[u8]) -> String {
+    let docx = Docx::open(bytes).expect("opens");
+    docx.part_text(&docx.main_part).expect("text").to_owned()
+}
+
+/// A master sent to Northgate Analytics without its id, and a Google Docs
+/// export of their light edits recorded as the copy that came back.
+fn google_export_back() -> (Host, Vec<u8>, Id) {
+    let lines_v1 = resume::master_v1_lines();
+    let mut host = Host::new();
+    let file = host.start(&resume::package("t", &lines_v1).to_bytes());
+    let master = host.master();
+    host.send(&master, &file, "Northgate Analytics", false);
+    let export =
+        lineage_testkit::returned::package("t", &light_edits(&lines_v1), Saved::GoogleExport)
+            .to_bytes();
+    let found = host.recognise(&export);
+    assert_eq!(found.verdict, Verdict::Certain, "{found:?}");
+    let returned = host.record(&export, &found, MatchedBy::Content);
+    (host, file, returned)
+}
+
+#[test]
+fn a_google_docs_export_brings_only_its_words_unless_asked() {
+    let (mut host, file, returned) = google_export_back();
+    let (review, words) = keep_all(&mut host, &returned, &file, Bring::WordsOnly);
+    assert!(review.formatting.words_only);
+    assert_eq!(
+        review.formatting.note.as_deref(),
+        Some(
+            "This file was saved by another app, such as Google Docs, which changes fonts and spacing. Lineage brings in their words in your formatting."
+        )
+    );
+    assert_eq!(
+        review.formatting.formatting_note.as_deref(),
+        Some(
+            "Apps such as Google Docs change formatting when they save a file, so these are probably not changes Northgate Analytics made."
+        )
+    );
+    assert!(!main_part(&words).contains("Arial"));
+    let accepted = Docx::open_view(&words, View::Accepted)
+        .expect("opens")
+        .body_lines();
+    let edited = resume::package("t", &light_edits(&resume::master_v1_lines())).to_bytes();
+    assert_eq!(accepted, lines(&edited));
+    assert_eq!(
+        Docx::open_view(&words, View::Rejected)
+            .expect("opens")
+            .body_lines(),
+        lines(&file)
+    );
+
+    // Asked for their formatting too: Google's Arial comes with the words.
+    let (mut host, file, returned) = google_export_back();
+    let (_, everything) = keep_all(&mut host, &returned, &file, Bring::Everything);
+    assert!(main_part(&everything).contains("Arial"));
+    assert_eq!(
+        Docx::open_view(&everything, View::Accepted)
+            .expect("opens")
+            .body_lines(),
+        accepted
+    );
+}
+
+#[test]
+fn a_real_google_docs_download_is_reviewed_words_only() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/docx/returned/google/resume-light-edits-with-ids.docx");
+    let back = std::fs::read(fixture).expect("fixture");
+    let mut host = Host::new();
+    let file = host.start(&resume::package("t", &resume::master_v1_lines()).to_bytes());
+    let master = host.master();
+    host.send(&master, &file, "Northgate Analytics", false);
+    let found = host.recognise(&back);
+    assert_eq!(found.verdict, Verdict::Certain, "{found:?}");
+    let returned = host.record(&back, &found, MatchedBy::Content);
+    let (review, written) = keep_all(&mut host, &returned, &file, Bring::WordsOnly);
+    assert!(review.formatting.words_only);
+    assert!(
+        review.formatting.note.as_deref().is_some_and(
+            |n| n.starts_with("This file was saved by another app, such as Google Docs,")
+        ),
+        "{:?}",
+        review.formatting
+    );
+    assert_eq!(review.view.changes.len(), 3, "the words they changed");
+    let xml = main_part(&written);
+    assert!(
+        !xml.contains("w:rtl") && !xml.contains("Calibri") && !xml.contains("pPrChange"),
+        "{xml}"
+    );
+    assert_eq!(
+        Docx::open_view(&written, View::Accepted)
+            .expect("opens")
+            .body_lines(),
+        lines(&resume::package("t", &light_edits(&resume::master_v1_lines())).to_bytes())
+    );
+}
+
+#[test]
+fn a_libreoffice_save_is_reviewed_words_only() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/docx/returned/libreoffice/resume-light-edits-with-ids.docx");
+    let back = std::fs::read(fixture).expect("fixture");
+    let mut host = Host::new();
+    let file = host.start(&resume::package("t", &resume::master_v1_lines()).to_bytes());
+    let master = host.master();
+    host.send(&master, &file, "Northgate Analytics", false);
+    // Its ids are another family's, so it is found by its content.
+    let found = host.recognise(&back);
+    assert_eq!(found.verdict, Verdict::Certain, "{found:?}");
+    let returned = host.record(&back, &found, MatchedBy::Content);
+    let (review, written) = keep_all(&mut host, &returned, &file, Bring::WordsOnly);
+    assert!(review.formatting.words_only);
+    assert!(
+        review
+            .formatting
+            .note
+            .as_deref()
+            .is_some_and(|n| n.starts_with("This file was saved in LibreOffice,")),
+        "{:?}",
+        review.formatting
+    );
+    let xml = main_part(&written);
+    assert!(
+        !xml.contains(r#"w:val="Normal""#) && !xml.contains("pPrChange"),
+        "{xml}"
     );
 }

@@ -29,7 +29,7 @@
 //! paragraph is emptied, never removed.
 
 use super::Writer;
-use super::emit::{From, cannot};
+use super::emit::{From, Like, Look, cannot};
 use crate::diff::Path;
 use crate::docx::{Block, Paragraph, StoryKey};
 use crate::error::Result;
@@ -44,6 +44,15 @@ pub(crate) struct LastDeleted {
     pub edit: usize,
 }
 
+/// One of ours' paragraphs rewritten into theirs.
+pub(crate) struct Rewrite {
+    pub part: String,
+    pub start: usize,
+    /// The theirs part and paragraph whose formatting it takes, or `None` when
+    /// it keeps its own (words only).
+    pub formatting: Option<(String, Paragraph)>,
+}
+
 /// A paragraph inserted from theirs.
 pub(crate) struct Inserted {
     pub part: String,
@@ -53,6 +62,8 @@ pub(crate) struct Inserted {
     pub para: Paragraph,
     /// The ours paragraph it was inserted after, when that paragraph ends its sequence.
     pub anchor: Option<Paragraph>,
+    /// Words only: the paragraph of ours whose formatting it takes.
+    pub like: Option<Like>,
 }
 
 impl Writer<'_> {
@@ -78,8 +89,9 @@ impl Writer<'_> {
     /// The paragraph before a deleted last paragraph that can take over the
     /// sequence's end: without tracked changes, locks or anything inserted
     /// between them. Deleted paragraphs in between are skipped. Returns the
-    /// paragraph, and where its formatting will come from: itself, or the
-    /// master's paragraph it is being rewritten into.
+    /// paragraph, and where its formatting will come from: itself (also when it
+    /// is rewritten with its own formatting, words only), or the master's
+    /// paragraph it is being rewritten into.
     fn partner(&self, last: &LastDeleted) -> Option<(Paragraph, Option<(String, Paragraph)>)> {
         let blocks = sequence_at(self.ours, &last.story, &last.path)?;
         let index = last
@@ -107,11 +119,11 @@ impl Writer<'_> {
             }
             let rewrite = rewrites
                 .iter()
-                .find(|(part, start, _, _)| *part == last.part && *start == p.span.start)
-                .map(|(_, _, theirs_part, theirs)| (theirs_part.clone(), theirs.clone()));
+                .find(|r| r.part == last.part && r.start == p.span.start);
             if rewrite.is_none() && part_edits.find_replacement(&p.span).is_some() {
                 return None;
             }
+            let rewrite = rewrite.and_then(|r| r.formatting.clone());
             let between = p.span.end..=last.para.span.start;
             if part_edits.inserts_within(&between) {
                 return None;
@@ -178,6 +190,7 @@ impl Writer<'_> {
                     &last.para,
                     &final_one.theirs_part,
                     &final_one.para,
+                    final_one.like.as_ref().map_or(Look::Theirs, Look::Like),
                 )?;
                 let mut edits = self.edits.borrow_mut();
                 let part_edits = edits
@@ -245,6 +258,7 @@ impl Writer<'_> {
                 &final_one.para,
                 &part,
                 &anchor,
+                final_one.like.as_ref(),
             )?;
             if let Some(edit) = self
                 .edits

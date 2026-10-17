@@ -84,6 +84,33 @@ async function openVersion(
   return { host, lineage, opened: await lineage.open() };
 }
 
+describe("a master that moved", () => {
+  it("is relinked when Word opens it from a new place of the same kind", async () => {
+    const world = await tracked();
+    const bytes = await world.masterHost.readBytes();
+    const movedUrl = "https://d.docs.live.net/0000000000000000/Jobs/Resume (2026).docx";
+    const host = new FakeHost(engine(), bytes, { name: "Resume (2026).docx", url: movedUrl });
+    const lineage = new Lineage({ engine: engine(), storage: world.storage, host, now: world.now });
+    const opened = expectKind(await lineage.open(), "master");
+    expect(opened.file.storageRef).toBe(movedUrl);
+    expect(ledgerText(world.storage, world.family)).toContain('"type":"NodeRelinked"');
+
+    // The same file in Word on the web has another kind of address: not a move.
+    const web = new FakeHost(engine(), bytes, {
+      name: "Resume (2026).docx",
+      url: "https://onedrive.live.com/edit?id=ABC&resid=0000",
+    });
+    const before = ledgerText(world.storage, world.family);
+    await new Lineage({
+      engine: engine(),
+      storage: world.storage,
+      host: web,
+      now: world.now,
+    }).open();
+    expect(ledgerText(world.storage, world.family)).toBe(before);
+  });
+});
+
 describe("the personal scenario through wasm", () => {
   let world: World;
   beforeEach(async () => {

@@ -13,7 +13,7 @@ The Lineage task pane for Word: React, designed at 360 px, running the engine as
 
 - `src/office/word-host.ts`: the open document through Office.js. Whole-file reads and writes, ids in custom properties, and every write read back and checked.
 - `src/auth/sign-in.ts`: sign-in through Word (nested app authentication), with the narrowest Graph permission the layout needs. Decisions 0008 and 0009.
-- `src/storage/`: OneDrive, or in development a local folder served by `dev/local-folder-plugin.ts`.
+- `src/storage/`: OneDrive, or in development a local folder (`@lineage/storage-local`, also used by My documents).
 - `src/dev/Diagnostics.tsx` (development only): the ids check, the write check over the engine's Word smoke-test files, and OneDrive's conditional-write check.
 
 ## Run it in Word for Windows

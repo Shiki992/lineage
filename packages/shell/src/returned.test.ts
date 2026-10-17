@@ -116,14 +116,20 @@ describe("a file that comes back", () => {
     const review = await master.returnedReview(recorded.returned);
     expect(review.headline).toBe("4 changes from Mentor");
     expect(review.notes[0]).toMatch(/^Your file has changed since this copy left \(it's now v2\)/);
+    // Edited in Word: their formatting can come with their words.
+    expect(review.formatting).toEqual({ wordsOnly: false, note: null, formattingNote: null });
     const ids = review.view.changes.map((c) => c.id);
     const [first, ...rest] = ids;
     expect(first).toBeDefined();
     const before = host.replaced;
-    const result = await master.decideReturned(recorded.returned, [
-      { card: first ?? "", decision: "bringIn" },
-      ...rest.map((card) => ({ card, decision: "decline" as const })),
-    ]);
+    const result = await master.decideReturned(
+      recorded.returned,
+      [
+        { card: first ?? "", decision: "bringIn" },
+        ...rest.map((card) => ({ card, decision: "decline" as const })),
+      ],
+      { wordsOnly: review.formatting.wordsOnly },
+    );
     expect(result).toEqual({ wrote: true });
     expect(host.replaced).toBe(before + 1);
     const after = expectKind(await master.refresh(), "master").panel;
@@ -139,6 +145,62 @@ describe("a file that comes back", () => {
     const again = await master.recordReturned(returning, candidate, "ids");
     expect(again.returned).toBe(recorded.returned);
     expect(await storage.families()).toEqual([family]);
+  });
+
+  it("saved again in LibreOffice, brings only the words unless asked", async () => {
+    const storage = new MemoryStorage();
+    const now = clock();
+    const e = engine();
+    const sent: boolean[] = [];
+    const spy: Engine = {
+      ...e,
+      decideReturned: (ledger, node, file, returned, cards, wordsOnly, nowMs) => {
+        sent.push(wordsOnly);
+        return e.decideReturned(ledger, node, file, returned, cards, wordsOnly, nowMs);
+      },
+    };
+    const host = new FakeHost(e, fixture("resume-master.docx"), {
+      name: "Resume.docx",
+      url: MASTER_URL,
+    });
+    const master = new Lineage({ engine: spy, storage, host, now });
+    await master.open();
+    const started = expectKind(await master.startTracking(), "master");
+    await master.sendCopy(started.file.nodeId, {
+      recipient: "Northgate Analytics",
+      purpose: null,
+      embedId: false,
+    });
+    // A real LibreOffice re-save of the copy with a mentor's light edits. Its
+    // ids are a test family's, so it is found by its content.
+    const back = new Uint8Array(
+      readFileSync(
+        new URL(
+          "../../../fixtures/docx/returned/libreoffice/resume-light-edits-with-ids.docx",
+          import.meta.url,
+        ),
+      ),
+    );
+    const returning = await master.recognise(back, "Resume.docx");
+    expect(returning.recognition.verdict).toBe("certain");
+    const candidate = returning.recognition.candidates[0];
+    if (!candidate) {
+      throw new Error("no candidate");
+    }
+    const recorded = await master.recordReturned(returning, candidate, "content");
+    const review = await master.returnedReview(recorded.returned);
+    expect(review.formatting.wordsOnly).toBe(true);
+    expect(review.formatting.note).toMatch(/^This file was saved in LibreOffice, /);
+    expect(review.formatting.formattingNote).toMatch(/^LibreOffice changes formatting /);
+    const result = await master.decideReturned(
+      recorded.returned,
+      review.view.changes.map((c) => ({ card: c.id, decision: "bringIn" as const })),
+      { wordsOnly: review.formatting.wordsOnly },
+    );
+    expect(result).toEqual({ wrote: true });
+    expect(sent).toEqual([true]);
+    const panel = expectKind(await master.refresh(), "master").panel;
+    expect(panel.latest.note).toBe("Kept 3 changes from Northgate Analytics");
   });
 
   it("opened in Word with its ids, is never shown as the master", async () => {

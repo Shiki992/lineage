@@ -212,6 +212,16 @@ impl Storage for Racing {
     fn families(&self) -> Result<Vec<lineage::Id>, StorageError> {
         self.inner.families()
     }
+    fn read_index(&self) -> Result<Option<(Vec<u8>, String)>, StorageError> {
+        self.inner.read_index()
+    }
+    fn write_index(
+        &mut self,
+        bytes: &[u8],
+        expected: Option<&str>,
+    ) -> Result<String, StorageError> {
+        self.inner.write_index(bytes, expected)
+    }
 }
 
 #[test]

@@ -1,9 +1,9 @@
 // Copyright 2026 Hrishikesh Vedantam
 // SPDX-License-Identifier: Apache-2.0
 
-// Development only: the Storage interface over the dev server's local folder
-// (dev/local-folder-plugin.ts). Versions are the ledger's length, as in the
-// harness's LocalFolderStorage.
+// Development and tests only: the Storage interface over the dev server's local
+// folder (plugin.ts). Versions are the ledger's length, as in the harness's
+// LocalFolderStorage, and the index's version is the start of its hash.
 
 import type { FileKind, FileLocation, LedgerVersion, Storage, StoredFile } from "@lineage/shell";
 import {
@@ -19,18 +19,7 @@ import {
   sha256Hex,
 } from "@lineage/shell";
 
-const BASE = "/__lineage-dev";
-
-async function call(path: string, init?: RequestInit): Promise<Response> {
-  try {
-    return await fetch(`${BASE}${path}`, init);
-  } catch (error) {
-    throw new StorageError(
-      "Lineage can't reach the development server. Is `pnpm dev` running?",
-      String(error),
-    );
-  }
-}
+const ROUTE = "/__lineage-dev";
 
 function failed(what: string, response: Response): StorageError {
   return new StorageError(
@@ -42,15 +31,29 @@ function failed(what: string, response: Response): StorageError {
 const bytes = async (response: Response) => new Uint8Array(await response.arrayBuffer());
 const enc = encodeURIComponent;
 
-export class DevFolderStorage implements Storage {
+export class LocalFolderStorage implements Storage {
   readonly label = "this computer (development)";
+
+  /** `base`: where the dev server answers; an absolute URL in Node tests. */
+  constructor(private readonly base = ROUTE) {}
+
+  private async call(path: string, init?: RequestInit): Promise<Response> {
+    try {
+      return await fetch(`${this.base}${path}`, init);
+    } catch (error) {
+      throw new StorageError(
+        "Lineage can't reach the development server. Is `pnpm dev` running?",
+        String(error),
+      );
+    }
+  }
 
   refFor(kind: FileKind, name: string): string {
     return `${folderFor(kind)}/${checkFileName(name)}`;
   }
 
   async readFile(ref: string): Promise<Uint8Array> {
-    const response = await call(`/file?ref=${enc(ref)}`);
+    const response = await this.call(`/file?ref=${enc(ref)}`);
     if (response.status === 404) {
       throw new NotFound(ref);
     }
@@ -67,7 +70,7 @@ export class DevFolderStorage implements Storage {
     replace = false,
   ): Promise<StoredFile> {
     const clean = checkFileName(name);
-    const response = await call(`/files/${kind}/${enc(clean)}${replace ? "?replace=1" : ""}`, {
+    const response = await this.call(`/files/${kind}/${enc(clean)}${replace ? "?replace=1" : ""}`, {
       method: "PUT",
       body: data as Uint8Array<ArrayBuffer>,
     });
@@ -81,7 +84,7 @@ export class DevFolderStorage implements Storage {
   }
 
   async fileNames(kind: FileKind): Promise<string[]> {
-    const response = await call(`/files/${kind}`);
+    const response = await this.call(`/files/${kind}`);
     if (!response.ok) {
       throw failed("fileNames", response);
     }
@@ -89,7 +92,7 @@ export class DevFolderStorage implements Storage {
   }
 
   async fileLocation(ref: string): Promise<FileLocation> {
-    const response = await call(`/location?ref=${enc(ref)}`);
+    const response = await this.call(`/location?ref=${enc(ref)}`);
     if (response.status === 404) {
       throw new NotFound(ref);
     }
@@ -100,7 +103,7 @@ export class DevFolderStorage implements Storage {
   }
 
   async readLedger(family: string): Promise<{ bytes: Uint8Array; version: LedgerVersion }> {
-    const response = await call(`/ledger/${checkFamily(family)}`);
+    const response = await this.call(`/ledger/${checkFamily(family)}`);
     if (!response.ok) {
       throw failed("readLedger", response);
     }
@@ -115,7 +118,7 @@ export class DevFolderStorage implements Storage {
     expected: LedgerVersion,
     lines: Uint8Array,
   ): Promise<LedgerVersion> {
-    const response = await call(`/ledger/${checkFamily(family)}?expected=${enc(expected)}`, {
+    const response = await this.call(`/ledger/${checkFamily(family)}?expected=${enc(expected)}`, {
       method: "POST",
       body: lines as Uint8Array<ArrayBuffer>,
     });
@@ -132,7 +135,7 @@ export class DevFolderStorage implements Storage {
     if ((await sha256Hex(data)) !== checkHash(hash)) {
       throw new BadBlob(hash);
     }
-    const response = await call(`/blob/${checkFamily(family)}/${hash}`, {
+    const response = await this.call(`/blob/${checkFamily(family)}/${hash}`, {
       method: "PUT",
       body: data as Uint8Array<ArrayBuffer>,
     });
@@ -145,7 +148,7 @@ export class DevFolderStorage implements Storage {
   }
 
   async getBlob(family: string, hash: string): Promise<Uint8Array | undefined> {
-    const response = await call(`/blob/${checkFamily(family)}/${checkHash(hash)}`);
+    const response = await this.call(`/blob/${checkFamily(family)}/${checkHash(hash)}`);
     if (response.status === 404) {
       return undefined;
     }
@@ -156,15 +159,54 @@ export class DevFolderStorage implements Storage {
   }
 
   async families(): Promise<string[]> {
-    const response = await call("/families");
+    const response = await this.call("/families");
     if (!response.ok) {
       throw failed("families", response);
     }
     return (await response.json()) as string[];
   }
+
+  async readIndex(): Promise<{ bytes: Uint8Array; version: LedgerVersion } | undefined> {
+    const response = await this.call("/index");
+    if (response.status === 404) {
+      return undefined;
+    }
+    if (!response.ok) {
+      throw failed("readIndex", response);
+    }
+    return { bytes: await bytes(response), version: response.headers.get("X-Index-Version") ?? "" };
+  }
+
+  async writeIndex(data: Uint8Array, expected: LedgerVersion | undefined): Promise<LedgerVersion> {
+    const query = expected === undefined ? "" : `?expected=${enc(expected)}`;
+    const response = await this.call(`/index${query}`, {
+      method: "PUT",
+      body: data as Uint8Array<ArrayBuffer>,
+    });
+    if (response.status === 409) {
+      throw new StorageConflict("the index changed since it was read");
+    }
+    if (!response.ok) {
+      throw failed("writeIndex", response);
+    }
+    return ((await response.json()) as { version: string }).version;
+  }
+
+  async ledgerVersions(families: readonly string[]): Promise<Map<string, LedgerVersion>> {
+    const response = await this.call("/ledger-versions", {
+      method: "POST",
+      body: JSON.stringify(families.map(checkFamily)),
+    });
+    if (!response.ok) {
+      throw failed("ledgerVersions", response);
+    }
+    return new Map(Object.entries((await response.json()) as Record<string, string>));
+  }
 }
 
 /** Sends a timing or an error kind to the dev server's log (development only). */
 export function devLog(entry: { name: string; ms?: number; kind?: string }): void {
-  void fetch(`${BASE}/log`, { method: "POST", body: JSON.stringify(entry) }).catch(() => undefined);
+  void fetch(`${ROUTE}/log`, { method: "POST", body: JSON.stringify(entry) }).catch(
+    () => undefined,
+  );
 }

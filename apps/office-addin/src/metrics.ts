@@ -5,7 +5,7 @@
 // and each command. In development they also go to the dev server's log, as
 // names and milliseconds only.
 
-import { devLog } from "./storage/dev-folder";
+import { devLog } from "@lineage/storage-local";
 
 /** When the page's scripts started, for "panel ready". */
 export const pageStart = performance.now();

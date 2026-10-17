@@ -133,6 +133,8 @@ pub enum Saved {
     /// explicit Arial runs, `w:rtl` on every run, rsid attributes of zeros,
     /// `_heading=h.` bookmarks on headings, explicit spacing, a rewritten page
     /// setup, and no `docProps/app.xml` or custom properties. Not made by Google.
+    /// Real exports (`fixtures/docx/returned/google/`) keep custom properties and
+    /// put most fonts and spacing in their style sheet; this one is noisier.
     GoogleExport,
     /// Fonts, sizes, colours and heading styles changed throughout; numbered
     /// instead of bulleted lists; the same text.

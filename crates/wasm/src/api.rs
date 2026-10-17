@@ -14,19 +14,21 @@
 use lineage::blob::{Blob, BlobHash};
 use lineage::commands::{self, Context, Outcome};
 use lineage::event;
-use lineage::returned;
 use lineage::state::FamilyState;
 use lineage::views;
 use lineage::{Id, SeededIds, Timestamp};
+use lineage::{graph, index, read, returned};
 use lineage_core::Package;
 use lineage_core::docx::props;
+use lineage_core::write::Bring;
 use serde::Serialize;
 
 use crate::cache::{BlobCache, DEFAULT_LIMIT, Recording};
 use crate::dto::{
-    CardDecision, CopyOfDto, FamilyDto, IdsDto, LedgerDto, MasterPanelDto, OpenFileDto, OutcomeDto,
-    RecognitionDto, RecordArgs, ReturnReviewDto, SendArgs, SentListDto, UpdatesDto,
-    VersionPanelDto, WhatChangedDto, WrittenDto, ledger_lines,
+    CardDecision, CopyOfDto, DocumentDto, DocumentPageDto, FamilyDto, FamilyGraphDto, IdsDto,
+    LedgerDto, LibraryDto, MasterPanelDto, ObservedDto, OpenFileDto, OutcomeDto, RecognitionDto,
+    RecordArgs, RefreshedDto, ReturnReviewDto, SendArgs, SentListDto, UpdatesDto, VersionPanelDto,
+    WhatChangedDto, WrittenDto, ledger_lines,
 };
 
 /// What a call returns: the JSON envelope and any bytes.
@@ -162,6 +164,20 @@ fn name(text: &str) -> Result<&str> {
     } else {
         Ok(trimmed)
     }
+}
+
+/// `[{family, version}]` as a map, each family once.
+fn observed_map(text: &str) -> Result<std::collections::BTreeMap<Id, String>> {
+    let list: Vec<ObservedDto> = json(text)?;
+    let mut map = std::collections::BTreeMap::new();
+    for o in list {
+        if o.version.len() > 512 || map.insert(o.family, o.version).is_some() {
+            return Err(Failure::BadInput(
+                "a family is listed twice, or its version is too long".to_owned(),
+            ));
+        }
+    }
+    Ok(map)
 }
 
 fn fold(ledger: &[u8]) -> Result<FamilyState> {
@@ -687,6 +703,8 @@ impl Session {
     }
 
     /// "Apply" on a review: `cards` is a JSON array of `{card, decision}`.
+    /// `words_only` brings their words in this file's formatting (decision 0014).
+    #[allow(clippy::too_many_arguments)]
     pub fn decide_returned(
         &mut self,
         ledger: &[u8],
@@ -694,6 +712,7 @@ impl Session {
         file: &[u8],
         returned: &str,
         cards: &str,
+        words_only: bool,
         now_ms: f64,
     ) -> Reply {
         let prepared = fold(ledger).and_then(|s| {
@@ -712,8 +731,13 @@ impl Session {
             Ok(p) => p,
             Err(e) => return Reply::failure(&e),
         };
+        let bring = if words_only {
+            Bring::WordsOnly
+        } else {
+            Bring::Everything
+        };
         self.command(now_ms, |ctx, source| {
-            returned::decide(ctx, &state, &back, &node, file, &cards, source)
+            returned::decide(ctx, &state, &back, &node, file, &cards, bring, source)
         })
     }
 
@@ -735,6 +759,179 @@ impl Session {
             }
             Err(e) => Reply::failure(&e),
         }
+    }
+
+    // ------------------------------------------------------------ My documents
+
+    /// The library straight from the index, to draw before it is checked;
+    /// null when the index can't be trusted.
+    #[must_use]
+    pub fn library_from_index(&self, index: &[u8]) -> Reply {
+        Reply::ok(&index::library_of(index).as_ref().map(LibraryDto::from))
+    }
+
+    /// The families whose ledgers must be read to bring the index up to date.
+    /// `observed` is a JSON array of `{family, version}`: every family folder.
+    #[must_use]
+    pub fn stale_families(&self, index: Option<&[u8]>, observed: &str) -> Reply {
+        observed_map(observed).map_or_else(
+            |e| Reply::failure(&e),
+            |seen| Reply::ok(&index::stale(index, &seen)),
+        )
+    }
+
+    /// The library, with the index brought up to date: `ledgers` is a JSON
+    /// array of `{family, ledger}` for at least the stale families. The index
+    /// to store comes back as the reply's file when it changed.
+    #[must_use]
+    pub fn refresh_library(&self, index: Option<&[u8]>, observed: &str, ledgers: &str) -> Reply {
+        let result = (|| -> Result<(RefreshedDto, Vec<u8>)> {
+            let seen = observed_map(observed)?;
+            let given: Vec<LedgerDto> = json(ledgers)?;
+            let pairs: Vec<(Id, &[u8])> = given
+                .iter()
+                .map(|l| (l.family.clone(), l.ledger.as_bytes()))
+                .collect();
+            let refreshed = index::refresh(index, &seen, &pairs).map_err(|missing| {
+                Failure::BadInput(format!("{} stale ledgers were not given", missing.len()))
+            })?;
+            Ok((
+                RefreshedDto {
+                    library: LibraryDto::from(&refreshed.library),
+                    index_changed: refreshed.changed,
+                },
+                refreshed.index,
+            ))
+        })();
+        match result {
+            Ok((dto, bytes)) => {
+                let mut reply = Reply::ok(&dto);
+                if dto.index_changed {
+                    reply.file = Some(bytes);
+                }
+                reply
+            }
+            Err(e) => Reply::failure(&e),
+        }
+    }
+
+    /// The index after one family's ledger was written, as the reply's file.
+    #[must_use]
+    pub fn update_index(
+        &self,
+        index: Option<&[u8]>,
+        family: &str,
+        version: &str,
+        ledger: &[u8],
+    ) -> Reply {
+        match id(family) {
+            Ok(family) => {
+                let mut reply = Reply::ok(&serde_json::Value::Null);
+                reply.file = Some(index::update(index, &family, version, ledger));
+                reply
+            }
+            Err(e) => Reply::failure(&e),
+        }
+    }
+
+    /// A document's page and family tree, from as much of its ledger as can
+    /// be read (decision 0015).
+    #[must_use]
+    pub fn document(&self, ledger: &[u8]) -> Reply {
+        let read = read::read_lenient(ledger);
+        let Some(state) = &read.state else {
+            return Reply::failure(&Failure::Lineage(lineage::Error::Ledger(
+                read.damage.map_or_else(String::new, |d| d.detail),
+            )));
+        };
+        let page = views::document_page(state, read.note());
+        Reply::ok(&DocumentDto {
+            page: DocumentPageDto::new(&page, state),
+            graph: FamilyGraphDto::from(&graph::family_graph(state)),
+        })
+    }
+
+    /// "Compare": what changed from checkpoint `a` to checkpoint `b`.
+    #[must_use]
+    pub fn compare(&self, ledger: &[u8], a: &str, b: &str) -> Reply {
+        let prepared = fold(ledger).and_then(|s| Ok((s, id(a)?, id(b)?)));
+        let (state, a, b) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.view(|source| {
+            commands::compare(&state, &a, &b, source).map(|v| WhatChangedDto::from(&v))
+        })
+    }
+
+    /// "Restore as a new version": the new file comes back as the reply's new
+    /// file, to save under `storage_ref`.
+    pub fn restore_as_new_version(
+        &mut self,
+        ledger: &[u8],
+        checkpoint: &str,
+        display_name: &str,
+        storage_ref: &str,
+        now_ms: f64,
+    ) -> Reply {
+        let prepared =
+            fold(ledger).and_then(|s| Ok((s, id(checkpoint)?, name(display_name)?.to_owned())));
+        let (state, checkpoint, display_name) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.command(now_ms, |ctx, source| {
+            commands::restore_as_new_version(
+                ctx,
+                &state,
+                &checkpoint,
+                &display_name,
+                storage_ref,
+                source,
+            )
+        })
+    }
+
+    /// "Mark as milestone"; a null `label` takes the mark off.
+    pub fn mark_milestone(
+        &mut self,
+        ledger: &[u8],
+        checkpoint: &str,
+        label: Option<&str>,
+        now_ms: f64,
+    ) -> Reply {
+        let prepared = fold(ledger).and_then(|s| Ok((s, id(checkpoint)?)));
+        let (state, checkpoint) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.command(now_ms, |ctx, _| {
+            commands::mark_milestone(ctx, &state, &checkpoint, label)
+        })
+    }
+
+    /// "Choose the file": `file` must be one of the node's own checkpoints.
+    pub fn relink(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        storage_ref: &str,
+        file: &[u8],
+        now_ms: f64,
+    ) -> Reply {
+        let prepared = fold(ledger).and_then(|s| {
+            if storage_ref.trim().is_empty() || storage_ref.len() > 2048 {
+                return Err(Failure::BadInput("not a place for a file".to_owned()));
+            }
+            Ok((s, id(node)?))
+        });
+        let (state, node) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.command(now_ms, |ctx, _| {
+            commands::relink(ctx, &state, &node, storage_ref, file)
+        })
     }
 
     /// Did a write land in Word as written?

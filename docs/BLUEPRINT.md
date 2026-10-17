@@ -51,7 +51,8 @@ The same paths. The add-on is installed from the Workspace Marketplace, sign-in 
 
 ### Ledger and snapshots
 
-- One append-only event log per family (JSON Lines). Examples: `FamilyStarted`, `CheckpointSaved`, `VariantMade`, `UpdateOffered`, `UpdateApplied`, `CopySent`, `FileReturned`. Current state is derived from the events.
+- One append-only event log per family (JSON Lines). Examples: `FamilyStarted`, `CheckpointSaved`, `VariantMade`, `UpdateOffered`, `UpdateApplied`, `CopySent`, `FileReturned`, `MilestoneMarked`, `NodeRelinked`. Current state is derived from the events.
+- A library index (`index.json`, beside the family folders) lists every family for "My documents". It is only a copy: each entry names the ledger version it was read from, and where they disagree the ledgers win and the index is rebuilt (decision 0015).
 - Appends to cloud storage use optimistic concurrency (ETag / revision check) and retry.
 - Snapshots are content-addressed blobs (SHA-256) of package parts, so images and fonts are stored once across all versions.
 - Storage layout, per family: `Lineage/<familyId>/ledger.jsonl`, `Lineage/<familyId>/blobs/<sha256>`.
@@ -109,6 +110,7 @@ The same paths. The add-on is installed from the Workspace Marketplace, sign-in 
    - Checkboxes for which tailored versions to offer it to, with context such as "Sent 1 Oct with the old numbers".
    - "Update 3 versions" button.
    - A "Pellow replied · Open what they saw" card.
+5. **My documents (web app).** The user signs in with their existing Microsoft (later Google) account, with no Lineage account. The list shows every tracked family. A document page has three sections: Versions (timeline, compare, restore as new), Sent copies (open exactly as sent, came-back status) and Family tree (lanes for master, tailored versions, sent copies and returned files). Data is read only from the user's own storage, through a rebuildable index at `Lineage/index.json`.
 
 ### Enterprise Microsoft (canvas page "Microsoft 365")
 

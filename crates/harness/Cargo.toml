@@ -15,6 +15,5 @@ workspace = true
 [dependencies]
 lineage.workspace = true
 lineage-core.workspace = true
-
-[dev-dependencies]
+# The accounts module builds its documents with the testkit; nothing here ships.
 lineage-testkit.workspace = true

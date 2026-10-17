@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export { EngineBoundaryError, EngineError, loadEngine, loadEngineAsync } from "./engine.js";
-export type { CommandResult, Engine, FamilyLedger } from "./engine.js";
+export type { CommandResult, Engine, FamilyLedger, Observed } from "./engine.js";
 export type { DocumentHost } from "./host.js";
+export { History } from "./history.js";
+export { Library } from "./library.js";
+export type { LibraryOptions, MissingFile, OpenedDocument } from "./library.js";
 export { Lineage, LineageError, userMessage } from "./lineage.js";
 export type { LineageOptions, Opened, Returning } from "./lineage.js";
 export * as schemas from "./schemas.js";
@@ -15,8 +18,17 @@ export type {
   Choice,
   CopyOf,
   Decision,
+  DocumentPage,
+  DocumentView,
   Family,
+  FamilyGraph,
+  FileHistory,
+  GraphEdge,
+  GraphNode,
   Ids,
+  KeepFormatting,
+  Lane,
+  LibraryEntry,
   MasterPanel,
   MatchedBy,
   Node,
@@ -29,6 +41,7 @@ export type {
   SendArgs,
   SentList,
   SentRow,
+  TimelineEntry,
   Updates,
   Verdict,
   VersionPanel,

@@ -69,6 +69,32 @@ fn write_returned_inputs(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Writes the "My documents" test accounts (invented content only) into
+/// `<dir>/three-families`, `<dir>/damaged` and `<dir>/large`, in the dev
+/// folder's layout, for the family app's Playwright runs and by-hand checks.
+fn write_accounts(dir: &Path) -> Result<(), String> {
+    use lineage_harness::accounts::{self, START};
+    use lineage_harness::{LocalFolderStorage, Panel};
+    let fresh = |name: &str| -> Result<Panel<LocalFolderStorage>, String> {
+        let at = dir.join(name);
+        if at.exists() {
+            fs::remove_dir_all(&at).map_err(|e| e.to_string())?;
+        }
+        let storage = LocalFolderStorage::new(&at).map_err(|e| e.to_string())?;
+        Ok(Panel::new(storage, START))
+    };
+    let mut panel = fresh("three-families")?;
+    accounts::three_families(&mut panel).map_err(|e| e.to_string())?;
+    let mut panel = fresh("damaged")?;
+    accounts::damaged(&mut panel).map_err(|e| e.to_string())?;
+    let mut panel = fresh("large")?;
+    accounts::large(&mut panel, 300, 50).map_err(|e| e.to_string())?;
+    for name in ["three-families", "damaged", "large"] {
+        println!("wrote {}", dir.join(name).display());
+    }
+    Ok(())
+}
+
 fn report(problems: &[String], fix: &str) -> ExitCode {
     if problems.is_empty() {
         return ExitCode::SUCCESS;
@@ -109,9 +135,22 @@ fn main() -> ExitCode {
                 Ok(ExitCode::FAILURE)
             }
         },
+        Some("accounts") => match std::env::args().nth(2) {
+            Some(dir) => Ok(match write_accounts(Path::new(&dir)) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            }),
+            None => {
+                eprintln!("usage: cargo xtask accounts <folder>");
+                Ok(ExitCode::FAILURE)
+            }
+        },
         _ => {
             eprintln!(
-                "usage: cargo xtask <fixtures | check-fixtures | check-headers | returned-inputs <folder>>"
+                "usage: cargo xtask <fixtures | check-fixtures | check-headers | returned-inputs <folder> | accounts <folder>>"
             );
             Ok(ExitCode::FAILURE)
         }

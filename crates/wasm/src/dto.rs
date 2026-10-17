@@ -11,7 +11,7 @@
 use lineage::Id;
 use lineage::commands::{Outcome, UpdateGroup, Updates};
 use lineage::event::{self, MatchedBy, Role};
-use lineage::returned::{RecognitionView, ReturnReview, Verdict};
+use lineage::returned::{KeepFormatting, RecognitionView, ReturnReview, Verdict};
 use lineage::state::FamilyState;
 use lineage::views::{CheckpointCard, MasterPanel, ReturnedRow, SentList, VersionPanel};
 use lineage_core::check::Written;
@@ -20,6 +20,9 @@ use lineage_core::docx::props::LineageIds;
 use lineage_core::merge::Decision;
 use lineage_core::view::{ChangeCard, Choice, OverlapCard, WhatChanged};
 use serde::{Deserialize, Serialize};
+
+mod history;
+pub use history::*;
 
 // ---------------------------------------------------------------- inputs
 
@@ -708,6 +711,25 @@ impl From<&RecognitionView> for RecognitionDto {
     }
 }
 
+/// Whether kept changes bring only their words, and why (decision 0014).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeepFormattingDto {
+    pub words_only: bool,
+    pub note: Option<String>,
+    pub formatting_note: Option<String>,
+}
+
+impl From<&KeepFormatting> for KeepFormattingDto {
+    fn from(k: &KeepFormatting) -> Self {
+        Self {
+            words_only: k.words_only,
+            note: k.note.clone(),
+            formatting_note: k.formatting_note.clone(),
+        }
+    }
+}
+
 /// The review of a file that came back.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -720,6 +742,7 @@ pub struct ReturnReviewDto {
     pub from_node: Id,
     pub from_name: String,
     pub view: WhatChangedDto,
+    pub formatting: KeepFormattingDto,
 }
 
 impl From<&ReturnReview> for ReturnReviewDto {
@@ -733,6 +756,7 @@ impl From<&ReturnReview> for ReturnReviewDto {
             from_node: r.from_node.clone(),
             from_name: r.from_name.clone(),
             view: (&r.view).into(),
+            formatting: (&r.formatting).into(),
         }
     }
 }

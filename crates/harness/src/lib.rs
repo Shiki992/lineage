@@ -11,6 +11,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod accounts;
 pub mod storage;
 
 use std::fmt;
@@ -18,14 +19,19 @@ use std::fmt;
 use lineage::blob::{BlobHash, BlobSource};
 use lineage::commands::{self, Context, Outcome, Updates};
 use lineage::event::{self, MatchedBy};
+use lineage::graph::{self, FamilyGraph};
+use lineage::index;
+use lineage::library::Library;
+use lineage::read::read_lenient;
 use lineage::returned::{self, Candidate, Family, Recognition, RecognitionView, ReturnReview};
 use lineage::state::FamilyState;
-use lineage::views::{self, MasterPanel, SentList, VersionPanel};
+use lineage::views::{self, DocumentPage, MasterPanel, SentList, VersionPanel};
 use lineage::{Id, SequentialIds, Timestamp};
 use lineage_core::merge::Decision;
 use lineage_core::view::WhatChanged;
+pub use lineage_core::write::Bring;
 
-pub use storage::{LocalFolderStorage, MemoryStorage, Storage, StorageError};
+pub use storage::{LocalFolderStorage, MemoryStorage, Storage, StorageError, Tamper};
 
 /// The engine version the harness was built against.
 #[must_use]
@@ -99,6 +105,12 @@ impl<S: Storage> Panel<S> {
         }
     }
 
+    /// The panel's clock: the time the next button press is recorded at.
+    #[must_use]
+    pub fn now(&self) -> Timestamp {
+        self.now
+    }
+
     /// Opens the family a file belongs to (as the task pane does on open).
     ///
     /// # Errors
@@ -166,7 +178,8 @@ impl<S: Storage> Panel<S> {
             }
             let lines = event::encode(&outcome.records)?;
             match self.storage.append_ledger(&family, version, &lines) {
-                Ok(_) => {
+                Ok(written) => {
+                    self.index_after(&family, written, &[bytes.as_slice(), &lines].concat());
                     self.now = Timestamp(self.now.0 + 60_000);
                     return Ok(outcome);
                 }
@@ -175,6 +188,29 @@ impl<S: Storage> Panel<S> {
             }
         }
         Err(HarnessError::Storage(StorageError::Conflict))
+    }
+
+    /// Brings the library index up to date after a ledger write, as the task
+    /// pane does. Only a copy: a failure is left for the next "My documents".
+    fn index_after(&mut self, family: &Id, version: storage::Version, ledger: &[u8]) {
+        for _attempt in 0..2 {
+            let Ok(current) = self.storage.read_index() else {
+                return;
+            };
+            let next = index::update(
+                current.as_ref().map(|(b, _)| b.as_slice()),
+                family,
+                &version.to_string(),
+                ledger,
+            );
+            match self
+                .storage
+                .write_index(&next, current.as_ref().map(|(_, v)| v.as_str()))
+            {
+                Err(StorageError::Conflict) => {}
+                _ => return,
+            }
+        }
     }
 
     /// "Start tracking" the file: it becomes the master of a new family.
@@ -194,8 +230,9 @@ impl<S: Storage> Panel<S> {
         for blob in &outcome.blobs {
             self.storage.put_blob(&family, blob)?;
         }
-        self.storage
-            .append_ledger(&family, 0, &event::encode(&outcome.records)?)?;
+        let lines = event::encode(&outcome.records)?;
+        let written = self.storage.append_ledger(&family, 0, &lines)?;
+        self.index_after(&family, written, &lines);
         if let Some(bytes) = &outcome.file {
             self.storage.write_file(file, bytes)?;
         }
@@ -263,8 +300,10 @@ impl<S: Storage> Panel<S> {
         if self.storage.file_names()?.iter().any(|n| n == name) {
             return Err(HarnessError::Panel(format!("{name} already exists")));
         }
+        // "Tailored versions/Resume.docx" is shown as "Resume.docx".
+        let display = name.rsplit('/').next().unwrap_or(name);
         let outcome = self.press(|ctx, state, blobs| {
-            commands::make_tailored_version(ctx, state, name, name, blobs)
+            commands::make_tailored_version(ctx, state, display, name, blobs)
         })?;
         let new = outcome
             .new_file
@@ -470,7 +509,8 @@ impl<S: Storage> Panel<S> {
     }
 
     /// "Apply" on a review: `decisions` are (card id, decision). Kept changes
-    /// go into `into` as tracked changes by Lineage.
+    /// go into `into` as tracked changes by Lineage, words only when the review
+    /// says so (the panel's "Bring in their formatting too" left unticked).
     ///
     /// # Errors
     /// When a card isn't waiting for a decision, or a change can't be written safely.
@@ -480,6 +520,25 @@ impl<S: Storage> Panel<S> {
         returned: &Id,
         decisions: &[(&str, Decision)],
     ) -> Result<Outcome> {
+        let bring = if self.returned_review(into, returned)?.formatting.words_only {
+            Bring::WordsOnly
+        } else {
+            Bring::Everything
+        };
+        self.keep_and_skip_with(into, returned, decisions, bring)
+    }
+
+    /// [`Panel::keep_and_skip`], with "Bring in their formatting too" set by `bring`.
+    ///
+    /// # Errors
+    /// As [`Panel::keep_and_skip`].
+    pub fn keep_and_skip_with(
+        &mut self,
+        into: &str,
+        returned: &Id,
+        decisions: &[(&str, Decision)],
+        bring: Bring,
+    ) -> Result<Outcome> {
         let cards: Vec<(String, Decision)> = decisions
             .iter()
             .map(|(card, decision)| ((*card).to_owned(), *decision))
@@ -488,7 +547,7 @@ impl<S: Storage> Panel<S> {
         let state = self.state()?;
         let node = Self::node_of(&state, into)?;
         let outcome = self.press(|ctx, state, blobs| {
-            returned::decide(ctx, state, returned, &node, &bytes, &cards, blobs)
+            returned::decide(ctx, state, returned, &node, &bytes, &cards, bring, blobs)
         })?;
         self.write_outcome(into, &outcome)?;
         Ok(outcome)
@@ -520,6 +579,150 @@ impl<S: Storage> Panel<S> {
             family,
         };
         Ok(commands::open_sent_copy(&state, sent, &blobs)?)
+    }
+
+    // ------------------------------------------------------------ My documents
+
+    /// "My documents": every family, from the index where it is right and from
+    /// the ledgers where it isn't; a wrong or missing index is rewritten.
+    ///
+    /// # Errors
+    /// When storage can't be read.
+    pub fn my_documents(&mut self) -> Result<Library> {
+        let index = self.storage.read_index()?;
+        let families = self.storage.families()?;
+        let observed: std::collections::BTreeMap<Id, String> = self
+            .storage
+            .ledger_versions(&families)?
+            .into_iter()
+            .map(|(f, v)| (f, v.to_string()))
+            .collect();
+        let stale = index::stale(index.as_ref().map(|(b, _)| b.as_slice()), &observed);
+        let mut ledgers = Vec::new();
+        for family in stale {
+            let (bytes, _) = self.storage.read_ledger(&family)?;
+            ledgers.push((family, bytes));
+        }
+        let given: Vec<(Id, &[u8])> = ledgers
+            .iter()
+            .map(|(f, b)| (f.clone(), b.as_slice()))
+            .collect();
+        let refreshed =
+            index::refresh(index.as_ref().map(|(b, _)| b.as_slice()), &observed, &given).map_err(
+                |missing| HarnessError::Panel(format!("{} ledgers not read", missing.len())),
+            )?;
+        if refreshed.changed {
+            match self
+                .storage
+                .write_index(&refreshed.index, index.as_ref().map(|(_, v)| v.as_str()))
+            {
+                Ok(_) | Err(StorageError::Conflict) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(refreshed.library)
+    }
+
+    /// A document's page and family tree, from as much of its ledger as can be read.
+    ///
+    /// # Errors
+    /// When nothing of the ledger can be read.
+    pub fn document(&self, family: &Id) -> Result<(DocumentPage, FamilyGraph)> {
+        let (bytes, _) = self.storage.read_ledger(family)?;
+        let read = read_lenient(&bytes);
+        let state = read
+            .state
+            .as_ref()
+            .ok_or_else(|| HarnessError::Panel("the history can't be read".to_owned()))?;
+        Ok((
+            views::document_page(state, read.note()),
+            graph::family_graph(state),
+        ))
+    }
+
+    fn folded(&self, family: &Id) -> Result<FamilyState> {
+        let (bytes, _) = self.storage.read_ledger(family)?;
+        Ok(FamilyState::from_records(&event::decode(&bytes)?)?)
+    }
+
+    /// "Compare" two checkpoints of a family.
+    ///
+    /// # Errors
+    /// When a checkpoint is unknown or its snapshot missing.
+    pub fn compare(&self, family: &Id, a: &Id, b: &Id) -> Result<WhatChanged> {
+        let state = self.folded(family)?;
+        let blobs = StoredBlobs {
+            storage: &self.storage,
+            family,
+        };
+        Ok(commands::compare(&state, a, b, &blobs)?)
+    }
+
+    /// "Open as sent" in My documents: the exact bytes of a sent copy.
+    ///
+    /// # Errors
+    /// When the copy is unknown or its blob missing.
+    pub fn open_as_sent(&self, family: &Id, sent: &Id) -> Result<Vec<u8>> {
+        let state = self.folded(family)?;
+        let blobs = StoredBlobs {
+            storage: &self.storage,
+            family,
+        };
+        Ok(commands::open_sent_copy(&state, sent, &blobs)?)
+    }
+
+    /// "Restore as a new version": saved as `name` (which may be in
+    /// `Tailored versions/`). Returns the new file's node.
+    ///
+    /// # Errors
+    /// When a file of that name exists, or the checkpoint can't be restored.
+    pub fn restore_as_new_version(
+        &mut self,
+        family: &Id,
+        checkpoint: &Id,
+        name: &str,
+    ) -> Result<Id> {
+        if self.storage.read_file(name).is_ok() {
+            return Err(HarnessError::Panel(format!("{name} already exists")));
+        }
+        self.family = Some(family.clone());
+        let display = name.rsplit('/').next().unwrap_or(name);
+        let outcome = self.press(|ctx, state, blobs| {
+            commands::restore_as_new_version(ctx, state, checkpoint, display, name, blobs)
+        })?;
+        let new = outcome
+            .new_file
+            .ok_or_else(|| HarnessError::Panel("no file made".to_owned()))?;
+        self.storage.write_file(name, &new.bytes)?;
+        outcome
+            .created
+            .ok_or_else(|| HarnessError::Panel("no version made".to_owned()))
+    }
+
+    /// "Mark as milestone"; `None` takes the mark off.
+    ///
+    /// # Errors
+    /// When the checkpoint is unknown or the label too long.
+    pub fn mark_milestone(
+        &mut self,
+        family: &Id,
+        checkpoint: &Id,
+        label: Option<&str>,
+    ) -> Result<()> {
+        self.family = Some(family.clone());
+        self.press(|ctx, state, _| commands::mark_milestone(ctx, state, checkpoint, label))?;
+        Ok(())
+    }
+
+    /// "Choose the file" for a version whose file moved: it is `file` now.
+    ///
+    /// # Errors
+    /// When `file` isn't one of the version's own checkpoints.
+    pub fn relink(&mut self, family: &Id, node: &Id, file: &str) -> Result<()> {
+        let bytes = self.storage.read_file(file)?;
+        self.family = Some(family.clone());
+        self.press(|ctx, state, _| commands::relink(ctx, state, node, file, &bytes))?;
+        Ok(())
     }
 }
 

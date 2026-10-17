@@ -198,6 +198,30 @@ describe("OneDriveStorage", () => {
     );
   });
 
+  it("keeps the library index beside the families and asks for ledger versions in batches", async () => {
+    const { fake, storage } = setup();
+    await storage.writeIndex(text.encode("{}"), undefined);
+    expect(read(fake.read("me", "Apps/Lineage/index.json"))).toBe("{}");
+    const families = Array.from({ length: 23 }, (_, i) => i.toString(16).padStart(32, "0"));
+    for (const family of families.slice(0, 3)) {
+      await storage.appendLedger(family, "", text.encode("x\n"));
+    }
+    fake.requests.length = 0;
+    fake.busyInBatch = families[1];
+    const versions = await storage.ledgerVersions(families);
+    const batches = fake.requests.filter((r) => r.url.endsWith("/$batch"));
+    expect(batches).toHaveLength(2);
+    expect(versions.size).toBe(23);
+    for (const family of families.slice(0, 3)) {
+      expect(versions.get(family)).toBe((await storage.readLedger(family)).version);
+    }
+    expect(versions.get(families[5] ?? "")).toBe("");
+    // The one throttled inside the batch was asked again on its own.
+    expect(fake.requests.some((r) => r.url.includes(`${families[1] ?? ""}/ledger.jsonl`))).toBe(
+      true,
+    );
+  });
+
   it("says plainly when the network is down", async () => {
     const graph = new Graph({
       token: () => Promise.resolve("t"),

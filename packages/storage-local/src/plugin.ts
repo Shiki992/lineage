@@ -1,15 +1,16 @@
 // Copyright 2026 Hrishikesh Vedantam
 // SPDX-License-Identifier: Apache-2.0
 
-// Development only: the dev server keeps Lineage's history in a folder on this
-// computer, so the whole panel can be tried in Word before OneDrive sign-in is
-// set up, and the Rust harness can read what the panel wrote. Never part of a
-// production build (`apply: "serve"`), and it answers only the dev server's own
-// origin. The layout is the harness's LocalFolderStorage
-// (crates/harness/src/storage.rs) plus the two file folders:
+// Development and tests only: a dev server keeps Lineage's history in a folder
+// on this computer, so the Word panel and "My documents" can be tried before
+// OneDrive sign-in is set up, and the Rust harness can read what they wrote.
+// Never part of a production build (`apply: "serve"`), and it answers only the
+// origins it is given. The layout is the harness's LocalFolderStorage
+// (crates/harness/src/storage.rs), with the task pane's two file folders:
 //
 //   <root>/Lineage/<familyId>/ledger.jsonl
 //   <root>/Lineage/<familyId>/blobs/<sha256>
+//   <root>/Lineage/index.json              the library index (decision 0015)
 //   <root>/Tailored versions/<name>.docx
 //   <root>/Sent copies/<name>.docx
 //
@@ -25,6 +26,9 @@ import type { Plugin } from "vite";
 const ID = /^[0-9a-f]{32}$/;
 const HASH = /^[0-9a-f]{64}$/;
 const FOLDERS: Record<string, string> = { version: "Tailored versions", sent: "Sent copies" };
+
+/** Where the dev server answers. */
+export const ROUTE = "/__lineage-dev";
 
 function fileName(name: string): string | undefined {
   const n = name.trim();
@@ -84,7 +88,22 @@ function refPath(root: string, ref: string): string | undefined {
   return undefined;
 }
 
-async function handle(root: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+/** The index's version: the start of its hash, as the harness computes it. */
+function indexVersion(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex").slice(0, 16);
+}
+
+function ledgerLength(history: string, family: string): number {
+  const file = path.join(history, family, "ledger.jsonl");
+  return fs.existsSync(file) ? fs.statSync(file).size : 0;
+}
+
+/** Answers one request to the dev storage, relative to `ROUTE`. */
+export async function handle(
+  root: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
   const url = new URL(req.url ?? "/", "https://localhost");
   const [route = "", a = "", b = ""] = url.pathname
     .split("/")
@@ -113,6 +132,45 @@ async function handle(root: string, req: IncomingMessage, res: ServerResponse): 
       fs.fsyncSync(fd);
       fs.closeSync(fd);
       send(res, 200, { version: String(current.length + lines.length) });
+      return;
+    }
+  }
+  if (route === "ledger-versions" && method === "POST") {
+    const families: unknown = JSON.parse((await body(req)).toString("utf8"));
+    if (!Array.isArray(families) || !families.every((f) => typeof f === "string" && ID.test(f))) {
+      send(res, 400, { error: "badFamilies" });
+      return;
+    }
+    send(
+      res,
+      200,
+      Object.fromEntries(families.map((f: string) => [f, String(ledgerLength(history, f))])),
+    );
+    return;
+  }
+  if (route === "index") {
+    const file = path.join(history, "index.json");
+    const current = fs.existsSync(file) ? fs.readFileSync(file) : undefined;
+    if (method === "GET") {
+      if (!current) {
+        send(res, 404);
+        return;
+      }
+      res.setHeader("X-Index-Version", indexVersion(current));
+      send(res, 200, current);
+      return;
+    }
+    if (method === "PUT") {
+      const expected = url.searchParams.get("expected");
+      if ((current ? indexVersion(current) : null) !== expected) {
+        send(res, 409, { error: "conflict" });
+        return;
+      }
+      const bytes = await body(req);
+      fs.mkdirSync(history, { recursive: true });
+      fs.writeFileSync(`${file}.tmp`, bytes);
+      fs.renameSync(`${file}.tmp`, file);
+      send(res, 200, { version: indexVersion(bytes) });
       return;
     }
   }
@@ -236,15 +294,18 @@ async function handle(root: string, req: IncomingMessage, res: ServerResponse): 
   send(res, 404, { error: "unknown route" });
 }
 
-export function localFolderStorage(root: string): Plugin {
+/**
+ * The Vite plugin. `origins` are the pages allowed to call it (the task pane,
+ * My documents); a request from any other site is refused.
+ */
+export function localFolderStorage(root: string, origins: readonly string[]): Plugin {
   return {
     name: "lineage-dev-storage",
     apply: "serve",
     configureServer(server) {
-      server.middlewares.use("/__lineage-dev", (req, res) => {
-        // Only the task pane itself may call this, never another site.
+      server.middlewares.use(ROUTE, (req, res) => {
         const origin = req.headers.origin;
-        if (origin !== undefined && origin !== "https://localhost:3000") {
+        if (origin !== undefined && !origins.includes(origin)) {
           send(res, 403);
           return;
         }

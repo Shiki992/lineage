@@ -520,6 +520,7 @@ fn a_file_that_comes_back_crosses_the_boundary() {
         &master_file,
         &returned,
         &serde_json::to_string(&cards).expect("json"),
+        false,
         host.now,
     );
     let (outcome, file, _) = host.take(reply);
@@ -548,4 +549,81 @@ fn a_file_that_comes_back_crosses_the_boundary() {
     assert_eq!(open["nodeId"], Value::String(master));
     assert_eq!(open["copyOf"]["recipient"], "Mentor");
     assert_eq!(open["isLatest"], false);
+}
+
+#[test]
+fn my_documents_crosses_the_boundary() {
+    let Started {
+        mut host,
+        data,
+        master,
+        ..
+    } = started();
+    let family = str_of(&value(&host.session.family(&host.ledger))["familyId"]);
+    let observed =
+        serde_json::json!([{"family": family, "version": host.ledger.len().to_string()}])
+            .to_string();
+    assert_eq!(
+        value(&host.session.stale_families(None, &observed)),
+        serde_json::json!([family])
+    );
+    let ledgers = serde_json::json!([{
+        "family": family,
+        "ledger": String::from_utf8(host.ledger.clone()).expect("utf-8"),
+    }])
+    .to_string();
+    let missing = host.session.refresh_library(None, &observed, "[]");
+    assert_eq!(error(&missing)["kind"], "badInput");
+    let refreshed = host.session.refresh_library(None, &observed, &ledgers);
+    let v = value(&refreshed);
+    assert_eq!(v["indexChanged"], true);
+    assert_eq!(v["library"]["entries"][0]["tailored"], 2);
+    let index = refreshed.file.expect("index");
+    let again = host.session.refresh_library(Some(&index), &observed, "[]");
+    assert_eq!(value(&again)["indexChanged"], false);
+    assert!(again.file.is_none(), "an index that is right isn't written");
+
+    let twice = serde_json::json!([
+        {"family": family, "version": "1"},
+        {"family": family, "version": "2"},
+    ])
+    .to_string();
+    assert_eq!(
+        error(&host.session.stale_families(None, &twice))["kind"],
+        "badInput"
+    );
+    assert_eq!(
+        error(&host.session.update_index(None, "nope", "1", &host.ledger))["kind"],
+        "badInput"
+    );
+    assert_eq!(error(&host.session.document(b"garbage"))["kind"], "ledger");
+
+    let doc = value(&host.session.document(&host.ledger));
+    assert_eq!(doc["page"]["canChange"], true);
+    let v1 = str_of(&doc["page"]["files"][0]["entries"][0]["id"]);
+    let reply = host
+        .session
+        .mark_milestone(&host.ledger, &v1, Some(""), host.now);
+    assert_eq!(
+        value(&reply)["nothingChanged"],
+        true,
+        "an empty label is no mark"
+    );
+    let reply = host
+        .session
+        .restore_as_new_version(&host.ledger, &v1, "  ", "x", host.now);
+    assert_eq!(error(&reply)["kind"], "badInput");
+    let reply = host
+        .session
+        .relink(&host.ledger, &data.0, " ", &data.1, host.now);
+    assert_eq!(error(&reply)["kind"], "badInput");
+    let reply = host
+        .session
+        .relink(&host.ledger, &master, "Moved.docx", &data.1, host.now);
+    assert_eq!(error(&reply)["kind"], "wrongFile");
+
+    // A fresh engine compares only once it has the snapshots.
+    let fresh = Session::new([3; 32]);
+    let reply = fresh.compare(&host.ledger, &v1, &v1);
+    assert_eq!(error(&reply)["kind"], "missingBlobs");
 }

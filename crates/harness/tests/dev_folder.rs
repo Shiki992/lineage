@@ -73,6 +73,11 @@ fn the_task_pane_wrote_a_sound_history() {
         let (ledger, _) = storage.read_ledger(family).expect("ledger");
         let state = FamilyState::from_records(&event::decode(&ledger).expect("decodes"))
             .expect("the ledger folds");
+        if !lineage::library::readable_format(&state.format) {
+            // A deck or workbook: this version of Lineage only shows its history.
+            println!("skipped a {} family", state.format);
+            continue;
+        }
         let source = Stored {
             storage: &storage,
             family,

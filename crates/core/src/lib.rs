@@ -16,6 +16,7 @@ pub mod docx;
 pub mod error;
 pub mod hash;
 pub mod merge;
+pub mod origin;
 pub mod package;
 pub mod summary;
 pub mod view;

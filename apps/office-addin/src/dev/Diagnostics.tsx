@@ -10,7 +10,7 @@
 
 import type { DocumentHost, Engine, Storage, Written } from "@lineage/shell";
 import { useState } from "react";
-import { devLog } from "../storage/dev-folder";
+import { devLog } from "@lineage/storage-local";
 
 interface Row {
   name: string;

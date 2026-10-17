@@ -118,16 +118,66 @@ export interface Engine {
     file: Uint8Array,
     returned: string,
   ): s.ReturnReview;
+  /** `wordsOnly` brings their words in this file's formatting (decision 0014). */
   decideReturned(
     ledger: Uint8Array,
     node: string,
     file: Uint8Array,
     returned: string,
     cards: readonly s.CardDecision[],
+    wordsOnly: boolean,
     nowMs: number,
   ): CommandResult;
   openReturned(ledger: Uint8Array, returned: string): Uint8Array;
   checkWritten(expected: Uint8Array, actual: Uint8Array): s.Written;
+
+  // My documents (decision 0015).
+  /** The library straight from the index; null when the index can't be trusted. */
+  libraryFromIndex(index: Uint8Array): s.Library | null;
+  /** The families whose ledgers must be read to bring the index up to date. */
+  staleFamilies(index: Uint8Array | undefined, observed: readonly Observed[]): string[];
+  /** The library, and the index to store when it changed. */
+  refreshLibrary(
+    index: Uint8Array | undefined,
+    observed: readonly Observed[],
+    ledgers: readonly FamilyLedger[],
+  ): { library: s.Library; index: Uint8Array | undefined };
+  /** The index after one family's ledger was written. */
+  updateIndex(
+    index: Uint8Array | undefined,
+    family: string,
+    version: string,
+    ledger: Uint8Array,
+  ): Uint8Array;
+  /** A document's page and family tree, from as much of its ledger as can be read. */
+  document(ledger: Uint8Array): s.DocumentView;
+  compare(ledger: Uint8Array, a: string, b: string): s.WhatChanged;
+  restoreAsNewVersion(
+    ledger: Uint8Array,
+    checkpoint: string,
+    displayName: string,
+    storageRef: string,
+    nowMs: number,
+  ): CommandResult;
+  markMilestone(
+    ledger: Uint8Array,
+    checkpoint: string,
+    label: string | null,
+    nowMs: number,
+  ): CommandResult;
+  relink(
+    ledger: Uint8Array,
+    node: string,
+    storageRef: string,
+    file: Uint8Array,
+    nowMs: number,
+  ): CommandResult;
+}
+
+/** A family folder and its ledger's version as storage reports it now. */
+export interface Observed {
+  readonly family: string;
+  readonly version: string;
 }
 
 /** One family's stored ledger, for calls that look across families. */
@@ -137,6 +187,8 @@ export interface FamilyLedger {
 }
 
 const ledgerText = new TextDecoder("utf-8", { fatal: true });
+/** For ledgers that may be damaged: bad bytes become U+FFFD, and the engine reports them. */
+const lenientText = new TextDecoder("utf-8");
 
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
@@ -166,6 +218,13 @@ export async function loadEngineAsync(
   }
   const engine = wrap(seed ?? randomSeed());
   return { engine, loadMs: performance.now() - started };
+}
+
+function observedList(observed: readonly Observed[]): Observed[] {
+  return observed.map((o) => ({
+    family: checked(s.Id, o.family, "observed"),
+    version: checked(v.pipe(v.string(), v.maxLength(512)), o.version, "observed"),
+  }));
 }
 
 function randomSeed(): Uint8Array {
@@ -359,7 +418,7 @@ function wrap(seed: Uint8Array): Engine {
       ),
     returnedReview: (ledger, node, file, returned) =>
       view("returnedReview", s.ReturnReview, (e) => e.returnedReview(ledger, node, file, returned)),
-    decideReturned: (ledger, node, file, returned, cards, nowMs) =>
+    decideReturned: (ledger, node, file, returned, cards, wordsOnly, nowMs) =>
       command("decideReturned", (e) =>
         e.decideReturned(
           ledger,
@@ -367,6 +426,7 @@ function wrap(seed: Uint8Array): Engine {
           file,
           returned,
           json(checked(v.array(s.CardDecision), cards, "decideReturned")),
+          checked(v.boolean(), wordsOnly, "decideReturned"),
           nowMs,
         ),
       ),
@@ -374,6 +434,57 @@ function wrap(seed: Uint8Array): Engine {
       bytes("openReturned", (e) => e.openReturned(ledger, returned)),
     checkWritten: (expected, actual) =>
       view("checkWritten", s.Written, (e) => e.checkWritten(expected, actual)),
+    libraryFromIndex: (index) =>
+      view("libraryFromIndex", v.nullable(s.Library), (e) => e.libraryFromIndex(index)),
+    staleFamilies: (index, observed) =>
+      view("staleFamilies", v.array(s.Id), (e) =>
+        e.staleFamilies(index, json(observedList(observed))),
+      ),
+    refreshLibrary(index, observed, ledgers) {
+      const { value, reply } = call("refreshLibrary", (e) =>
+        e.refreshLibrary(
+          index,
+          json(observedList(observed)),
+          json(
+            ledgers.map((l) => ({
+              family: checked(s.Id, l.family, "refreshLibrary"),
+              ledger: lenientText.decode(l.ledger),
+            })),
+          ),
+        ),
+      );
+      try {
+        const refreshed = checked(s.Refreshed, value, "refreshLibrary");
+        const file = reply.takeFile();
+        if (refreshed.indexChanged !== (file !== undefined)) {
+          throw new EngineBoundaryError("refreshLibrary: indexChanged does not match the bytes");
+        }
+        return { library: refreshed.library, index: file };
+      } finally {
+        reply.free();
+      }
+    },
+    updateIndex: (index, family, version, ledger) =>
+      bytes("updateIndex", (e) =>
+        e.updateIndex(index, checked(s.Id, family, "updateIndex"), version, ledger),
+      ),
+    document: (ledger) => view("document", s.DocumentView, (e) => e.document(ledger)),
+    compare: (ledger, a, b) => view("compare", s.WhatChanged, (e) => e.compare(ledger, a, b)),
+    restoreAsNewVersion: (ledger, checkpoint, displayName, storageRef, nowMs) =>
+      command("restoreAsNewVersion", (e) =>
+        e.restoreAsNewVersion(ledger, checkpoint, displayName, storageRef, nowMs),
+      ),
+    markMilestone: (ledger, checkpoint, label, nowMs) =>
+      command("markMilestone", (e) =>
+        e.markMilestone(
+          ledger,
+          checkpoint,
+          checked(s.MilestoneLabel, label, "markMilestone") ?? undefined,
+          nowMs,
+        ),
+      ),
+    relink: (ledger, node, storageRef, file, nowMs) =>
+      command("relink", (e) => e.relink(ledger, node, storageRef, file, nowMs)),
   };
 }
 

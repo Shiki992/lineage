@@ -36,7 +36,7 @@ export default defineConfig(
     },
   },
   {
-    files: ["apps/office-addin/src/**/*.tsx"],
+    files: ["apps/office-addin/src/**/*.tsx", "apps/family-app/src/**/*.tsx"],
     extends: [reactHooks.configs.flat["recommended-latest"]],
   },
   {

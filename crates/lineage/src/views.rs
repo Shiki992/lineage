@@ -391,3 +391,130 @@ pub fn sent_list(state: &FamilyState, search: Option<&str>) -> SentList {
         note: "Each copy is kept exactly as sent.".to_owned(),
     }
 }
+
+/// One checkpoint on a file's timeline.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TimelineEntry {
+    pub id: Id,
+    /// "v3".
+    pub label: String,
+    pub note: String,
+    /// "15 Oct 2026".
+    pub date: String,
+    pub milestone: Option<String>,
+    pub author: Option<String>,
+    /// "Sent to Northgate Analytics", "Sent 3 times".
+    pub sent: Option<String>,
+}
+
+/// One file of the family, with its checkpoints newest first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileHistory {
+    pub node: Id,
+    pub name: String,
+    /// "Master", "Tailored version".
+    pub chip: String,
+    /// "Made from master v1", "Restored from Resume v2".
+    pub status: String,
+    pub archived: bool,
+    /// Where the file is kept, as the ledger records it.
+    pub storage_ref: String,
+    pub entries: Vec<TimelineEntry>,
+}
+
+/// A document's page in "My documents".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DocumentPage {
+    pub family_id: Id,
+    pub name: String,
+    pub format: String,
+    /// "Word document".
+    pub kind: String,
+    /// False when the history is damaged or the format can't be opened yet:
+    /// compare, restore, milestones and relinking are not offered.
+    pub can_change: bool,
+    /// Why not, in the panel's words.
+    pub note: Option<String>,
+    /// The master first, then tailored versions in the order they were made.
+    pub files: Vec<FileHistory>,
+    pub sent: SentList,
+}
+
+/// A document's page. `damage` is the note from a lenient read, if any.
+#[must_use]
+pub fn document_page(state: &FamilyState, damage: Option<String>) -> DocumentPage {
+    let readable = crate::library::readable_format(&state.format);
+    let note = damage.clone().or_else(|| {
+        (!readable).then(|| match state.format.as_str() {
+            "pptx" => "Comes with PowerPoint support. You can see this deck's history, but not open or compare it yet.".to_owned(),
+            "xlsx" => "Comes with Excel support. You can see this workbook's history, but not open or compare it yet.".to_owned(),
+            _ => "This version of Lineage can't open these files yet.".to_owned(),
+        })
+    });
+    let mut nodes: Vec<_> = state.nodes.iter().collect();
+    nodes.sort_by_key(|n| n.role != Role::Master);
+    let files = nodes
+        .into_iter()
+        .map(|node| {
+            let entries = node
+                .checkpoints
+                .iter()
+                .rev()
+                .filter_map(|c| state.checkpoint(c))
+                .map(|c| {
+                    let sent: Vec<_> = state.sent.iter().filter(|s| s.from == c.id).collect();
+                    TimelineEntry {
+                        id: c.id.clone(),
+                        label: state.label(&c.id),
+                        note: c.note.clone(),
+                        date: c.at.date_label(),
+                        milestone: c.milestone.clone(),
+                        author: c.author.clone(),
+                        sent: match sent.as_slice() {
+                            [] => None,
+                            [one] => Some(format!("Sent to {}", one.recipient)),
+                            many => Some(format!("Sent {} times", many.len())),
+                        },
+                    }
+                })
+                .collect();
+            let (chip, status) = match node.role {
+                Role::Master => (
+                    "Master",
+                    "The file your tailored versions follow".to_owned(),
+                ),
+                _ => (
+                    "Tailored version",
+                    node.made_from.as_ref().map_or_else(String::new, |m| {
+                        format!("Made from master {}", state.label(m))
+                    }),
+                ),
+            };
+            let first_note = node
+                .checkpoints
+                .first()
+                .and_then(|c| state.checkpoint(c))
+                .map(|c| c.note.as_str())
+                .filter(|n| n.starts_with("Restored from "));
+            FileHistory {
+                node: node.id.clone(),
+                name: node.display_name.clone(),
+                chip: chip.to_owned(),
+                status: first_note.map_or(status, str::to_owned),
+                archived: node.archived,
+                storage_ref: node.storage_ref.clone(),
+                entries,
+            }
+        })
+        .collect();
+    DocumentPage {
+        family_id: state.family_id.clone(),
+        name: state.name.clone(),
+        format: state.format.clone(),
+        kind: crate::library::kind_of(&state.format).to_owned(),
+        can_change: damage.is_none() && readable,
+        note,
+        files,
+        sent: sent_list(state, None),
+    }
+}

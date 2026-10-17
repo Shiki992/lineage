@@ -35,3 +35,10 @@ node_modules/
 apps/office-addin/dist/
 apps/office-addin/.dev-storage/
 apps/office-addin/.env.local
+
+# My documents: build output, the local app registration and Playwright's results.
+apps/family-app/dist/
+apps/family-app/.env.local
+apps/family-app/test-results/
+apps/family-app/playwright-report/
+apps/family-app/e2e/.accounts/

@@ -361,10 +361,12 @@ fn golden_replies() {
         &data_after,
         &returned_id,
         &serde_json::to_string(&cards).expect("json"),
+        false,
         host.now,
     );
     golden.keep("decide-returned", &reply);
-    host.take(reply);
+    let (kept, _) = host.take(reply);
+    let kept = kept.expect("written");
     let reply = host.session.send_copy(
         &host.ledger,
         &versions[1].0,
@@ -393,6 +395,111 @@ fn golden_replies() {
             &ledgers(&host),
         ),
     );
+
+    // The same copy, saved again in LibreOffice: only their words would come in.
+    let resaved = {
+        let mut package = Package::read(&copy).expect("reads");
+        let doc = String::from_utf8(package.part("word/document.xml").expect("doc").to_vec())
+            .expect("utf-8")
+            .replace("Built the shipment", "Built and ran the shipment");
+        package.set_part("word/document.xml", doc.into_bytes());
+        package.set_part(
+            "docProps/app.xml",
+            br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>LibreOffice/26.8.1.1$Windows_X86_64</Application></Properties>"#
+                .to_vec(),
+        );
+        package.to_bytes().expect("bytes")
+    };
+    let reply = host.session.record_returned(
+        &host.ledger,
+        &resaved,
+        &serde_json::json!({
+            "name": "Resume - from LibreOffice.docx",
+            "checkpoint": candidate["checkpoint"],
+            "sent": candidate["sent"],
+            "matchedBy": "ids",
+        })
+        .to_string(),
+        host.now,
+    );
+    let resaved_id =
+        id(&serde_json::from_str::<Value>(&reply.json).expect("json")["value"]["created"]);
+    host.take(reply);
+    golden.keep(
+        "returned-review-words-only",
+        &host
+            .session
+            .returned_review(&host.ledger, &versions[0].0, &kept, &resaved_id),
+    );
+
+    // My documents: the library and its index, a document's page and tree.
+    let observed = serde_json::json!([
+        {"family": family_id, "version": host.ledger.len().to_string()},
+    ])
+    .to_string();
+    golden.keep(
+        "stale-families",
+        &host.session.stale_families(None, &observed),
+    );
+    let refreshed = host
+        .session
+        .refresh_library(None, &observed, &ledgers(&host));
+    golden.keep("refresh-library", &refreshed);
+    let index = refreshed.file.clone().expect("a new index");
+    golden.keep(
+        "library-from-index",
+        &host.session.library_from_index(&index),
+    );
+    golden.keep(
+        "library-from-index-untrusted",
+        &host.session.library_from_index(b"{}"),
+    );
+    let updated = host.session.update_index(
+        Some(&index),
+        &family_id,
+        &host.ledger.len().to_string(),
+        &host.ledger,
+    );
+    assert_eq!(updated.file.as_deref(), Some(index.as_slice()));
+    let document = golden.keep("document", &host.session.document(&host.ledger));
+    let master_entries = &document["value"]["page"]["files"][0]["entries"];
+    let newest = id(&master_entries[0]["id"]);
+    let oldest = id(&master_entries[2]["id"]);
+    let mut damaged = host.ledger.clone();
+    damaged.truncate(damaged.len() - 25);
+    golden.keep("document-damaged", &host.session.document(&damaged));
+    golden.keep(
+        "compare",
+        &host.session.compare(&host.ledger, &oldest, &newest),
+    );
+    let reply = host.session.restore_as_new_version(
+        &host.ledger,
+        &oldest,
+        "Resume – first draft.docx",
+        "Tailored versions/Resume – first draft.docx",
+        host.now,
+    );
+    golden.keep("restore-as-new-version", &reply);
+    let (_, restored) = host.take(reply);
+    assert!(restored.is_some());
+    let reply = host.session.mark_milestone(
+        &host.ledger,
+        &newest,
+        Some("Sent to ten companies"),
+        host.now,
+    );
+    golden.keep("mark-milestone", &reply);
+    host.take(reply);
+    let reply = host.session.relink(
+        &host.ledger,
+        &versions[0].0,
+        "Tailored versions/Resume – data roles (moved).docx",
+        &kept,
+        host.now,
+    );
+    golden.keep("relink", &reply);
+    host.take(reply);
 
     // Errors.
     let fresh = Session::new([7; 32]);

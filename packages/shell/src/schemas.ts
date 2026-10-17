@@ -219,6 +219,14 @@ export const Recognition = v.strictObject({
 export type Recognition = v.InferOutput<typeof Recognition>;
 
 /** The review of a file that came back. */
+/** Whether kept changes bring only their words, and why (decision 0014). */
+export const KeepFormatting = v.strictObject({
+  wordsOnly: v.boolean(),
+  note: v.nullable(Text),
+  formattingNote: v.nullable(Text),
+});
+export type KeepFormatting = v.InferOutput<typeof KeepFormatting>;
+
 export const ReturnReview = v.strictObject({
   returned: Id,
   headline: Text,
@@ -228,6 +236,7 @@ export const ReturnReview = v.strictObject({
   fromNode: Id,
   fromName: Text,
   view: WhatChanged,
+  formatting: KeepFormatting,
 });
 export type ReturnReview = v.InferOutput<typeof ReturnReview>;
 
@@ -240,6 +249,127 @@ export const Written = v.strictObject({
   otherAdded: Count,
 });
 export type Written = v.InferOutput<typeof Written>;
+
+// My documents (decision 0015).
+
+const Millis = v.pipe(v.number(), v.integer());
+
+export const LibraryEntry = v.strictObject({
+  familyId: Id,
+  name: Text,
+  format: Text,
+  kind: Text,
+  masterFile: v.nullable(Text),
+  tailored: Count,
+  checkpoints: Count,
+  sent: Count,
+  returned: Count,
+  toReview: Count,
+  lastAt: Millis,
+  summary: Text,
+  lastActivity: Text,
+  attention: v.nullable(Text),
+  canOpen: v.boolean(),
+  damage: v.nullable(Text),
+});
+export type LibraryEntry = v.InferOutput<typeof LibraryEntry>;
+
+export const Library = v.strictObject({ entries: v.array(LibraryEntry), empty: v.nullable(Text) });
+export type Library = v.InferOutput<typeof Library>;
+
+export const Refreshed = v.strictObject({ library: Library, indexChanged: v.boolean() });
+export type Refreshed = v.InferOutput<typeof Refreshed>;
+
+export const TimelineEntry = v.strictObject({
+  id: Id,
+  label: Text,
+  note: Text,
+  date: Text,
+  milestone: v.nullable(Text),
+  author: v.nullable(Text),
+  sent: v.nullable(Text),
+});
+export type TimelineEntry = v.InferOutput<typeof TimelineEntry>;
+
+export const FileHistory = v.strictObject({
+  node: Id,
+  name: Text,
+  role: Role,
+  chip: Text,
+  status: Text,
+  archived: v.boolean(),
+  storageRef: Text,
+  entries: v.array(TimelineEntry),
+});
+export type FileHistory = v.InferOutput<typeof FileHistory>;
+
+export const DocumentPage = v.strictObject({
+  familyId: Id,
+  name: Text,
+  format: Text,
+  kind: Text,
+  canChange: v.boolean(),
+  note: v.nullable(Text),
+  files: v.array(FileHistory),
+  sent: SentList,
+});
+export type DocumentPage = v.InferOutput<typeof DocumentPage>;
+
+export const LaneKind = v.picklist(["master", "version", "sent", "returned"]);
+export type LaneKind = v.InferOutput<typeof LaneKind>;
+export const NodeKind = v.picklist(["checkpoint", "sent", "returned"]);
+export type NodeKind = v.InferOutput<typeof NodeKind>;
+export const EdgeKind = v.picklist([
+  "next",
+  "madeFrom",
+  "broughtIn",
+  "detected",
+  "restored",
+  "sent",
+  "cameBack",
+  "keptInto",
+]);
+export type EdgeKind = v.InferOutput<typeof EdgeKind>;
+
+export const Lane = v.strictObject({
+  id: Text,
+  kind: LaneKind,
+  title: Text,
+  chip: v.nullable(Text),
+  archived: v.boolean(),
+});
+export type Lane = v.InferOutput<typeof Lane>;
+
+export const GraphNode = v.strictObject({
+  id: Id,
+  lane: Text,
+  kind: NodeKind,
+  label: Text,
+  detail: Text,
+  at: Millis,
+  when: Text,
+  milestone: v.nullable(Text),
+  archived: v.boolean(),
+});
+export type GraphNode = v.InferOutput<typeof GraphNode>;
+
+export const GraphEdge = v.strictObject({
+  from: Id,
+  to: Id,
+  kind: EdgeKind,
+  label: v.nullable(Text),
+});
+export type GraphEdge = v.InferOutput<typeof GraphEdge>;
+
+export const FamilyGraph = v.strictObject({
+  lanes: v.array(Lane),
+  nodes: v.array(GraphNode),
+  edges: v.array(GraphEdge),
+});
+export type FamilyGraph = v.InferOutput<typeof FamilyGraph>;
+
+export const DocumentView = v.strictObject({ page: DocumentPage, graph: FamilyGraph });
+export type DocumentView = v.InferOutput<typeof DocumentView>;
 
 export const ErrorKind = v.picklist([
   "engine",
@@ -293,6 +423,9 @@ export const RecordArgs = v.strictObject({
 });
 export type RecordArgs = v.InferOutput<typeof RecordArgs>;
 
+/** A milestone label: up to 60 characters; null takes the mark off. */
+export const MilestoneLabel = v.nullable(v.pipe(Text, v.trim(), v.maxLength(60)));
+
 /** The value schema each golden reply's `value` must match, by file name. */
 export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "start-tracking": Outcome,
@@ -325,5 +458,16 @@ export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "version-panel-returned": VersionPanel,
   "sent-list-returned": SentList,
   "returned-review": ReturnReview,
+  "returned-review-words-only": ReturnReview,
   "decide-returned": Outcome,
+  "stale-families": v.array(Id),
+  "refresh-library": Refreshed,
+  "library-from-index": Library,
+  "library-from-index-untrusted": v.null(),
+  document: DocumentView,
+  "document-damaged": DocumentView,
+  compare: WhatChanged,
+  "restore-as-new-version": Outcome,
+  "mark-milestone": Outcome,
+  relink: Outcome,
 };
