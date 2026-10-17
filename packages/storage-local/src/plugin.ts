@@ -50,6 +50,12 @@ async function body(req: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+/** A file another program has open and won't let us replace (Windows: EBUSY, EPERM). */
+function locked(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "EBUSY" || code === "EPERM" || code === "EACCES";
+}
+
 function send(res: ServerResponse, status: number, data?: Buffer | string | object): void {
   res.statusCode = status;
   if (data === undefined) {
@@ -270,7 +276,19 @@ export async function handle(
     }
     const bytes = await body(req);
     fs.writeFileSync(`${file}.lineage-tmp`, bytes);
-    fs.renameSync(`${file}.lineage-tmp`, file);
+    try {
+      fs.renameSync(`${file}.lineage-tmp`, file);
+    } catch (error) {
+      // unlinkSync, not rmSync: on Windows, rmSync with `force` right after a
+      // refused rename returned without removing the file (Node 24).
+      fs.unlinkSync(`${file}.lineage-tmp`);
+      // PowerPoint for Windows keeps a deck it has open from being replaced.
+      if (locked(error)) {
+        send(res, 423, { error: "locked" });
+        return;
+      }
+      throw error;
+    }
     send(res, 200, { version: fileVersion(bytes) });
     return;
   }

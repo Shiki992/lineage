@@ -55,6 +55,7 @@ export type {
 export {
   BadBlob,
   FileChanged,
+  FileLocked,
   FileExists,
   MemoryStorage,
   OFFICE_FILE,

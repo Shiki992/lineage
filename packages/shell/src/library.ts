@@ -184,7 +184,7 @@ export class Library {
       if (result.outcome.records === 0) {
         return result;
       }
-      await this.history.storeBlobs(family, result);
+      await this.history.storeBlobs(family, result.blobs);
       try {
         const lines = utf8.encode(result.outcome.ledgerLines);
         const written = await this.storage.appendLedger(family, version, lines);

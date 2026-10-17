@@ -98,12 +98,17 @@ export interface Engine {
   updates(ledger: Uint8Array, node: string, file: Uint8Array): s.Updates;
   /** The pitch deck panel; `open` is the open deck, to show what just changed. */
   deckPanel(ledger: Uint8Array, open: Uint8Array | undefined): s.DeckPanel;
-  /** "Update N versions" for `versions` (each node and its file as stored). */
+  /**
+   * "Update N versions" for `versions` (each node and its file as stored).
+   * `open` are chosen versions whose files can't be changed now: each gets a
+   * line saying so, and nothing is recorded for it.
+   */
   updateVersions(
     ledger: Uint8Array,
     versions: readonly { readonly node: string; readonly file: Uint8Array }[],
     choices: readonly s.VersionChoice[],
     nowMs: number,
+    open?: readonly string[],
   ): UpdateResult;
   decide(
     ledger: Uint8Array,
@@ -401,10 +406,15 @@ function wrap(seed: Uint8Array): Engine {
     updates: (ledger, node, file) =>
       view("updates", s.Updates, (e) => e.updates(ledger, node, file)),
     deckPanel: (ledger, open) => view("deckPanel", s.DeckPanel, (e) => e.deckPanel(ledger, open)),
-    updateVersions(ledger, versions, choices, nowMs) {
+    updateVersions(ledger, versions, choices, nowMs, open = []) {
       for (const version of versions) {
         view("stageVersionFile", v.null(), (e) =>
           e.stageVersionFile(checked(s.Id, version.node, "updateVersions"), version.file),
+        );
+      }
+      for (const node of open) {
+        view("markVersionOpen", v.null(), (e) =>
+          e.markVersionOpen(checked(s.Id, node, "updateVersions")),
         );
       }
       const { value, reply } = call("updateVersions", (e) =>

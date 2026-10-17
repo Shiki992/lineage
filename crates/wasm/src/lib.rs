@@ -153,6 +153,11 @@ impl Engine {
         Reply(self.0.stage_version_file(node, file))
     }
 
+    #[wasm_bindgen(js_name = markVersionOpen)]
+    pub fn mark_version_open(&mut self, node: &str) -> Reply {
+        Reply(self.0.mark_version_open(node))
+    }
+
     #[wasm_bindgen(js_name = updateVersions)]
     pub fn update_versions(&mut self, ledger: &[u8], choices: &str, now_ms: f64) -> Reply {
         Reply(self.0.update_versions(ledger, choices, now_ms))

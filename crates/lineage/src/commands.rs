@@ -422,13 +422,23 @@ pub fn offer_to_versions(
     blobs: &dyn BlobSource,
 ) -> Result<Outcome> {
     let mut builder = Builder::new(state, ctx.now, blobs);
+    // A missing blob is reported after every version has been looked at, so
+    // the host fetches what all of them need in one round.
+    let mut missing = None;
     for version in versions {
         if state.node(version).map(|n| n.role) != Some(Role::Variant) {
             return Err(Error::NotAllowed(
                 "offers go to tailored versions".to_owned(),
             ));
         }
-        let status = variant_status(state, version, blobs)?;
+        let status = match variant_status(state, version, blobs) {
+            Ok(status) => status,
+            Err(Error::MissingBlob(hash)) => {
+                missing.get_or_insert(hash);
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
         let mut by_checkpoint: Vec<(Id, Vec<String>)> = Vec::new();
         for pending in status.offerable.into_iter().filter(|p| !p.offered) {
             match by_checkpoint
@@ -447,6 +457,9 @@ pub fn offer_to_versions(
                 change_ids,
             })?;
         }
+    }
+    if let Some(hash) = missing {
+        return Err(Error::MissingBlob(hash));
     }
     if builder.out.records.is_empty() {
         builder.out.nothing_changed = true;

@@ -133,6 +133,22 @@ export class FileChanged extends StorageError {
   }
 }
 
+/**
+ * A file is open in an app that keeps others from writing it (PowerPoint for
+ * Windows locks a deck it has open; OneDrive answers 423 Locked), so it
+ * wasn't replaced.
+ */
+export class FileLocked extends StorageError {
+  override name = "FileLocked";
+
+  constructor(ref: string) {
+    super(
+      "A version is open, so Lineage couldn't change it. Close it, then try again.",
+      `${ref} is locked`,
+    );
+  }
+}
+
 /** The Office files Lineage keeps: Word documents and PowerPoint decks. */
 export const OFFICE_FILE = /\.(docx|pptx)$/i;
 

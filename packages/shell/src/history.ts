@@ -5,7 +5,7 @@
 // family's history: fetch the blobs the engine asks for, store the ones it made,
 // and keep the library index up to date after a ledger is written.
 
-import type { CommandResult, Engine } from "./engine.js";
+import type { Engine } from "./engine.js";
 import { EngineError } from "./engine.js";
 import { LineageError } from "./errors.js";
 import type { LedgerVersion, Storage } from "./storage.js";
@@ -17,13 +17,31 @@ export const FETCH_ROUNDS = 6;
 const AT_ONCE = 6;
 
 export class History {
+  /**
+   * Blobs this session has seen in storage, by family: read from it, or stored
+   * in it without an error. Blobs are never deleted, so these need not be
+   * stored again. A checkpoint of a deck names about 40 parts, nearly all of
+   * them unchanged since the last one (found in the PowerPoint run, Phase 4).
+   */
+  private readonly inStorage = new Map<string, Set<string>>();
+
   constructor(
     readonly engine: Engine,
     readonly storage: Storage,
   ) {}
 
+  private seen(family: string): Set<string> {
+    let set = this.inStorage.get(family);
+    if (!set) {
+      set = new Set();
+      this.inStorage.set(family, set);
+    }
+    return set;
+  }
+
   async fetchBlobs(family: string, hashes: readonly string[]): Promise<void> {
     const wanted = hashes.filter((h) => !this.engine.hasBlob(h));
+    const seen = this.seen(family);
     for (let i = 0; i < wanted.length; i += AT_ONCE) {
       const batch = wanted.slice(i, i + AT_ONCE);
       const fetched = await Promise.all(batch.map((h) => this.storage.getBlob(family, h)));
@@ -36,6 +54,7 @@ export class History {
           );
         }
         this.engine.addBlob(hash, bytes);
+        seen.add(hash);
       });
     }
   }
@@ -58,13 +77,16 @@ export class History {
     }
   }
 
-  async storeBlobs(family: string, result: CommandResult): Promise<void> {
-    const entries = [...result.blobs];
+  /** Stores the blobs a command made, except those already in storage. */
+  async storeBlobs(family: string, blobs: ReadonlyMap<string, Uint8Array>): Promise<void> {
+    const seen = this.seen(family);
+    const entries = [...blobs].filter(([hash]) => !seen.has(hash));
     for (let i = 0; i < entries.length; i += AT_ONCE) {
       await Promise.all(
-        entries
-          .slice(i, i + AT_ONCE)
-          .map(([hash, bytes]) => this.storage.putBlob(family, hash, bytes)),
+        entries.slice(i, i + AT_ONCE).map(async ([hash, bytes]) => {
+          await this.storage.putBlob(family, hash, bytes);
+          seen.add(hash);
+        }),
       );
     }
   }

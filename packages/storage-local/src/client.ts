@@ -9,6 +9,7 @@ import type { FileKind, FileLocation, LedgerVersion, Storage, StoredFile } from 
 import {
   BadBlob,
   FileChanged,
+  FileLocked,
   FileExists,
   NotFound,
   StorageConflict,
@@ -85,6 +86,9 @@ export class LocalFolderStorage implements Storage {
     }
     if (response.status === 409) {
       throw new FileChanged(ref);
+    }
+    if (response.status === 423) {
+      throw new FileLocked(ref);
     }
     if (!response.ok) {
       throw failed("replaceFile", response);

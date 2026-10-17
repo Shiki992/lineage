@@ -171,6 +171,121 @@ fn the_founder_updates_two_versions_and_chooses_once() {
     assert!(!seed_row.checked);
 }
 
+/// The task pane's blob cache: what was fetched, and what a run asked for that
+/// wasn't there.
+struct Fetched<'a> {
+    have: &'a crate::blob::MemoryBlobs,
+    missed: std::cell::RefCell<Vec<crate::blob::BlobHash>>,
+}
+
+impl crate::blob::BlobSource for Fetched<'_> {
+    fn blob(&self, hash: &crate::blob::BlobHash) -> Option<Vec<u8>> {
+        let found = self.have.blob(hash);
+        if found.is_none() {
+            self.missed.borrow_mut().push(hash.clone());
+        }
+        found
+    }
+}
+
+/// How many runs "Update N versions" takes in a pane that has fetched
+/// nothing yet, for `n` versions that each have their own edits.
+fn runs_for(n: usize) -> usize {
+    let mut host = Host::new();
+    let master_file = host.start_deck(&pitch_deck().to_bytes());
+    let master = host.master();
+    let mut inputs = Vec::new();
+    for i in 0..n {
+        let name = format!("Investor {i}");
+        let (node, file) = host.make_version(&format!("Pitch deck – {name}.pptx"));
+        let file = host.save(&node, &deck_edit(&file, &with_box(&name)), &name);
+        inputs.push((node, file));
+    }
+    let edited = deck_edit(&master_file, &edits::traction_update(pitch_deck()));
+    host.save(&master, &edited, "New traction numbers");
+
+    // As the host does: run, fetch what was missed (a manifest with its
+    // parts), run again.
+    let state = host.state().clone();
+    let mut cache = crate::blob::MemoryBlobs::default();
+    let mut runs = 0;
+    loop {
+        runs += 1;
+        assert!(runs < 20, "never finished");
+        let source = Fetched {
+            have: &cache,
+            missed: std::cell::RefCell::new(Vec::new()),
+        };
+        let mut ctx = host.context();
+        match update_versions(&mut ctx, &state, &inputs, &[], &source) {
+            Ok(run) => {
+                assert_eq!(run.versions.len(), n);
+                assert!(run.versions.iter().all(|v| v.result == RunResult::Updated));
+                return runs;
+            }
+            Err(Error::MissingBlob(_)) => {
+                for hash in source.missed.take() {
+                    let bytes = host.blobs.blob(&hash).expect("stored");
+                    for part in crate::blob::manifest_parts(&bytes).unwrap_or_default() {
+                        let part_bytes = host.blobs.blob(&part).expect("stored");
+                        cache.0.insert(part, part_bytes);
+                    }
+                    cache.0.insert(hash, bytes);
+                }
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
+}
+
+#[test]
+fn an_update_asks_for_every_versions_history_at_once() {
+    // Found in the PowerPoint run: the first version's missing blob stopped
+    // the run, so each version cost the pane more rounds of fetching, and the
+    // host gives up after six.
+    assert_eq!(runs_for(4), runs_for(1));
+}
+
+#[test]
+fn a_version_that_is_open_is_left_and_said_so() {
+    // Found in the PowerPoint run: PowerPoint for Windows locks a deck it has
+    // open, so its file can't be replaced; the other versions still are.
+    let mut host = Host::new();
+    let master_file = host.start_deck(&pitch_deck().to_bytes());
+    let master = host.master();
+    let (seed, seed_file) = host.make_version("Pitch deck – Seed fund.pptx");
+    let (northgate, _) = host.make_version("Pitch deck – Northgate.pptx");
+    let edited = deck_edit(&master_file, &edits::traction_update(pitch_deck()));
+    host.save(&master, &edited, "New traction numbers");
+
+    let state = host.state().clone();
+    let blobs = host.blobs.clone();
+    let mut ctx = host.context();
+    let run = update_versions_leaving_open(
+        &mut ctx,
+        &state,
+        &[(seed.clone(), seed_file)],
+        std::slice::from_ref(&northgate),
+        &[],
+        &blobs,
+    )
+    .expect("updates");
+    assert_eq!(run.headline, "Updated 1 of 2 versions");
+    assert_eq!(run.versions[0].result, RunResult::Updated);
+    let open = &run.versions[1];
+    assert_eq!(open.node, northgate);
+    assert_eq!(open.name, "Pitch deck – Northgate.pptx");
+    assert_eq!(open.result, RunResult::NotUpdated);
+    assert!(open.text.starts_with("Not updated: it's open"));
+    assert!(open.file.is_none());
+    // Nothing is recorded for it: its changes still wait.
+    host.take(run.outcome);
+    let status =
+        crate::changes::variant_status(host.state(), &northgate, &host.blobs).expect("status");
+    assert!(!status.offerable.is_empty());
+    assert!(status.offerable.iter().all(|p| !p.offered));
+}
+
 #[test]
 fn edits_made_outside_lineage_are_saved_before_the_update() {
     let mut host = Host::new();

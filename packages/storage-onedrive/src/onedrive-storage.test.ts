@@ -1,10 +1,10 @@
 // Copyright 2026 Hrishikesh Vedantam
 // SPDX-License-Identifier: Apache-2.0
 
-import { StorageConflict, StorageError, sha256Hex } from "@lineage/shell";
+import { FileLocked, StorageConflict, StorageError, sha256Hex } from "@lineage/shell";
 import { storageConformance } from "@lineage/shell/testing";
 import { describe, expect, it } from "vitest";
-import { Graph } from "./graph.js";
+import { Graph, graphError } from "./graph.js";
 import { appFolder, nextToMaster } from "./layout.js";
 import { OneDriveStorage } from "./onedrive-storage.js";
 import { FakeGraph } from "./testing/fake-graph.js";
@@ -128,6 +128,17 @@ describe("OneDriveStorage", () => {
     await expect(storage.fileNames("version")).rejects.toMatchObject({
       userMessage: "OneDrive is busy right now. Try again in a minute.",
     });
+  });
+
+  it("says a locked file is open (423), so a deck update leaves it", async () => {
+    const response = new Response(JSON.stringify({ error: { code: "resourceLocked" } }), {
+      status: 423,
+    });
+    const error = await graphError(response, "Tailored versions/Deck.pptx");
+    expect(error).toBeInstanceOf(FileLocked);
+    expect(error.userMessage).toBe(
+      "A version is open, so Lineage couldn't change it. Close it, then try again.",
+    );
   });
 
   it("asks for a fresh token once after a 401", async () => {

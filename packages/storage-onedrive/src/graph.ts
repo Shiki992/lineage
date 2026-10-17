@@ -8,7 +8,7 @@
 // Throttling: https://learn.microsoft.com/graph/throttling (429 and 503 carry
 // Retry-After, in seconds).
 
-import { NotFound, StorageConflict, StorageError } from "@lineage/shell";
+import { FileLocked, NotFound, StorageConflict, StorageError } from "@lineage/shell";
 
 export const GRAPH = "https://graph.microsoft.com/v1.0";
 
@@ -146,6 +146,10 @@ export async function graphError(response: Response, what: string): Promise<Stor
     case 409:
     case 412:
       return new StorageConflict(detail);
+    case 423:
+      // "The resource that is being accessed is locked", e.g. a file open in
+      // an app that doesn't co-author it (https://learn.microsoft.com/graph/errors).
+      return new FileLocked(what);
     case 507:
       return new StorageError("Your OneDrive is full. Free up space, then try again.", detail);
     default:

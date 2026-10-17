@@ -194,6 +194,9 @@ pub struct Session {
     author: Option<String>,
     /// Tailored versions' files for the next "Update N versions".
     staged: Vec<(Id, Vec<u8>)>,
+    /// Chosen versions whose files are open and can't be changed, for the next
+    /// "Update N versions".
+    open: Vec<Id>,
 }
 
 impl Session {
@@ -209,6 +212,7 @@ impl Session {
             ids: SeededIds::new(seed),
             author: None,
             staged: Vec::new(),
+            open: Vec::new(),
         }
     }
 
@@ -528,11 +532,29 @@ impl Session {
         }
     }
 
-    /// "Update N versions" for the staged files; `choices` is a JSON array of
-    /// `{node, card, decision}`. New bytes for each version are in the reply
-    /// (`files`); the staged files are kept until a run succeeds, so a
-    /// missing-blobs round can run again.
+    /// Marks a chosen tailored version as open somewhere that won't let its
+    /// file be changed, for the next [`Session::update_versions`].
+    pub fn mark_version_open(&mut self, node: &str) -> Reply {
+        match id(node) {
+            Ok(node) => {
+                self.staged.retain(|(n, _)| *n != node);
+                if !self.open.contains(&node) {
+                    self.open.push(node);
+                }
+                Reply::ok(&serde_json::Value::Null)
+            }
+            Err(e) => Reply::failure(&e),
+        }
+    }
+
+    /// "Update N versions" for the staged files and the versions marked open;
+    /// `choices` is a JSON array of `{node, card, decision}`. New bytes for
+    /// each version are in the reply (`files`). Every run takes what was
+    /// staged, whatever its result: the host stages again for each run,
+    /// missing-blobs rounds included, so nothing from a failed run carries over.
     pub fn update_versions(&mut self, ledger: &[u8], choices: &str, now_ms: f64) -> Reply {
+        let inputs = std::mem::take(&mut self.staged);
+        let open = std::mem::take(&mut self.open);
         let prepared = fold(ledger).and_then(|s| Ok((s, json::<Vec<VersionChoice>>(choices)?)));
         let (state, choices) = match prepared {
             Ok(p) => p,
@@ -546,7 +568,6 @@ impl Session {
             .into_iter()
             .map(|c| (c.node, c.card, c.decision.into()))
             .collect();
-        let inputs = self.staged.clone();
         let run = {
             let source = Recording::new(&self.cache);
             let mut ctx = Context {
@@ -554,9 +575,10 @@ impl Session {
                 ids: &mut self.ids,
                 author: self.author.clone(),
             };
-            let result =
-                lineage::decks::update_versions(&mut ctx, &state, &inputs, &choices, &source)
-                    .map_err(Failure::from);
+            let result = lineage::decks::update_versions_leaving_open(
+                &mut ctx, &state, &inputs, &open, &choices, &source,
+            )
+            .map_err(Failure::from);
             Self::finish(result, &source)
         };
         let run = match run {
@@ -570,7 +592,6 @@ impl Session {
         for blob in &run.outcome.blobs {
             self.cache.insert(blob.hash.clone(), blob.bytes.clone());
         }
-        self.staged.clear();
         let mut reply = Reply::ok(&UpdateRunDto::new(&run, lines, &state));
         reply.blobs = run.outcome.blobs.clone();
         reply.files = run

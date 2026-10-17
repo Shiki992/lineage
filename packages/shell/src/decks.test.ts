@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { loadEngine } from "./engine.js";
 import type { Engine } from "./engine.js";
 import { Lineage } from "./lineage.js";
-import { FileChanged, MemoryStorage } from "./storage.js";
+import { FileChanged, FileLocked, MemoryStorage } from "./storage.js";
 import { FakeHost } from "./testing/fake-host.js";
 
 const wasm = readFileSync(new URL("../wasm-pkg/lineage_wasm_bg.wasm", import.meta.url));
@@ -43,6 +43,30 @@ class RefusingStorage extends MemoryStorage {
       throw new FileChanged(ref);
     }
     return super.replaceFile(ref, bytes, expected);
+  }
+}
+
+/** A file that is open in PowerPoint for Windows: it can't be replaced. */
+class LockingStorage extends MemoryStorage {
+  locked: string | undefined;
+
+  override async replaceFile(ref: string, bytes: Uint8Array, expected: string): Promise<string> {
+    if (ref === this.locked) {
+      await Promise.resolve();
+      throw new FileLocked(ref);
+    }
+    return super.replaceFile(ref, bytes, expected);
+  }
+}
+
+/** Counts each blob stored, by family and hash. */
+class CountingStorage extends MemoryStorage {
+  readonly stored = new Map<string, number>();
+
+  override async putBlob(family: string, hash: string, bytes: Uint8Array): Promise<void> {
+    const key = `${family}/${hash}`;
+    this.stored.set(key, (this.stored.get(key) ?? 0) + 1);
+    return super.putBlob(family, hash, bytes);
   }
 }
 
@@ -86,6 +110,61 @@ describe("the pitch deck panel", () => {
     expect(after.justChanged).toBeNull();
     expect(after.targets.map((t) => t.context)).toEqual(["Up to date", "Up to date"]);
     expect(after.button).toBeNull();
+  });
+
+  it("stores each part of the history once", async () => {
+    // A deck's checkpoint names about 40 parts, nearly all unchanged since the
+    // last checkpoint: the PowerPoint run stored 110 blobs for one update.
+    const storage = new CountingStorage();
+    const { host, lineage, seedFund, northgate } = await founder(storage);
+    await lineage.updateVersions([seedFund.nodeId, northgate.nodeId]);
+    const twice = [...storage.stored].filter(([, n]) => n > 1);
+    expect(twice).toEqual([]);
+    // Nothing was left out: a new session reads the whole history.
+    const again = new Lineage({ engine: engine(), storage, host, now: clock() });
+    await again.open();
+    const panel = await again.deckPanel();
+    expect(panel.targets.map((t) => t.context)).toEqual(["Up to date", "Up to date"]);
+  });
+
+  it("updates four versions from a pane that has just opened", async () => {
+    // Each version's history is fetched in the same rounds as the others'.
+    const storage = new MemoryStorage();
+    const { host, lineage, seedFund, northgate } = await founder(storage);
+    const more = [
+      await lineage.makeTailoredVersion("Pitch deck – Pellow"),
+      await lineage.makeTailoredVersion("Pitch deck – Lindqvist"),
+    ];
+    await lineage.saveCheckpoint("New traction numbers");
+    const cold = new Lineage({ engine: engine(), storage, host, now: clock() });
+    await cold.open();
+    const run = await cold.updateVersions([
+      seedFund.nodeId,
+      northgate.nodeId,
+      ...more.map((m) => m.nodeId),
+    ]);
+    expect(run.headline).toBe("Updated all 4 versions");
+  });
+
+  it("updates the others when a version is open, and says so", async () => {
+    const storage = new LockingStorage();
+    const { lineage, seedFund, northgate } = await founder(storage);
+    storage.locked = seedFund.ref;
+    const seedBefore = storage.files.get(seedFund.ref);
+    const northBefore = storage.files.get(northgate.ref);
+    const run = await lineage.updateVersions([seedFund.nodeId, northgate.nodeId]);
+    expect(run.headline).toBe("Updated 1 of 2 versions");
+    expect(run.versions.map((v) => [v.name, v.result])).toEqual([
+      ["Pitch deck – Northgate.pptx", "updated"],
+      ["Pitch deck – Seed fund.pptx", "notUpdated"],
+    ]);
+    expect(run.versions[1]?.text).toMatch(/^Not updated: it's open/);
+    expect(storage.files.get(seedFund.ref)).toEqual(seedBefore);
+    expect(storage.files.get(northgate.ref)).not.toEqual(northBefore);
+    // Once it's closed, the same press brings the changes in.
+    storage.locked = undefined;
+    const again = await lineage.updateVersions([seedFund.nodeId]);
+    expect(again.headline).toBe("Updated 1 version");
   });
 
   it("puts every file back when one can't be replaced", async () => {

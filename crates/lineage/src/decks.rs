@@ -105,6 +105,24 @@ pub fn update_versions(
     choices: &[(Id, String, Decision)],
     blobs: &dyn BlobSource,
 ) -> Result<UpdateRun> {
+    update_versions_leaving_open(ctx, state, inputs, &[], choices, blobs)
+}
+
+/// As [`update_versions`], with `open`: chosen versions whose files are open
+/// somewhere that won't let them be changed (PowerPoint for Windows locks a
+/// deck it has open). Each is left as it is, and nothing is recorded for it;
+/// its line says why, after the others.
+///
+/// # Errors
+/// As [`update_versions`].
+pub fn update_versions_leaving_open(
+    ctx: &mut Context<'_>,
+    state: &FamilyState,
+    inputs: &[(Id, Vec<u8>)],
+    open: &[Id],
+    choices: &[(Id, String, Decision)],
+    blobs: &dyn BlobSource,
+) -> Result<UpdateRun> {
     let mut state = state.clone();
     let mut out = Outcome::default();
     let nodes: Vec<Id> = inputs.iter().map(|(n, _)| n.clone()).collect();
@@ -118,6 +136,10 @@ pub fn update_versions(
     fold(&mut state, &mut out, offered)?;
 
     let mut versions = Vec::new();
+    // History that can't be read stops the whole run, but only after every
+    // version was tried: the host then fetches what all of them need in one
+    // round and runs it again.
+    let mut missing = None;
     for (node, bytes) in inputs {
         let name = state
             .node(node)
@@ -146,16 +168,36 @@ pub fn update_versions(
         if current != *bytes {
             run.file = Some(current);
         }
-        if let Err(e) = result {
-            // History that can't be read stops the whole run: the host fetches
-            // missing blobs and runs it again.
-            if matches!(e, Error::MissingBlob(_) | Error::Ledger(_)) {
-                return Err(e);
+        match result {
+            Ok(()) => {}
+            Err(Error::MissingBlob(hash)) => {
+                missing.get_or_insert(hash);
             }
-            run.result = RunResult::NotUpdated;
-            run.text = format!("Not updated: {}", reason(&e));
+            Err(e @ Error::Ledger(_)) => return Err(e),
+            Err(e) => {
+                run.result = RunResult::NotUpdated;
+                run.text = format!("Not updated: {}", reason(&e));
+            }
         }
         versions.push(run);
+    }
+    if let Some(hash) = missing {
+        return Err(Error::MissingBlob(hash));
+    }
+    for node in open {
+        versions.push(VersionRun {
+            node: node.clone(),
+            name: state
+                .node(node)
+                .map_or_else(String::new, |n| n.display_name.clone()),
+            result: RunResult::NotUpdated,
+            text: "Not updated: it's open, so Lineage couldn't change it. Close it, then update it again."
+                .to_owned(),
+            brought_in: 0,
+            saved_edits: false,
+            left: WhatChanged::default(),
+            file: None,
+        });
     }
     let updated = versions
         .iter()
