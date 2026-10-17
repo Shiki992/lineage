@@ -32,6 +32,41 @@ fn a_deck_has_no_changes_from_itself() {
 }
 
 #[test]
+fn row_and_column_ids_powerpoint_adds_to_a_table_are_not_a_change() {
+    // Found in the Phase 4 spike: PowerPoint gives every table row and column
+    // an a16 id the first time it saves the table.
+    let built = edits::table(pitch_deck());
+    let mut package = crate::Package::read(&built.to_bytes()).expect("reads");
+    let name = package
+        .part_names()
+        .find(|n| {
+            package
+                .part(n)
+                .is_some_and(|p| String::from_utf8_lossy(p).contains("<a:tbl>"))
+        })
+        .expect("a slide with a table")
+        .to_owned();
+    let xml = String::from_utf8(package.part(&name).expect("part").to_vec()).expect("utf-8");
+    let a16 = r#"xmlns:a16="http://schemas.microsoft.com/office/drawing/2014/main""#;
+    let saved = xml
+        .replace(
+            r#"<a:gridCol w="5257800"/>"#,
+            &format!(
+                r#"<a:gridCol w="5257800"><a:extLst><a:ext uri="{{9D8B030D-6E8A-4147-A177-3AD203B41FA5}}"><a16:colId {a16} val="20000"/></a:ext></a:extLst></a:gridCol>"#
+            ),
+        )
+        .split("</a:tc></a:tr>")
+        .collect::<Vec<_>>()
+        .join(&format!(
+            r#"</a:tc><a:extLst><a:ext uri="{{0D108BD9-81ED-4DB2-BD59-A6C34878D82A}}"><a16:rowId {a16} val="10000"/></a:ext></a:extLst></a:tr>"#
+        ));
+    assert_ne!(saved, xml);
+    package.set_part(&name, saved.into_bytes());
+    let resaved = Deck::open(&package.to_bytes().expect("bytes")).expect("opens");
+    assert!(diff(&open(&built), &resaved).changes.is_empty());
+}
+
+#[test]
 fn new_traction_numbers_are_two_changes_on_slide_six() {
     let found = changes(&pitch_deck(), &edits::traction_update(pitch_deck()));
     assert_eq!(

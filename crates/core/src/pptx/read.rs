@@ -23,11 +23,25 @@ const NOISE_ATTRIBUTES: [&str; 8] = [
 /// it saves a deck.
 const C16: &str = "http://schemas.microsoft.com/office/drawing/2014/chart";
 
+/// Drawing (2014): PowerPoint gives every table row and column an id
+/// (`a16:rowId`, `a16:colId`) the first time it saves the table.
+const A16: &str = "http://schemas.microsoft.com/office/drawing/2014/main";
+
 /// Elements left out of every key: the mark that holds an empty paragraph end's
 /// formatting, which PowerPoint adds and drops as people type, and ids PowerPoint
-/// makes afresh on every save (found with real PowerPoint saves, Phase 4).
+/// makes on save (found with real PowerPoint saves, Phase 4), together with the
+/// extension lists that hold nothing else.
 fn skipped_element(node: Node<'_, '_>) -> bool {
-    xml::is(node, ns::A, "endParaRPr") || xml::is(node, C16, "uniqueId")
+    xml::is(node, ns::A, "endParaRPr")
+        || xml::is(node, C16, "uniqueId")
+        || xml::is(node, A16, "rowId")
+        || xml::is(node, A16, "colId")
+        || (matches!(node.tag_name().name(), "ext" | "extLst")
+            && node.children().any(|c| c.is_element())
+            && node
+                .children()
+                .filter(|c| c.is_element())
+                .all(skipped_element))
 }
 
 /// Text that counts: inside text-bearing elements, whitespace is content.
