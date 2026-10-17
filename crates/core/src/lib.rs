@@ -18,6 +18,7 @@ pub mod hash;
 pub mod merge;
 pub mod origin;
 pub mod package;
+pub mod pptx;
 pub mod summary;
 pub mod view;
 pub mod write;
@@ -29,6 +30,7 @@ pub(crate) mod testutil;
 pub use docx::{Docx, View};
 pub use error::{Error, Result};
 pub use package::Package;
+pub use pptx::Deck;
 
 /// Version of the open change format (`spec/format/v0`) this crate implements.
 pub const SPEC_VERSION: &str = "0";
