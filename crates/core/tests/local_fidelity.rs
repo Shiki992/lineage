@@ -37,6 +37,8 @@ fn category(error: &Error) -> &'static str {
         Error::TooLarge(_) => "too large",
         Error::Unsupported(_) => "unsupported",
         Error::NotAWordDocument(_) => "not a Word document",
+        Error::NotADeck(_) => "not a deck",
+        Error::NotAnOfficeFile(_) => "not an Office file",
         Error::BadXml { .. } => "bad XML",
         Error::CannotEdit(_) => "cannot edit",
     }

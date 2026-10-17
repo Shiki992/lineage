@@ -8,7 +8,8 @@
 //! of `docProps/custom.xml`, `[Content_Types].xml` and `_rels/.rels` stays as it was.
 
 use crate::error::{Error, Result};
-use crate::package::{ContentTypes, Package, Relationships, rels_part_for, resolve_target};
+use crate::package::edit::{NewRelationship, add_override, add_relationships, free_part_name};
+use crate::package::{ContentTypes, Package, Relationships, resolve_target};
 use crate::xml::{self, Edits, escape_attr, escape_text, ns};
 
 /// Name of the custom property holding the family id.
@@ -201,70 +202,25 @@ pub fn write_ids(package: &mut Package, ids: &LineageIds) -> Result<()> {
 
 /// Adds `docProps/custom.xml` with its content type and package relationship.
 pub(crate) fn add_custom_part(package: &mut Package, xml_text: &str) -> Result<()> {
-    let mut part = "docProps/custom.xml".to_owned();
-    let mut n = 1;
-    while package.contains(&part) {
-        part = format!("docProps/custom{n}.xml");
-        n += 1;
+    if !package.contains(ContentTypes::PART) {
+        return Err(Error::NotAnOfficeFile("no content types".to_owned()));
     }
+    let part = if package.contains("docProps/custom.xml") {
+        free_part_name(package, |n| format!("docProps/custom{n}.xml"))
+    } else {
+        "docProps/custom.xml".to_owned()
+    };
     package.set_part(&part, xml_text.as_bytes().to_vec());
-
-    // Content type.
-    let types_bytes = package
-        .part(ContentTypes::PART)
-        .ok_or_else(|| Error::NotAWordDocument("no content types".to_owned()))?
-        .to_vec();
-    let types_text = xml::text(ContentTypes::PART, &types_bytes)?;
-    let types_doc = xml::parse(ContentTypes::PART, types_text)?;
-    let mut edits = Edits::new();
-    let root = types_doc.root_element();
-    let element = match xml::prefix_of(types_text, root) {
-        "" => "Override".to_owned(),
-        p => format!("{p}:Override"),
-    };
-    xml::append_child(
-        &mut edits,
-        types_text,
-        root,
-        &format!(
-            r#"<{element} PartName="/{part}" ContentType="{}"/>"#,
-            ns::CT_CUSTOM_PROPS
-        ),
-    );
-    let new_types = edits.apply(types_text)?;
-    package.set_part(ContentTypes::PART, new_types.into_bytes());
-
-    // Package relationship.
-    let rels_part = rels_part_for("");
-    let rels_bytes = package.part(&rels_part).unwrap_or_default().to_vec();
-    let rels_text = xml::text(&rels_part, &rels_bytes)?;
-    let rels_doc = xml::parse(&rels_part, rels_text)?;
-    let rels = Relationships::parse(&rels_part, &rels_bytes)?;
-    let mut id_n = rels.items.len() + 1;
-    let id = loop {
-        let candidate = format!("rId{id_n}");
-        if rels.by_id(&candidate).is_none() {
-            break candidate;
-        }
-        id_n += 1;
-    };
-    let root = rels_doc.root_element();
-    let element = match xml::prefix_of(rels_text, root) {
-        "" => "Relationship".to_owned(),
-        p => format!("{p}:Relationship"),
-    };
-    let mut edits = Edits::new();
-    xml::append_child(
-        &mut edits,
-        rels_text,
-        root,
-        &format!(
-            r#"<{element} Id="{id}" Type="{}" Target="{part}"/>"#,
-            ns::REL_CUSTOM_PROPS
-        ),
-    );
-    let new_rels = edits.apply(rels_text)?;
-    package.set_part(&rels_part, new_rels.into_bytes());
+    add_override(package, &part, ns::CT_CUSTOM_PROPS)?;
+    add_relationships(
+        package,
+        "",
+        &[NewRelationship {
+            rel_type: ns::REL_CUSTOM_PROPS.to_owned(),
+            target: part,
+            external: false,
+        }],
+    )?;
     Ok(())
 }
 

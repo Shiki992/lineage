@@ -2,7 +2,7 @@
   "error": {
     "detail": "not a zip archive: Missing end of central directory",
     "kind": "engine",
-    "userMessage": "This file isn't a Word document Lineage can open."
+    "userMessage": "This file isn't a document Lineage can open."
   },
   "ok": false
 }

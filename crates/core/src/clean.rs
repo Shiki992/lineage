@@ -13,11 +13,11 @@ use std::collections::BTreeSet;
 
 use roxmltree::Node;
 
-use crate::docx::props::{
-    CHECKPOINT_ID, FAMILY_ID, LineageIds, add_custom_part, custom_part, custom_xml,
-};
 use crate::docx::{Docx, View};
 use crate::error::{Error, Result};
+use crate::package::props::{
+    CHECKPOINT_ID, FAMILY_ID, LineageIds, add_custom_part, custom_part, custom_xml,
+};
 use crate::package::{ContentTypes, Package, resolve_target};
 use crate::xml::{self, Edits, ns};
 
@@ -338,7 +338,7 @@ fn source_of(rels_part: &str) -> String {
 fn prune_content_types(package: &mut Package, removed: &BTreeSet<String>) -> Result<()> {
     let bytes = package
         .part(ContentTypes::PART)
-        .ok_or_else(|| Error::NotAWordDocument("no content types".to_owned()))?
+        .ok_or_else(|| Error::NotAnOfficeFile("no content types".to_owned()))?
         .to_vec();
     let text = xml::text(ContentTypes::PART, &bytes)?;
     let doc = xml::parse(ContentTypes::PART, text)?;

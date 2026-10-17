@@ -7,11 +7,16 @@
 //! changed keep their original compressed bytes, so writing a package back
 //! reproduces them exactly (see docs/decisions/0005-docx-package-and-xml.md).
 
+pub mod edit;
 mod opc;
+pub mod props;
 mod read;
 mod write;
 
-pub use opc::{ContentTypes, Relationship, Relationships, part_dir, rels_part_for, resolve_target};
+pub use opc::{
+    ContentTypes, Relationship, Relationships, part_dir, relative_target, rels_part_for,
+    resolve_target,
+};
 pub use read::{MAX_ENTRIES, MAX_PART_BYTES, MAX_TOTAL_BYTES};
 
 use crate::error::Result;

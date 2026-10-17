@@ -54,6 +54,31 @@ pub fn resolve_target(source_part: &str, target: &str) -> String {
     segments.join("/")
 }
 
+/// The target to write in `source_part`'s relationships so it reaches `part`:
+/// relative to the source's folder, as Office writes them (`../media/a.png`).
+#[must_use]
+pub fn relative_target(source_part: &str, part: &str) -> String {
+    let from: Vec<&str> = part_dir(source_part)
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    let to: Vec<&str> = part
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    let (to_dir, file) = to.split_at(to.len().saturating_sub(1));
+    let common = from
+        .iter()
+        .zip(to_dir.iter())
+        .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
+        .count();
+    let mut out: Vec<&str> = std::iter::repeat_n("..", from.len() - common).collect();
+    out.extend(&to_dir[common..]);
+    out.extend(file);
+    out.join("/")
+}
+
 /// `[Content_Types].xml`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ContentTypes {
@@ -74,7 +99,7 @@ impl ContentTypes {
         let doc = xml::parse(Self::PART, text)?;
         let root = doc.root_element();
         if !xml::is(root, ns::CONTENT_TYPES, "Types") {
-            return Err(Error::NotAWordDocument("no content types".to_owned()));
+            return Err(Error::NotAnOfficeFile("no content types".to_owned()));
         }
         let mut types = Self::default();
         for node in root.children().filter(roxmltree::Node::is_element) {
@@ -222,6 +247,37 @@ mod tests {
             resolve_target("word/document.xml", "./styles.xml"),
             "word/styles.xml"
         );
+    }
+
+    #[test]
+    fn relative_targets_round_trip() {
+        for (source, part, want) in [
+            (
+                "ppt/slides/slide1.xml",
+                "ppt/media/image1.png",
+                "../media/image1.png",
+            ),
+            (
+                "ppt/slides/slide1.xml",
+                "ppt/slides/slide2.xml",
+                "slide2.xml",
+            ),
+            (
+                "ppt/presentation.xml",
+                "ppt/slides/slide3.xml",
+                "slides/slide3.xml",
+            ),
+            ("", "docProps/custom.xml", "docProps/custom.xml"),
+            (
+                "ppt/charts/chart1.xml",
+                "ppt/embeddings/Book1.xlsx",
+                "../embeddings/Book1.xlsx",
+            ),
+        ] {
+            let target = relative_target(source, part);
+            assert_eq!(target, want);
+            assert_eq!(resolve_target(source, &target), part);
+        }
     }
 
     #[test]

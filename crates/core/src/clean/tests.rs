@@ -5,8 +5,8 @@ use lineage_testkit::docx::{Package as Builder, para, plain, run, run_with, styl
 use lineage_testkit::fixtures;
 
 use super::*;
-use crate::docx::props::{custom_properties, read_ids};
 use crate::package::Relationships;
+use crate::package::props::{custom_properties, read_ids};
 use crate::testutil::{open, smoke};
 
 fn ids() -> LineageIds {
