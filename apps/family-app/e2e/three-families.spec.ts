@@ -123,15 +123,37 @@ test("walks the family tree by keyboard", async ({ page }) => {
   await expect(details).toContainText("Resume.docx");
 });
 
-test("shows a deck's history but offers nothing to open", async ({ page }) => {
+test("compares a deck's checkpoints, slide by slide", async ({ page }) => {
   await page.goto(BASE);
   await page.getByRole("link", { name: /Pitch deck/ }).click();
-  await expect(page.getByText(/^Comes with PowerPoint support/)).toBeVisible();
-  await expect(page.getByRole("checkbox", { name: /Compare/ })).toHaveCount(0);
-  await page.getByRole("tab", { name: "Sent copies" }).click();
+  await expect(page.getByText(/^Comes with PowerPoint support/)).toHaveCount(0);
+  const master = page.getByRole("region", { name: "Pitch deck.pptx" });
+  await expect(master.locator(".timeline__entry strong")).toHaveText(["v3", "v2", "v1"]);
+  await master.getByRole("checkbox", { name: "Compare Pitch deck v1" }).check();
+  await master.getByRole("checkbox", { name: "Compare Pitch deck v2" }).check();
+  await page.getByRole("button", { name: "Compare Pitch deck v1 with Pitch deck v2" }).click();
   await expect(
-    page.getByRole("button", { name: "Open as sent to Northgate Capital" }),
-  ).toBeDisabled();
+    page.getByRole("heading", { name: /from Pitch deck v1 to Pitch deck v2$/ }),
+  ).toBeVisible();
+  await expect(page.getByText("Slide 6 · Traction").first()).toBeVisible();
+  await expect(page.locator(".what ins").first()).toBeVisible();
+});
+
+test("opens a deck sent to an investor exactly as sent", async ({ page }) => {
+  await page.goto(BASE);
+  await page.getByRole("link", { name: /Pitch deck/ }).click();
+  await page.getByRole("tab", { name: "Sent copies" }).click();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Open as sent to Northgate Capital" }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(
+    /^Pitch deck – Northgate Capital v\d+ \(Northgate Capital\)\.pptx$/,
+  );
+  const got = fs.readFileSync(await file.path());
+  const sent = fs.readFileSync(
+    path.join(ROOT, "Pitch deck – Northgate Capital (Northgate Capital).pptx"),
+  );
+  expect(sha(got)).toBe(sha(sent));
 });
 
 test("relinks a moved file to the file the person picks", async ({ page }) => {
@@ -144,6 +166,32 @@ test("relinks a moved file to the file the person picks", async ({ page }) => {
   await missing.getByRole("button", { name: "Link this file" }).click();
   await expect(page.getByText(/is linked to “Platform roles \(renamed\).docx” now/)).toBeVisible();
   await expect(page.getByRole("group", { name: /is not found/ })).toHaveCount(0);
+});
+
+test("restores an old deck as a new tailored version", async ({ page }) => {
+  const decks = (dir: string) =>
+    fs
+      .readdirSync(dir)
+      .filter((n) => n.endsWith(".pptx"))
+      .map((n) => [n, sha(fs.readFileSync(path.join(dir, n)))]);
+  const before = [...decks(ROOT), ...decks(path.join(ROOT, "Tailored versions"))];
+  await page.goto(BASE);
+  await page.getByRole("link", { name: /Pitch deck/ }).click();
+  const master = page.getByRole("region", { name: "Pitch deck.pptx" });
+  await master.getByRole("button", { name: "Restore as a new version from Pitch deck v1" }).click();
+  await expect(page.getByLabel("Name of the new version")).toHaveValue("Pitch deck (v1)");
+  await page.getByLabel("Name of the new version").fill("Pitch deck – first deck");
+  await page.getByRole("button", { name: "Save the new version" }).click();
+  await expect(
+    page.getByText(/Saved “Pitch deck – first deck.pptx” as a new tailored version/),
+  ).toBeVisible();
+  const after = [...decks(ROOT), ...decks(path.join(ROOT, "Tailored versions"))];
+  for (const entry of before) {
+    expect(after).toContainEqual(entry);
+  }
+  expect(fs.existsSync(path.join(ROOT, "Tailored versions", "Pitch deck – first deck.pptx"))).toBe(
+    true,
+  );
 });
 
 test("restores an old version as a new one, changing nothing else", async ({ page }) => {

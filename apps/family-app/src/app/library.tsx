@@ -119,7 +119,7 @@ function Entries({ library, checking }: { library: LibraryView; checking: boolea
         <h2>Nothing tracked yet</h2>
         <p>{library.empty ?? "You don't track any documents yet."}</p>
         <ol className="steps">
-          <li>Open your master resume or deck in Word.</li>
+          <li>Open your master resume in Word, or your master deck in PowerPoint.</li>
           <li>Choose Lineage on the Home tab.</li>
           <li>Choose Start tracking. It appears here.</li>
         </ol>

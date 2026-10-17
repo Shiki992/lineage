@@ -82,6 +82,7 @@ describe("a document's page", () => {
       FAMILY,
       documentView().page.files[0]?.entries[2]?.id,
       "First draft",
+      "docx",
     );
     await waitFor(() => {
       expect(documents.open).toHaveBeenCalledTimes(2);
