@@ -1,5 +1,120 @@
 # Status
 
+## Phase 4: PowerPoint deck variants (2026-10-17). Built, and the founder journey clicked through in PowerPoint for Windows with the dev folder. PowerPoint on the web and OneDrive are the maintainer's run.
+
+Branch `phase-4-deck-variants`, from `phase-3b-my-documents` at `c75e934`. Not pushed.
+
+Decisions:
+
+- [0017 The deck model and matching](decisions/0017-deck-model-and-matching.md);
+- [0018 How a deck's changes land, and what a sent deck leaves out](decisions/0018-how-deck-changes-land.md);
+- [0010](decisions/0010-wasm-boundary-and-budgets.md) updated: wasm budgets raised to 4 MB, blob rounds for "Update N versions", PowerPoint timings.
+
+No new dependencies.
+
+Manual test script: [docs/testing/powerpoint-founder.md](testing/powerpoint-founder.md).
+
+The maintainer chose (2026-10-16):
+
+- "Update N versions" writes the closed versions' files from the master's panel;
+- a sent deck drops hidden slides only;
+- stay inside Word's wasm budget, or raise it to 4 MB;
+- keep the `.gitignore` as committed.
+
+**Done**
+
+- **Engine** (`crates/core/src/pptx/`):
+  - the deck reader: slides, shapes (text, drawings, pictures, tables, charts, groups, SmartArt, media, OLE), placeholders, geometry, notes, hidden slides, layouts, sections, animations;
+  - canonical keys that ignore what PowerPoint renews on save (decision 0017);
+  - matching by creation id, then slide id, then title, layout and text; shapes by id, placeholder, then content and place;
+  - what changed, grouped by slide, with word marks and plain summaries;
+  - three-way merge per shape, notes, settings, animations, slide and order, reusing Word's overlap kinds;
+  - the splice-only writer: shapes, notes and slides as parts, charts with their workbooks, media reused by bytes, order and sections rebuilt once;
+  - the structure check, and clean copies;
+  - `doc::Doc`, one face for Word and decks;
+  - `spec/format`: `pptxLocation`, with examples.
+- **Family logic** (`crates/lineage`):
+  - commands work by the family's format;
+  - `decks::update_versions` ("Update N versions", decision 0018) and `deck_panel`: what you just changed, which versions get it, the last copy sent;
+  - a returned deck is recognised, but reviewing it says "comes later".
+- **Boundary and shell:**
+  - wasm `deckPanel`, `stageVersionFile`, `markVersionOpen`, `updateVersions`, with DTOs, schemas and golden replies;
+  - `Storage` gains `readFileVersioned` and `replaceFile` (OneDrive: eTag and If-Match; dev folder: content hash) in every adapter and the conformance suite, and `FileLocked`;
+  - `Lineage.deckPanel` and `updateVersions`: writes every file version-checked, appends once, puts files back on failure, and goes again without a locked version.
+- **PowerPoint pane** (`apps/office-addin`):
+  - one manifest for Word and PowerPoint; requirements checked at run time (WordApi 1.5, PowerPointApi 1.7);
+  - `PowerPointHost`: the deck through `getFileAsync`, the ids as custom properties, "Open what they saw" through `createPresentation`;
+  - the master deck panel (screen 4): the call-out with figures marked, a tick per version with its context, **Update N versions**, the per-version report with **Keep mine** / **Use the master's**, **Sent to … · Open what they saw**, and **Check for changes**;
+  - a tailored deck's panel says to close it and update from the master;
+  - Send a copy says hidden slides are left out and notes stay.
+- **My documents:** decks compare slide by slide, open as sent (as .pptx), and restore as a new tailored version; the page names PowerPoint where it named Word.
+- **Fixtures and tests:**
+  - `crates/testkit` builds decks: 25 invented fixtures in `fixtures/pptx/synthetic`;
+  - nine saved and edited by real PowerPoint through COM in `fixtures/pptx/powerpoint` (`scripts/powerpoint-resave.ps1`);
+  - `scripts/powerpoint-smoke.ps1` opens decks in PowerPoint and compares their text with the engine's;
+  - the `pptx_reader` fuzz target in CI;
+  - the harness's founder journey, in memory and on disk;
+  - the test accounts' deck is a real history.
+
+**Checked**
+
+- **PowerPoint for Windows** (16.0, Current Channel), with the pane driven through the DevTools port and history in a scratch dev folder holding only the invented deck (not `.dev-storage`). The founder journey:
+  1. start tracking the eight-slide pitch deck;
+  2. three tailored versions;
+  3. a copy sent to Pellow Ventures from its version;
+  4. Northgate's own "$1.4M" on slide 6, saved in PowerPoint;
+  5. the master's "$2.0M": "You just changed Slide 6 · Traction";
+  6. **Update 2 versions** with Pellow unticked. Seed fund brought it in. Northgate's edits were saved as a checkpoint first, and it asked to choose; **Use the master's** brought it in. Pellow kept "$1.2M";
+  7. **Open what they saw** opened eight slides with "$1.2M ARR";
+  8. two more master changes updated all three versions, Pellow taking both at once;
+  9. with Seed fund open in PowerPoint, the others were updated and Seed fund's line said to close it; after closing it, it was updated.
+- **The audit** (`dev_folder.rs`, now deck-aware) of that folder: 28 checkpoints restore and hold together, 34 blobs match, the 3 versions on disk are their nodes' checkpoints, and the sent copy matches its record.
+- **Real PowerPoint opens** the three versions and the sent copy (COM, no repairs). Earlier in the phase: all 25 synthetic decks and 29 engine outputs, with their text as the engine wrote it.
+- **The slide-replacement spike** (decision 0018): 10 cases, each landed exactly, 75 to 140 ms. Deleting the old slide first keeps its ids. The version panel's Bring in is not wired (see Not done).
+- **My documents in the built-in browser** on the PowerPoint run's folder: the deck's seven checkpoints, and v1 compared with v7 ("2 changes", grouped under Slide 6 · Traction and Slide 8 · The ask).
+- **Playwright, 14 runs on Microsoft Edge:** the deck replaces the old "nothing to open" run with compare, open as sent (SHA-256 equal to the copy that left) and restore.
+- **LibreOffice:** the 25 synthetic decks and 22 merge outputs open headless (earlier in the phase). It was not run on the PowerPoint run's files, at the maintainer's request.
+
+**Tests**
+
+- **Rust:** 342 pass, 3 ignored (was 272): deck reading, matching, diff, merge, write, check and clean; 4 property tests; the PowerPoint fixtures; the family logic; the boundary.
+- **TypeScript:** 240 pass (was 218): shell 124, OneDrive 29, storage-local 9, design 15, add-in 35, My documents 28. Plus 14 Playwright runs.
+- **All checks pass:** fmt, clippy, cargo-deny, licence headers, fixtures, lint, typecheck, Prettier (on this phase's files; CLAUDE.md and BLUEPRINT have someone else's unformatted edits) and budgets.
+
+**Bugs found in the PowerPoint run, and fixed** (each with a test)
+
+- **One open version stopped "Update N versions"** with "The development storage couldn't do that." PowerPoint for Windows locks a deck it has open. Now `FileLocked`; the others are updated, and the line says to close it. The dev folder also left a temporary file behind.
+- **A pane that had fetched nothing needed more rounds for each version** (8 runs for 4 versions, past the limit of 6). Every version is now tried before blobs are fetched.
+- **One update stored 110 blobs, one at a time** (6.4 s for three versions). Blobs already seen in storage are skipped: 12 uploads, 2.2 s.
+- **Files staged for a failed run** carried over to the next one.
+- **"Check for changes" was hidden** while a change was shown; the ticks didn't reset for a different change with the same number of cards; a "Made …" notice stayed on later screens.
+- **A table showed as changed** after PowerPoint first saved it (its new row and column ids).
+- **"last sent 17 oct":** a version's whole status was lower-cased (Word too).
+- **The golden replies were stale** after 251007d (a chart's change id).
+
+**Budgets**
+
+- wasm 1,409,100 bytes raw, 467,525 gzipped (was 1,159,791 and 388,922). It is over Word's 420 KB, so the limits are now 4 MB (the maintainer's choice; decision 0010 has the measurements and the per-host split that would get back under).
+- JavaScript gzipped: task pane 162,848, My documents 158,133.
+- In PowerPoint: engine ready median 56 ms; panel ready median 268 ms; the deck panel 166 to 272 ms early, 550 to 830 ms with seven checkpoints; Update 3 versions 1.9 to 2.2 s.
+
+**Not done**
+
+- **PowerPoint on the web, and OneDrive.** They need the maintainer's Microsoft sign-in, and OneDrive the Entra registration (`docs/testing/powerpoint-founder.md`). In particular: whether OneDrive locks a version open in PowerPoint (423) or lets co-authoring windows share it.
+- **Bringing changes into an open tailored deck** from its own panel. The spike shows slides can be replaced exactly. Building it needs a checkpoint of what PowerPoint holds afterwards, a way back halfway through, and moves and sections (decision 0018).
+- **Reviewing a deck that came back.** It is recognised, and the panel says it comes later.
+- **Word's start-up** was not measured again: Word was open with the maintainer's own document.
+
+**Known issues**
+
+- **The deck panel and "Update N versions" are slower than a Word command** (see Budgets). The deck panel grows with the history.
+- **The first save of a deck another app wrote** shows "The slide master, layouts or theme changed" and chart formatting once. These are design and formatting, never text.
+- **The canvas's "Pellow replied"** isn't shown: the card is "Sent to Pellow Ventures on 17 Oct · Open what they saw".
+- **SmartArt** isn't among the real-PowerPoint fixtures: through COM, PowerPoint's SmartArt layouts come back empty without a window. The synthetic decks have it, and it is brought in by hand.
+- **The PowerPoint ribbon button** appeared only after the add-in was first started from **Home › Add-ins** in the dev run.
+- **A sensitivity label** that this computer's Office applies on open made PowerPoint ask to save decks Lineage had written. Choosing Don't Save kept them as written.
+- **BLUEPRINT §5 and CLAUDE.md** have someone else's uncommitted edits (the Excel engine and the CLI). They weren't touched, so BLUEPRINT doesn't yet say that tailored decks are updated from the master's panel.
+
 ## Phase 3B: My documents (2026-10-16). Built and checked in a browser on invented test accounts. The Microsoft sign-in and Word runs are the maintainer's.
 
 Branch `phase-3b-my-documents`, from `phase-3-returned-files` at `7e52eb5` (PR #5 merged). Not pushed.
