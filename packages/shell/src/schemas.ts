@@ -74,6 +74,7 @@ export const OpenFile = v.strictObject({
   role: Role,
   displayName: Text,
   storageRef: Text,
+  format: Text,
   checkpointLabel: Text,
   isLatest: v.boolean(),
   /** Set when the open file is a copy that was sent and came back. */
@@ -163,6 +164,43 @@ export const WhatChanged = v.strictObject({
   alreadyThere: v.array(ChangeCard),
 });
 export type WhatChanged = v.InferOutput<typeof WhatChanged>;
+
+/** The pitch deck panel (BLUEPRINT screen 4, decision 0018). */
+export const DeckPanel = v.strictObject({
+  master: MasterPanel,
+  justChanged: v.nullable(
+    v.strictObject({ headline: Text, cards: v.array(ChangeCard), unsaved: v.boolean() }),
+  ),
+  targets: v.array(
+    v.strictObject({ id: Id, name: Text, checked: v.boolean(), context: Text, storageRef: Text }),
+  ),
+  button: v.nullable(Text),
+  lastSent: v.nullable(v.strictObject({ sent: Id, text: Text, button: Text })),
+});
+export type DeckPanel = v.InferOutput<typeof DeckPanel>;
+
+export const RunResult = v.picklist(["updated", "upToDate", "needsChoice", "notUpdated"]);
+export type RunResult = v.InferOutput<typeof RunResult>;
+
+/** "Update N versions": what to append, and a line per version. */
+export const UpdateRun = v.strictObject({
+  outcome: Outcome,
+  headline: Text,
+  versions: v.array(
+    v.strictObject({
+      node: Id,
+      name: Text,
+      result: RunResult,
+      text: Text,
+      broughtIn: v.pipe(v.number(), v.integer(), v.minValue(0)),
+      savedEdits: v.boolean(),
+      left: WhatChanged,
+      hasFile: v.boolean(),
+      storageRef: Text,
+    }),
+  ),
+});
+export type UpdateRun = v.InferOutput<typeof UpdateRun>;
 
 export const Updates = v.strictObject({
   headline: Text,
@@ -405,6 +443,14 @@ export const CardDecision = v.strictObject({
 });
 export type CardDecision = v.InferOutput<typeof CardDecision>;
 
+/** A decision on a card a previous "Update N versions" left, for one version. */
+export const VersionChoice = v.strictObject({
+  node: Id,
+  card: v.pipe(Text, v.minLength(1)),
+  decision: Decision,
+});
+export type VersionChoice = v.InferOutput<typeof VersionChoice>;
+
 export const SendArgs = v.strictObject({
   recipient: v.pipe(Text, v.trim(), v.minLength(1), v.maxLength(200)),
   purpose: v.nullable(v.pipe(Text, v.maxLength(200))),
@@ -470,4 +516,7 @@ export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "restore-as-new-version": Outcome,
   "mark-milestone": Outcome,
   relink: Outcome,
+  "send-copy-deck": Outcome,
+  "deck-panel": DeckPanel,
+  "update-versions": UpdateRun,
 };

@@ -55,8 +55,8 @@ opt-level = "s"
 lto = true
 codegen-units = 1
 
-# The task pane's engine (scripts/build-wasm.mjs). Smallest code: 907 KB raw and
-# 324 KB gzipped against budgets of 1.5 MB and 420 KB (decision 0010).
+# The task pane's engine (scripts/build-wasm.mjs). Smallest code: with decks
+# (Phase 4), 1,406 KB raw and 467 KB gzipped, against budgets of 4 MB (decision 0010).
 [profile.wasm]
 inherits = "release"
 opt-level = "z"

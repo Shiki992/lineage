@@ -10,32 +10,32 @@ Every deck has one slide master with five layouts (Title Slide, Title and Conten
 
 The base deck is eight slides: Title, Problem, Solution, Market, Product (a picture), **Traction** (slide 6: a column chart with its data workbook, and a text box with "$1.2M ARR"), Team (two content) and The ask. Slide ids are 256 to 263; slides 1, 4 and 6 have speaker notes.
 
-| File                                 | Covers                                                                                           | Origin                      | Licence    |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------ | --------------------------- | ---------- |
-| `pitch-deck.pptx`                    | The base deck                                                                                    | Generated, invented content | Apache-2.0 |
-| `pitch-deck-traction-update.pptx`    | Slide 6: "$1.2M ARR" changed to "$2.0M ARR", and the chart's Q4 value changed                    | Generated, invented content | Apache-2.0 |
-| `pitch-deck-northgate.pptx`          | A tailored version: a new subtitle, and a new slide 264 "Why Northgate" before The ask           | Generated, invented content | Apache-2.0 |
-| `pitch-deck-reordered.pptx`          | Market moved after Traction (same ids and files)                                                 | Generated, invented content | Apache-2.0 |
-| `pitch-deck-duplicated.pptx`         | Traction duplicated: a new id, creation id and file, with the same content                       | Generated, invented content | Apache-2.0 |
-| `pitch-deck-chart-edited.pptx`       | Only the chart's data changed (chart part and workbook)                                          | Generated, invented content | Apache-2.0 |
-| `pitch-deck-notes-edited.pptx`       | A paragraph added to slide 6's speaker notes                                                     | Generated, invented content | Apache-2.0 |
-| `pitch-deck-hidden-appendix.pptx`    | A ninth, hidden slide (`show="0"`)                                                               | Generated, invented content | Apache-2.0 |
-| `pitch-deck-layout-changed.pptx`     | Market moved from Title and Content to Title Only, its bullets now in a text box                 | Generated, invented content | Apache-2.0 |
-| `pitch-deck-picture-moved.pptx`      | The product picture moved right (position only)                                                  | Generated, invented content | Apache-2.0 |
-| `pitch-deck-bold.pptx`               | "$4.2B" made bold (formatting only)                                                              | Generated, invented content | Apache-2.0 |
-| `pitch-deck-team-removed.pptx`       | The Team slide deleted                                                                           | Generated, invented content | Apache-2.0 |
-| `pitch-deck-sections.pptx`           | Two sections (`p14:sectionLst`)                                                                  | Generated, invented content | Apache-2.0 |
-| `pitch-deck-comments.pptx`           | Legacy comments by two authors on two slides (`commentAuthors.xml`, `ppt/comments/`)             | Generated, invented content | Apache-2.0 |
-| `pitch-deck-custom-properties.pptx`  | Two custom document properties                                                                   | Generated, invented content | Apache-2.0 |
-| `pitch-deck-empty-properties.pptx`   | An empty, self-closing `<Properties/>` custom part                                               | Generated, invented content | Apache-2.0 |
-| `pitch-deck-deflated.pptx`           | Deflate-compressed entries, like PowerPoint saves                                                | Generated, invented content | Apache-2.0 |
-| `pitch-deck-streamed.pptx`           | Deflated with data descriptors and directory entries, like streaming zip writers                | Generated, invented content | Apache-2.0 |
-| `pitch-deck-added-a.pptx`            | A new slide 264 "Pricing" before The ask                                                         | Generated, invented content | Apache-2.0 |
-| `pitch-deck-added-b.pptx`            | A different new slide, also id 264 ("Competition"), with another creation id                     | Generated, invented content | Apache-2.0 |
-| `pitch-deck-no-creation-ids.pptx`    | No `p14:creationId` on any slide, as older or other apps write                                   | Generated, invented content | Apache-2.0 |
-| `pitch-deck-table.pptx`              | A new slide with a table (`a:tbl` in a graphic frame)                                            | Generated, invented content | Apache-2.0 |
-| `pitch-deck-group.pptx`              | A group of two text boxes on the Solution slide                                                  | Generated, invented content | Apache-2.0 |
-| `pitch-deck-links.pptx`              | An external hyperlink with `&` in its address                                                    | Generated, invented content | Apache-2.0 |
-| `pitch-deck-animation.pptx`          | An entrance animation (`p:timing`) on slide 6's text box                                         | Generated, invented content | Apache-2.0 |
+| File                                | Covers                                                                                 | Origin                      | Licence    |
+| ----------------------------------- | -------------------------------------------------------------------------------------- | --------------------------- | ---------- |
+| `pitch-deck.pptx`                   | The base deck                                                                          | Generated, invented content | Apache-2.0 |
+| `pitch-deck-traction-update.pptx`   | Slide 6: "$1.2M ARR" changed to "$2.0M ARR", and the chart's Q4 value changed          | Generated, invented content | Apache-2.0 |
+| `pitch-deck-northgate.pptx`         | A tailored version: a new subtitle, and a new slide 264 "Why Northgate" before The ask | Generated, invented content | Apache-2.0 |
+| `pitch-deck-reordered.pptx`         | Market moved after Traction (same ids and files)                                       | Generated, invented content | Apache-2.0 |
+| `pitch-deck-duplicated.pptx`        | Traction duplicated: a new id, creation id and file, with the same content             | Generated, invented content | Apache-2.0 |
+| `pitch-deck-chart-edited.pptx`      | Only the chart's data changed (chart part and workbook)                                | Generated, invented content | Apache-2.0 |
+| `pitch-deck-notes-edited.pptx`      | A paragraph added to slide 6's speaker notes                                           | Generated, invented content | Apache-2.0 |
+| `pitch-deck-hidden-appendix.pptx`   | A ninth, hidden slide (`show="0"`)                                                     | Generated, invented content | Apache-2.0 |
+| `pitch-deck-layout-changed.pptx`    | Market moved from Title and Content to Title Only, its bullets now in a text box       | Generated, invented content | Apache-2.0 |
+| `pitch-deck-picture-moved.pptx`     | The product picture moved right (position only)                                        | Generated, invented content | Apache-2.0 |
+| `pitch-deck-bold.pptx`              | "$4.2B" made bold (formatting only)                                                    | Generated, invented content | Apache-2.0 |
+| `pitch-deck-team-removed.pptx`      | The Team slide deleted                                                                 | Generated, invented content | Apache-2.0 |
+| `pitch-deck-sections.pptx`          | Two sections (`p14:sectionLst`)                                                        | Generated, invented content | Apache-2.0 |
+| `pitch-deck-comments.pptx`          | Legacy comments by two authors on two slides (`commentAuthors.xml`, `ppt/comments/`)   | Generated, invented content | Apache-2.0 |
+| `pitch-deck-custom-properties.pptx` | Two custom document properties                                                         | Generated, invented content | Apache-2.0 |
+| `pitch-deck-empty-properties.pptx`  | An empty, self-closing `<Properties/>` custom part                                     | Generated, invented content | Apache-2.0 |
+| `pitch-deck-deflated.pptx`          | Deflate-compressed entries, like PowerPoint saves                                      | Generated, invented content | Apache-2.0 |
+| `pitch-deck-streamed.pptx`          | Deflated with data descriptors and directory entries, like streaming zip writers       | Generated, invented content | Apache-2.0 |
+| `pitch-deck-added-a.pptx`           | A new slide 264 "Pricing" before The ask                                               | Generated, invented content | Apache-2.0 |
+| `pitch-deck-added-b.pptx`           | A different new slide, also id 264 ("Competition"), with another creation id           | Generated, invented content | Apache-2.0 |
+| `pitch-deck-no-creation-ids.pptx`   | No `p14:creationId` on any slide, as older or other apps write                         | Generated, invented content | Apache-2.0 |
+| `pitch-deck-table.pptx`             | A new slide with a table (`a:tbl` in a graphic frame)                                  | Generated, invented content | Apache-2.0 |
+| `pitch-deck-group.pptx`             | A group of two text boxes on the Solution slide                                        | Generated, invented content | Apache-2.0 |
+| `pitch-deck-links.pptx`             | An external hyperlink with `&` in its address                                          | Generated, invented content | Apache-2.0 |
+| `pitch-deck-animation.pptx`         | An entrance animation (`p:timing`) on slide 6's text box                               | Generated, invented content | Apache-2.0 |
 
 All 25 open in LibreOffice 26.8.1 headless (converted to PDF: the hidden slide is left out, as PowerPoint does).

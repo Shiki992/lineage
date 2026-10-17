@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Fails when a built app is over its budgets (decisions 0010 and 0015): the
-// engine's wasm at most 1.5 MB raw and 420 KB gzipped, and each app's
+// engine's wasm at most 4 MB raw and gzipped, and each app's
 // JavaScript at most 250 KB gzipped. Run after building the task pane and My
 // documents (`pnpm budgets` does both).
 
@@ -11,7 +11,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
-const BUDGETS = { wasmRaw: 1_500_000, wasmGzip: 420_000, jsGzip: 250_000 };
+// The wasm limits were 1.5 MB raw and 420 KB gzipped until the deck engine
+// (Phase 4) took the engine to 467 KB gzipped; the maintainer chose to raise
+// them to 4 MB rather than split the engine (decision 0010, 2026-10-17).
+const BUDGETS = { wasmRaw: 4_000_000, wasmGzip: 4_000_000, jsGzip: 250_000 };
 const APPS = { "task pane": "office-addin", "My documents": "family-app" };
 
 const gzip = (bytes) => gzipSync(bytes, { level: 9 }).length;

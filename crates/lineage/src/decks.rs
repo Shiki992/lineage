@@ -147,6 +147,11 @@ pub fn update_versions(
             run.file = Some(current);
         }
         if let Err(e) = result {
+            // History that can't be read stops the whole run: the host fetches
+            // missing blobs and runs it again.
+            if matches!(e, Error::MissingBlob(_) | Error::Ledger(_)) {
+                return Err(e);
+            }
             run.result = RunResult::NotUpdated;
             run.text = format!("Not updated: {}", reason(&e));
         }

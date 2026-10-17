@@ -501,6 +501,8 @@ fn golden_replies() {
     golden.keep("relink", &reply);
     host.take(reply);
 
+    deck_replies(&mut golden);
+
     // Errors.
     let fresh = Session::new([7; 32]);
     golden.keep(
@@ -532,4 +534,106 @@ fn golden_replies() {
     golden.keep("referenced-blobs", &fresh.referenced_blobs(&host.ledger));
     assert!(!host.stored.is_empty());
     golden.finish();
+}
+
+/// The founder's deck: the pitch deck panel, "Update N versions" and a sent deck.
+fn deck_replies(golden: &mut Golden) {
+    use lineage_core::docx::props::{read_ids, write_ids};
+    use lineage_testkit::decks::{edits, ids, pitch_deck, traction_box};
+    use lineage_testkit::pptx::Shape;
+
+    let with_ids = |file: &[u8], built: &lineage_testkit::pptx::Deck| -> Vec<u8> {
+        let ids = read_ids(&Package::read(file).expect("reads"))
+            .expect("reads")
+            .expect("ids");
+        let mut package = Package::read(&built.to_bytes()).expect("reads");
+        write_ids(&mut package, &ids).expect("writes");
+        package.to_bytes().expect("bytes")
+    };
+    let mut host = Host {
+        session: Session::new([43; 32]),
+        ledger: Vec::new(),
+        stored: Vec::new(),
+        now: START,
+    };
+    let reply = host.session.start_tracking(
+        &pitch_deck().to_bytes(),
+        "Pitch deck.pptx",
+        "Pitch deck.pptx",
+        host.now,
+    );
+    let (master_file, _) = host.take(reply);
+    let master_file = master_file.expect("ids written");
+    let state: Value = serde_json::from_str(&host.session.family(&host.ledger).json).expect("json");
+    let master = id(&state["value"]["nodes"][0]["id"]);
+    let mut versions = Vec::new();
+    for name in ["Pitch deck – Seed fund.pptx", "Pitch deck – Northgate.pptx"] {
+        let reply = host.session.make_tailored_version(
+            &host.ledger,
+            name,
+            &format!("Tailored versions/{name}"),
+            host.now,
+        );
+        let created: Value = serde_json::from_str(&reply.json).expect("json");
+        let node = id(&created["value"]["created"]);
+        let (_, file) = host.take(reply);
+        versions.push((node, file.expect("version file")));
+    }
+    let mut own = pitch_deck();
+    for placed in &mut own.slide_mut(ids::TRACTION).shapes {
+        if let Shape::TextBox { .. } = placed.shape {
+            placed.shape = traction_box("$1.3M ARR");
+        }
+    }
+    let northgate = with_ids(&versions[1].1, &own);
+    let reply = host.session.save_checkpoint(
+        &host.ledger,
+        &versions[1].0,
+        &northgate,
+        "Northgate's numbers",
+        host.now,
+    );
+    let (file, _) = host.take(reply);
+    versions[1].1 = file.expect("checkpointed");
+
+    let reply = host.session.send_copy(
+        &host.ledger,
+        &versions[0].0,
+        &versions[0].1,
+        r#"{"recipient":"Pellow Ventures","purpose":"Seed round","embedId":true}"#,
+        host.now,
+    );
+    golden.keep("send-copy-deck", &reply);
+    host.take(reply);
+
+    let edited = with_ids(&master_file, &edits::traction_update(pitch_deck()));
+    golden.keep(
+        "deck-panel",
+        &host.session.deck_panel(&host.ledger, Some(&edited)),
+    );
+    let reply = host.session.save_checkpoint(
+        &host.ledger,
+        &master,
+        &edited,
+        "New traction numbers",
+        host.now,
+    );
+    host.take(reply);
+    for (node, file) in &versions {
+        let staged = host.session.stage_version_file(node, file);
+        assert!(staged.json.contains(r#""ok":true"#));
+    }
+    let reply = host.session.update_versions(&host.ledger, "[]", host.now);
+    let value = golden.keep("update-versions", &reply);
+    assert_eq!(value["value"]["headline"], "Updated all 2 versions");
+    let mut reply = reply;
+    assert!(reply.files.iter().any(|(n, _)| *n == versions[0].0));
+    reply.files.clear();
+    let v: Value = serde_json::from_str(&reply.json).expect("json");
+    host.ledger.extend_from_slice(
+        v["value"]["outcome"]["ledgerLines"]
+            .as_str()
+            .expect("lines")
+            .as_bytes(),
+    );
 }

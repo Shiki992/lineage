@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "value": {
+    "blobs": [
+      "6402c6f2ceaca4df80911854731bd238c62c6d38f56eca127c5deb6e6c14aabd"
+    ],
+    "created": "272b8975024459bfc758f3eded43ead0",
+    "familyId": null,
+    "hasFile": false,
+    "ids": null,
+    "ledgerLines": "{\"v\":1,\"seq\":9,\"at\":1792056840000,\"event\":{\"type\":\"CopySent\",\"sent_copy_id\":\"272b8975024459bfc758f3eded43ead0\",\"from_checkpoint_id\":\"389e97365b35ec908c2666018a28fb9e\",\"recipient\":\"Pellow Ventures\",\"purpose\":\"Seed round\",\"format\":\"pptx\",\"file\":\"6402c6f2ceaca4df80911854731bd238c62c6d38f56eca127c5deb6e6c14aabd\",\"id_embedded\":true,\"cleaned\":{\"revisions\":0,\"comments\":0,\"hidden_runs\":0}}}\n",
+    "newFileName": "Pitch deck – Seed fund (Pellow Ventures).pptx",
+    "nothingChanged": false,
+    "records": 1
+  }
+}

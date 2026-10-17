@@ -8,6 +8,7 @@
 import type { FileKind, FileLocation, LedgerVersion, Storage, StoredFile } from "@lineage/shell";
 import {
   BadBlob,
+  FileChanged,
   FileExists,
   NotFound,
   StorageConflict,
@@ -61,6 +62,34 @@ export class LocalFolderStorage implements Storage {
       throw failed("readFile", response);
     }
     return bytes(response);
+  }
+
+  async readFileVersioned(ref: string): Promise<{ bytes: Uint8Array; version: string }> {
+    const response = await this.call(`/file?ref=${enc(ref)}`);
+    if (response.status === 404) {
+      throw new NotFound(ref);
+    }
+    if (!response.ok) {
+      throw failed("readFileVersioned", response);
+    }
+    return { bytes: await bytes(response), version: response.headers.get("X-File-Version") ?? "" };
+  }
+
+  async replaceFile(ref: string, data: Uint8Array, expected: string): Promise<string> {
+    const response = await this.call(`/file?ref=${enc(ref)}&expected=${enc(expected)}`, {
+      method: "PUT",
+      body: data as Uint8Array<ArrayBuffer>,
+    });
+    if (response.status === 404) {
+      throw new NotFound(ref);
+    }
+    if (response.status === 409) {
+      throw new FileChanged(ref);
+    }
+    if (!response.ok) {
+      throw failed("replaceFile", response);
+    }
+    return ((await response.json()) as { version: string }).version;
   }
 
   async writeFile(

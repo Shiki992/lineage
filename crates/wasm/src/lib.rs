@@ -55,6 +55,13 @@ impl Reply {
         self.0.new_file.take()
     }
 
+    /// New bytes for a tailored version "Update N versions" wrote, by node id.
+    #[wasm_bindgen(js_name = takeVersionFile)]
+    pub fn take_version_file(&mut self, node: &str) -> Option<Vec<u8>> {
+        let at = self.0.files.iter().position(|(n, _)| n == node)?;
+        Some(self.0.files.remove(at).1)
+    }
+
     /// A blob to store, by the hash listed in the outcome.
     #[must_use]
     pub fn blob(&self, hash: &str) -> Option<Vec<u8>> {
@@ -133,6 +140,22 @@ impl Engine {
     #[must_use]
     pub fn referenced_blobs(&self, ledger: &[u8]) -> Reply {
         Reply(self.0.referenced_blobs(ledger))
+    }
+
+    #[wasm_bindgen(js_name = deckPanel)]
+    #[must_use]
+    pub fn deck_panel(&self, ledger: &[u8], open: Option<Vec<u8>>) -> Reply {
+        Reply(self.0.deck_panel(ledger, open.as_deref()))
+    }
+
+    #[wasm_bindgen(js_name = stageVersionFile)]
+    pub fn stage_version_file(&mut self, node: &str, file: &[u8]) -> Reply {
+        Reply(self.0.stage_version_file(node, file))
+    }
+
+    #[wasm_bindgen(js_name = updateVersions)]
+    pub fn update_versions(&mut self, ledger: &[u8], choices: &str, now_ms: f64) -> Reply {
+        Reply(self.0.update_versions(ledger, choices, now_ms))
     }
 
     #[wasm_bindgen(js_name = startTracking)]

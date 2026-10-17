@@ -14,6 +14,7 @@ import { History, concat } from "./history.js";
 import type * as s from "./schemas.js";
 import type { Storage } from "./storage.js";
 import { FileExists, NotFound, StorageConflict, checkFileName } from "./storage.js";
+import { numbered, withExtension } from "./names.js";
 
 export interface LibraryOptions {
   readonly engine: Engine;
@@ -39,15 +40,6 @@ export interface MissingFile {
 const utf8 = new TextEncoder();
 /** Fetch rounds for a command: one per snapshot it may read, and a bound. */
 const PRESS_ROUNDS = 64;
-
-function docx(name: string): string {
-  const trimmed = name.trim();
-  return /\.docx$/i.test(trimmed) ? trimmed : `${trimmed}.docx`;
-}
-
-function numbered(name: string, n: number): string {
-  return `${name.replace(/\.docx$/i, "")} (${String(n)}).docx`;
-}
 
 export class Library {
   private readonly engine: Engine;
@@ -208,9 +200,12 @@ export class Library {
     throw new StorageConflict("the ledger kept changing");
   }
 
-  /** A file name for a new tailored version: `name`, or "name (2)" if it's taken. */
-  async freeName(name: string): Promise<string> {
-    const wanted = checkFileName(docx(name));
+  /**
+   * A file name for a new tailored version: `name`, or "name (2)" if it's
+   * taken, with the extension of the family's `format`.
+   */
+  async freeName(name: string, format = "docx"): Promise<string> {
+    const wanted = checkFileName(withExtension(name, format));
     const taken = new Set((await this.storage.fileNames("version")).map((n) => n.toLowerCase()));
     if (!taken.has(wanted.toLowerCase())) {
       return wanted;
@@ -232,9 +227,10 @@ export class Library {
     family: string,
     checkpoint: string,
     name: string,
+    format = "docx",
   ): Promise<{ name: string; ref: string; nodeId: string }> {
     return this.timed("restoreAsNewVersion", async () => {
-      const clean = checkFileName(docx(name));
+      const clean = checkFileName(withExtension(name, format));
       if (
         (await this.storage.fileNames("version")).some(
           (n) => n.toLowerCase() === clean.toLowerCase(),

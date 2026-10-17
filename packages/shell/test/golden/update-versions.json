@@ -1,0 +1,158 @@
+{
+  "ok": true,
+  "value": {
+    "headline": "Updated all 2 versions",
+    "outcome": {
+      "blobs": [
+        "4f36f789306cf175dba082c6e31b6258f4101f709f8b8f452715fd3e9747b3fe",
+        "616b7f3ddc378dce05ee0707e9c341e0c272fe978ff5b227af1c835da9d9ee4c",
+        "d9860c13fbf597eec05867f8e8c39d1120476c3ec2a09221f3776fcaac2efbd1",
+        "f1b5744d66a1292d8380262d7d3465605dff4dfc0056b5fab8ff9c365d03133f",
+        "8bc47e087c5cbdc32ac0c833069bc7445b2622c727eef67fd292b459dfad7859",
+        "288c66d873f3d6518c867015f73ff9b0cd40da4e037e00b6613415a6a538a868",
+        "c1249ab928f592992a012fadea8f48598ad16d8223d5abb4b6fad3ca74bbc971",
+        "4eb6e3493230811a099b24ee36be3fa785cffc5b35642c64f29f2bf51747cfe0",
+        "355a0efe3690b0da9f7a1acdc9c13e7255b314293bcaf13262dfed6831d3b859",
+        "8246d333bf3764cd35563e3df1828c26bbc28890815a2987caf3e592791ba60d",
+        "d1ab5ad15b91a406bf79418dcd453197c9d93b3fc37d5b8431a49d8b36e9eaf8",
+        "4d32e0cc60a17fd21ddb0558bcd89307966c70de53c0bf7c036fae65a78bfbd7",
+        "38f2ac2a20c13fcac1b447aaf72ca8f803abea8fafc9121f470be2ece6fc45f4",
+        "ef7947abed9fd773a6a9aad8b74479d3726226782c630d6cefaed329d8aa1a91",
+        "0dcaf10f1e117fe92cc9acfd0ee0770444fa79eab500ff5e4dd41d6cef8ad4ae",
+        "7155550a19b180d2f360ea17e2cf617e6cadc9e3baf24f346fea564d577ba453",
+        "c900da93a4de8bad9a582295b1dbcb892e6cfec52985354da973ebb3fab497c1",
+        "4446069208ff4cd22879cccdfb0a2a302cb7e572e2c48d00b64066d25f026df1",
+        "86965ef9455ff606a737a3f2c9af985f5b17cbcafaf2722bdb0aecf690c9eb8b",
+        "0e7ac03251337ecbaf6c8ca13619db1caeda5c90c4e3210d45d6c3f5df4de103",
+        "c3f003595fcae91443bce69c9632d826b6f4569e2d4e17e98e40e52d620607f0",
+        "80a0bb67e5afd02eb8fc0ab5a9f4f34dde36a48c546882ae21dcad074a2921a9",
+        "0eea637253171e293e5ac02721203cedf1d12c25e0de3218c80531b05aaa9cb7",
+        "f78f296579095a9d8296d23b5afb91380b7ddb6ec944113187bbd6deffd1b1d0",
+        "793c79405399f6f76daa576ea3704494528c35b4588a3596b3420b20b040759a",
+        "0fe17cc9cc36df3642c7642e6d2c256ce36c7ae1176927c7ae5621086c43c5b1",
+        "8af91e9c1509e850fa6c181fdc96bdb74b9391df80c69b8b2703a3ce975b2c7c",
+        "ea1a43d57540e365bd1878027a4061a2b8bd1208fa05684f59c15a7de8ccac45",
+        "335db109f8098713a4aea5409f973d9d2eb5c9f23e5dc082d39a6d3023c85e9c",
+        "e3a7918c20f198b47e191234eaa42b829f8284f96b32e617e18e1faaa5f50a29",
+        "9c8a504739e1b738f5a1488bb52f7c961276827276d7978eee83aafb838aa6ee",
+        "a758510421a98b0f7ef957b59cf71c2e5f2589bc83d0ad93649e120ac6063e7b",
+        "7524a2841a9e47077c42226c243c497c8dc29c2183dd80a2b5281d9edef92963",
+        "718cfa287b54b7f82df6682812b50a01679bf43efced4f91bc91edb1f30fd286",
+        "8ce06dd483eab4f883206a44f827ddd0cb3a8dd05debab7e7076238d5f67a42f",
+        "0d32ca4e6dd272da7af434b3dd6c3e56def8f4404e17392690643e9521ed643d",
+        "3602eb4e58a4228a7c0ee1d279a014487854518e02c75bb8fb751988b841fc76",
+        "105d4768d59184b9a8dd0086320da8d371766bf75f711dc00c3177683ac0bb00",
+        "15517f3f650ef8321219ac32a5cb2e48b36fd250639242c6464fc06df9899118",
+        "d09de5116e19fe385c54265cc7c8da0604988831a3a17410c3021fec13fb47c7",
+        "a625f413e4dca97454e58b8a8de20d6aadf29ff44a209b32d5c56bfe137ed9e7",
+        "e9f871e5dda59e551b1c9a39bc86c7dbc0def75d873656fd7716b11ba33db887",
+        "d61c64c3298763cbda49a57397b11812d70fa62a06b229702103e97f90961670",
+        "5fffcde8c465d3981e252e066d131fdae101d30c34e11ce68c7e8b313d49ff04",
+        "70cf3f9f8961c71ad0dd9fef8dda558db76a75f775bccc422bd221bd78018f4a",
+        "dff4948f16f956356296bdebcdbd7ca6f2dbcd2741625af362762e7cc2a2f5ef",
+        "7c9c59037e41040794184565d7c0eba182d7c3a04220d0182f1b0e10417f21dc",
+        "2919af0ebedb0ad069955c53e96a54f94902d6854728c3c531ac9cb7457fe824",
+        "a2e8e16badaaf3348edf756e8e1b1d0c83b53b67b137988245c81c3d2f3bc855"
+      ],
+      "created": null,
+      "familyId": null,
+      "hasFile": false,
+      "ids": null,
+      "ledgerLines": "{\"v\":1,\"seq\":11,\"at\":1792056960000,\"event\":{\"type\":\"UpdateOffered\",\"offer_id\":\"f15f555dfc21a3330ebe3e6db9927d26\",\"from_checkpoint_id\":\"7ca776e3f1f21752db34a6284efa1105\",\"to_node_id\":\"dacd9463c57510a014472a64e5be2463\",\"change_ids\":[\"c7174e77015cfd44b\",\"c0e3b7c0dee710145\"]}}\n{\"v\":1,\"seq\":12,\"at\":1792056960000,\"event\":{\"type\":\"UpdateOffered\",\"offer_id\":\"4a2807eb680181f7415a2e3e28be4373\",\"from_checkpoint_id\":\"7ca776e3f1f21752db34a6284efa1105\",\"to_node_id\":\"aee614c3be8b4aac78d1cc11f35739d4\",\"change_ids\":[\"c7174e77015cfd44b\",\"c0e3b7c0dee710145\"]}}\n{\"v\":1,\"seq\":13,\"at\":1792056960000,\"event\":{\"type\":\"ChangeStateRecorded\",\"node_id\":\"dacd9463c57510a014472a64e5be2463\",\"change_id\":\"c7174e77015cfd44b\",\"from_checkpoint_id\":\"7ca776e3f1f21752db34a6284efa1105\",\"state\":\"merged\",\"how\":\"clicked\"}}\n{\"v\":1,\"seq\":14,\"at\":1792056960000,\"event\":{\"type\":\"ChangeStateRecorded\",\"node_id\":\"dacd9463c57510a014472a64e5be2463\",\"change_id\":\"c0e3b7c0dee710145\",\"from_checkpoint_id\":\"7ca776e3f1f21752db34a6284efa1105\",\"state\":\"merged\",\"how\":\"clicked\"}}\n{\"v\":1,\"seq\":15,\"at\":1792056960000,\"event\":{\"type\":\"CheckpointSaved\",\"checkpoint_id\":\"d2b5962a651d64e619be0977bc92e6bd\",\"node_id\":\"dacd9463c57510a014472a64e5be2463\",\"parent_ids\":[\"389e97365b35ec908c2666018a28fb9e\",\"7ca776e3f1f21752db34a6284efa1105\"],\"snapshot\":\"dff4948f16f956356296bdebcdbd7ca6f2dbcd2741625af362762e7cc2a2f5ef\",\"fingerprint\":{\"sketch\":[43314424,91648328,120981035,164767751,216439193,263941513,271543918,279309311,363787729,371606512,396305777,511208156,552093229,554075640,596728069,656840405,726166174,733588527,751822184,754168678,767392357,816768537,889955428,904466062,1079922573,1080361528,1152943707,1230893461,1312955545,1332695577,1363057109,1372564377,1379266297,1393159884,1407152741,1469732880,1480615990,1522584845,1528207448,1582818343,1612058489,1619534268,1627615065,1654331646,1698594520,1718145459,1736752767,1746594080,1775625527,1837939016,1849268886,1875136204,1886908088,1963965949,2047934858,2100847259,2139514797,2145979941,2156108088,2156212012,2225100774,2233155603,2248546695,2270686953,2365322699,2370548161,2377884635,2457938616,2476412855,2494791172,2505104968,2535742749,2544855229,2567285191,2582175009,2636569758,2656789157,2717624221,2727480177,2802167812,2873296630,2897379803,2908716472,2945255065,3002531145,3017612990,3125683784,3186539215,3198052707,3279354628,3317442800,3327276412,3396819917,3409834990,3418117406,3423957362,3521999074,3522709965,3540483925,3685387266,3814878743,3846336279,3915052381,3949450181,3992238011,4026044143,4037304647,4104674908,4122295501,4159073318,4189668720,4190124265],\"structure\":9740023539569406744,\"words\":116},\"note\":\"Brought in 2 changes from master v2\",\"author\":null,\"changes\":null,\"engine_version\":\"0.0.0\"}}\n{\"v\":1,\"seq\":16,\"at\":1792056960000,\"event\":{\"type\":\"UpdateApplied\",\"node_id\":\"dacd9463c57510a014472a64e5be2463\",\"result_checkpoint_id\":\"d2b5962a651d64e619be0977bc92e6bd\",\"merged\":[\"c7174e77015cfd44b\",\"c0e3b7c0dee710145\"],\"declined\":[]}}\n{\"v\":1,\"seq\":17,\"at\":1792056960000,\"event\":{\"type\":\"ChangeStateRecorded\",\"node_id\":\"aee614c3be8b4aac78d1cc11f35739d4\",\"change_id\":\"c7174e77015cfd44b\",\"from_checkpoint_id\":\"7ca776e3f1f21752db34a6284efa1105\",\"state\":\"merged\",\"how\":\"clicked\"}}\n{\"v\":1,\"seq\":18,\"at\":1792056960000,\"event\":{\"type\":\"CheckpointSaved\",\"checkpoint_id\":\"a9b5070194bd8ad842d14be5af31375e\",\"node_id\":\"aee614c3be8b4aac78d1cc11f35739d4\",\"parent_ids\":[\"34f71315cab055a9c8d83e314cb59d11\",\"7ca776e3f1f21752db34a6284efa1105\"],\"snapshot\":\"a2e8e16badaaf3348edf756e8e1b1d0c83b53b67b137988245c81c3d2f3bc855\",\"fingerprint\":{\"sketch\":[43314424,91648328,120981035,164767751,216439193,263941513,271543918,279309311,363787729,371606512,396305777,511208156,542863731,552093229,554075640,596728069,656840405,680489796,726166174,733588527,751822184,754168678,767392357,816768537,878612354,889955428,904466062,1079922573,1080361528,1152943707,1230893461,1312955545,1332695577,1363057109,1372564377,1393159884,1407152741,1469732880,1480615990,1515308460,1522584845,1528207448,1582818343,1612058489,1619534268,1627615065,1654331646,1685732672,1698594520,1718145459,1746594080,1775625527,1837939016,1849268886,1875136204,1886908088,1963965949,2047934858,2100847259,2139514797,2156108088,2156212012,2225100774,2233155603,2248546695,2270686953,2365322699,2370548161,2377884635,2457938616,2476412855,2494791172,2505104968,2535742749,2544855229,2567285191,2582175009,2636569758,2656789157,2710194187,2717624221,2727480177,2802167812,2873296630,2908716472,2945255065,3002531145,3017612990,3125683784,3198052707,3279354628,3317442800,3327276412,3396819917,3409834990,3418117406,3423957362,3521999074,3522709965,3540483925,3685387266,3814878743,3846336279,3949450181,3992238011,4026044143,4037304647,4104674908,4122295501,4159073318,4189668720,4190124265],\"structure\":9740023539569406744,\"words\":116},\"note\":\"Brought in 1 change from master v2\",\"author\":null,\"changes\":null,\"engine_version\":\"0.0.0\"}}\n{\"v\":1,\"seq\":19,\"at\":1792056960000,\"event\":{\"type\":\"UpdateApplied\",\"node_id\":\"aee614c3be8b4aac78d1cc11f35739d4\",\"result_checkpoint_id\":\"a9b5070194bd8ad842d14be5af31375e\",\"merged\":[\"c7174e77015cfd44b\"],\"declined\":[]}}\n",
+      "newFileName": null,
+      "nothingChanged": false,
+      "records": 9
+    },
+    "versions": [
+      {
+        "broughtIn": 2,
+        "hasFile": true,
+        "left": {
+          "alreadyThere": [],
+          "byHand": [],
+          "changes": [],
+          "formatting": [],
+          "headline": "",
+          "overlaps": []
+        },
+        "name": "Pitch deck – Seed fund.pptx",
+        "node": "dacd9463c57510a014472a64e5be2463",
+        "result": "updated",
+        "savedEdits": false,
+        "storageRef": "Tailored versions/Pitch deck – Seed fund.pptx",
+        "text": "Brought in 2 changes"
+      },
+      {
+        "broughtIn": 1,
+        "hasFile": true,
+        "left": {
+          "alreadyThere": [],
+          "byHand": [],
+          "changes": [],
+          "formatting": [],
+          "headline": "",
+          "overlaps": [
+            {
+              "before": "$1.2M ARR\nNet revenue retention 128%",
+              "choices": [
+                {
+                  "decision": "keepMine",
+                  "label": "Keep mine"
+                },
+                {
+                  "decision": "useMasters",
+                  "label": "Use the master's"
+                }
+              ],
+              "id": "c0e3b7c0dee710145",
+              "masters": [
+                {
+                  "kind": "same",
+                  "text": "$"
+                },
+                {
+                  "kind": "removed",
+                  "text": "1.2M"
+                },
+                {
+                  "kind": "added",
+                  "text": "2.0M"
+                },
+                {
+                  "kind": "same",
+                  "text": " ARR\nNet revenue retention 128%"
+                }
+              ],
+              "mine": [
+                {
+                  "kind": "same",
+                  "text": "$"
+                },
+                {
+                  "kind": "removed",
+                  "text": "1.2M"
+                },
+                {
+                  "kind": "added",
+                  "text": "1.3M"
+                },
+                {
+                  "kind": "same",
+                  "text": " ARR\nNet revenue retention 128%"
+                }
+              ],
+              "place": "Slide 6 · Traction",
+              "summary": "Both changed '$1.2M ARR'"
+            }
+          ]
+        },
+        "name": "Pitch deck – Northgate.pptx",
+        "node": "aee614c3be8b4aac78d1cc11f35739d4",
+        "result": "updated",
+        "savedEdits": false,
+        "storageRef": "Tailored versions/Pitch deck – Northgate.pptx",
+        "text": "Brought in 1 change · 1 to choose"
+      }
+    ]
+  }
+}

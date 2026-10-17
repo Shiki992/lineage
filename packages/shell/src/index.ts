@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export { EngineBoundaryError, EngineError, loadEngine, loadEngineAsync } from "./engine.js";
-export type { CommandResult, Engine, FamilyLedger, Observed } from "./engine.js";
+export type { CommandResult, Engine, FamilyLedger, Observed, UpdateResult } from "./engine.js";
 export type { DocumentHost } from "./host.js";
 export { History } from "./history.js";
 export { Library } from "./library.js";
@@ -17,6 +17,7 @@ export type {
   CheckpointCard,
   Choice,
   CopyOf,
+  DeckPanel,
   Decision,
   DocumentPage,
   DocumentView,
@@ -42,8 +43,10 @@ export type {
   SentList,
   SentRow,
   TimelineEntry,
+  UpdateRun,
   Updates,
   Verdict,
+  VersionChoice,
   VersionPanel,
   VersionRow,
   WhatChanged,
@@ -51,8 +54,10 @@ export type {
 } from "./schemas.js";
 export {
   BadBlob,
+  FileChanged,
   FileExists,
   MemoryStorage,
+  OFFICE_FILE,
   NotFound,
   StorageConflict,
   StorageError,

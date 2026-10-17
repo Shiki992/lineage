@@ -1,0 +1,115 @@
+{
+  "ok": true,
+  "value": {
+    "button": "Update 2 versions",
+    "justChanged": {
+      "cards": [
+        {
+          "byHand": null,
+          "choices": [],
+          "id": "c7174e77015cfd44b",
+          "place": "Slide 6 · Traction",
+          "summary": "The chart changed: '1200' changed to '2000'",
+          "text": [
+            {
+              "kind": "same",
+              "text": "Q1 2026: 310\nQ2 2026: 560\nQ3 2026: 840\nQ4 2026: "
+            },
+            {
+              "kind": "removed",
+              "text": "1200"
+            },
+            {
+              "kind": "added",
+              "text": "2000"
+            }
+          ]
+        },
+        {
+          "byHand": null,
+          "choices": [],
+          "id": "c0e3b7c0dee710145",
+          "place": "Slide 6 · Traction",
+          "summary": "'$1.2M' changed to '$2.0M'",
+          "text": [
+            {
+              "kind": "same",
+              "text": "$"
+            },
+            {
+              "kind": "removed",
+              "text": "1.2M"
+            },
+            {
+              "kind": "added",
+              "text": "2.0M"
+            },
+            {
+              "kind": "same",
+              "text": " ARR\nNet revenue retention 128%"
+            }
+          ]
+        }
+      ],
+      "headline": "You just changed Slide 6 · Traction",
+      "unsaved": true
+    },
+    "lastSent": {
+      "button": "Open what they saw",
+      "sent": "272b8975024459bfc758f3eded43ead0",
+      "text": "Sent to Pellow Ventures on 15 Oct"
+    },
+    "master": {
+      "actions": [
+        "Make a tailored version",
+        "Save checkpoint",
+        "Send a copy"
+      ],
+      "callout": null,
+      "chip": "Master deck",
+      "fileName": "Pitch deck.pptx",
+      "follows": "2 tailored versions follow this deck",
+      "footer": "What I've sent",
+      "latest": {
+        "id": "e136b5b94d1136410c042c8e59539e60",
+        "label": "v1",
+        "note": "Started tracking",
+        "when": "15 Oct"
+      },
+      "nodeId": "1f137ac209d9d9f17b27c431649913c4",
+      "returned": [],
+      "versions": [
+        {
+          "button": "Open",
+          "id": "dacd9463c57510a014472a64e5be2463",
+          "name": "Pitch deck – Seed fund.pptx",
+          "status": "Has v1 · last sent 15 Oct",
+          "storageRef": "Tailored versions/Pitch deck – Seed fund.pptx"
+        },
+        {
+          "button": "Open",
+          "id": "aee614c3be8b4aac78d1cc11f35739d4",
+          "name": "Pitch deck – Northgate.pptx",
+          "status": "Has v1",
+          "storageRef": "Tailored versions/Pitch deck – Northgate.pptx"
+        }
+      ]
+    },
+    "targets": [
+      {
+        "checked": true,
+        "context": "Last sent 15 Oct, before this change",
+        "id": "dacd9463c57510a014472a64e5be2463",
+        "name": "Pitch deck – Seed fund.pptx",
+        "storageRef": "Tailored versions/Pitch deck – Seed fund.pptx"
+      },
+      {
+        "checked": true,
+        "context": "Has v1",
+        "id": "aee614c3be8b4aac78d1cc11f35739d4",
+        "name": "Pitch deck – Northgate.pptx",
+        "storageRef": "Tailored versions/Pitch deck – Northgate.pptx"
+      }
+    ]
+  }
+}
