@@ -182,8 +182,8 @@ export function VersionHome({
           <p>{panel.updates}</p>
           {deck ? (
             <p className="small">
-              PowerPoint can't change a deck while it's open here. Open the master deck and use
-              Update versions there; this deck gets the changes, and a checkpoint from before.
+              PowerPoint can't change a deck while it's open. Close this deck, then choose Update
+              versions in the master deck: this deck gets the changes, and a checkpoint from before.
             </p>
           ) : (
             <Button primary disabled={busy} onClick={onReview}>

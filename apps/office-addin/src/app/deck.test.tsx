@@ -112,6 +112,8 @@ describe("the pitch deck panel", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: "Review them" })).toBeNull();
-    expect(screen.getByText(/use Update versions there/)).toBeTruthy();
+    expect(
+      screen.getByText(/^PowerPoint can.t change a deck while it.s open. Close this deck/),
+    ).toBeTruthy();
   });
 });
