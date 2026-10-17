@@ -42,3 +42,8 @@ apps/family-app/.env.local
 apps/family-app/test-results/
 apps/family-app/playwright-report/
 apps/family-app/e2e/.accounts/
+
+
+#Build instructions: build output, the local app registration and Playwright's results.
+docs/PROMPTS.md
+docs/BLUEPRINTS.md
