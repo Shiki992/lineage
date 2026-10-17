@@ -633,6 +633,12 @@ fn deck_replies(golden: &mut Golden) {
         .find(|(n, _)| *n == versions[0].0)
         .map(|(_, f)| f.clone())
         .expect("seed fund written");
+    let north_file = reply
+        .files
+        .iter()
+        .find(|(n, _)| *n == versions[1].0)
+        .map(|(_, f)| f.clone())
+        .expect("northgate written");
     reply.files.clear();
     let v: Value = serde_json::from_str(&reply.json).expect("json");
     host.ledger.extend_from_slice(
@@ -640,6 +646,18 @@ fn deck_replies(golden: &mut Golden) {
             .as_str()
             .expect("lines")
             .as_bytes(),
+    );
+
+    // What Northgate, open in PowerPoint, still has to choose.
+    let value = golden.keep(
+        "updates-deck",
+        &host
+            .session
+            .updates(&host.ledger, &versions[1].0, &north_file),
+    );
+    assert_eq!(
+        value["value"]["groups"][0]["view"]["overlaps"][0]["summary"],
+        "Both changed '$1.2M ARR'"
     );
 
     // Bring in for the open deck (decision 0019): the master's notes change,

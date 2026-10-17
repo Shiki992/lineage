@@ -553,4 +553,5 @@ export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "prepare-open-deck": OpenDeckPlan,
   "deck-slide-ops": SlideOps,
   "finish-open-deck": Outcome,
+  "updates-deck": Updates,
 };

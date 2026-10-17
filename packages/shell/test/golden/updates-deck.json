@@ -1,0 +1,73 @@
+{
+  "ok": true,
+  "value": {
+    "groups": [
+      {
+        "checkpoint": "7ca776e3f1f21752db34a6284efa1105",
+        "label": "From master v2",
+        "view": {
+          "alreadyThere": [],
+          "byHand": [],
+          "changes": [],
+          "formatting": [],
+          "headline": "1 update from the master",
+          "overlaps": [
+            {
+              "before": "$1.2M ARR\nNet revenue retention 128%",
+              "choices": [
+                {
+                  "decision": "keepMine",
+                  "label": "Keep mine"
+                },
+                {
+                  "decision": "useMasters",
+                  "label": "Use the master's"
+                }
+              ],
+              "id": "c0e3b7c0dee710145",
+              "masters": [
+                {
+                  "kind": "same",
+                  "text": "$"
+                },
+                {
+                  "kind": "removed",
+                  "text": "1.2M"
+                },
+                {
+                  "kind": "added",
+                  "text": "2.0M"
+                },
+                {
+                  "kind": "same",
+                  "text": " ARR\nNet revenue retention 128%"
+                }
+              ],
+              "mine": [
+                {
+                  "kind": "same",
+                  "text": "$"
+                },
+                {
+                  "kind": "removed",
+                  "text": "1.2M"
+                },
+                {
+                  "kind": "added",
+                  "text": "1.3M"
+                },
+                {
+                  "kind": "same",
+                  "text": " ARR\nNet revenue retention 128%"
+                }
+              ],
+              "place": "Slide 6 · Traction",
+              "summary": "Both changed '$1.2M ARR'"
+            }
+          ]
+        }
+      }
+    ],
+    "headline": "1 update from the master"
+  }
+}
