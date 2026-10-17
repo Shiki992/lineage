@@ -1,0 +1,47 @@
+{
+  "ok": true,
+  "value": {
+    "hasFile": true,
+    "steps": {
+      "ops": [
+        {
+          "kind": "delete",
+          "slide": "261#1002066859"
+        },
+        {
+          "after": "260#1002058940",
+          "kind": "insert",
+          "slide": "261#1002066859"
+        }
+      ],
+      "order": [
+        "256#1002027264",
+        "257#1002035183",
+        "258#1002043102",
+        "259#1002051021",
+        "260#1002058940",
+        "261#1002066859",
+        "262#1002074778",
+        "263#1002082697"
+      ]
+    },
+    "version": {
+      "broughtIn": 1,
+      "hasFile": false,
+      "left": {
+        "alreadyThere": [],
+        "byHand": [],
+        "changes": [],
+        "formatting": [],
+        "headline": "",
+        "overlaps": []
+      },
+      "name": "Pitch deck – Seed fund.pptx",
+      "node": "dacd9463c57510a014472a64e5be2463",
+      "result": "updated",
+      "savedEdits": false,
+      "storageRef": "Tailored versions/Pitch deck – Seed fund.pptx",
+      "text": "Brought in 1 change"
+    }
+  }
+}

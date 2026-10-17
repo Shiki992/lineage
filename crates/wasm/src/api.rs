@@ -26,9 +26,10 @@ use serde::Serialize;
 use crate::cache::{BlobCache, DEFAULT_LIMIT, Recording};
 use crate::dto::{
     CardDecision, CopyOfDto, DeckPanelDto, DocumentDto, DocumentPageDto, FamilyDto, FamilyGraphDto,
-    IdsDto, LedgerDto, LibraryDto, MasterPanelDto, ObservedDto, OpenFileDto, OutcomeDto,
-    RecognitionDto, RecordArgs, RefreshedDto, ReturnReviewDto, SendArgs, SentListDto, UpdateRunDto,
-    UpdatesDto, VersionChoice, VersionPanelDto, WhatChangedDto, WrittenDto, ledger_lines,
+    IdsDto, LedgerDto, LibraryDto, MasterPanelDto, ObservedDto, OpenDeckPlanDto, OpenFileDto,
+    OutcomeDto, RecognitionDto, RecordArgs, RefreshedDto, ReturnReviewDto, SendArgs, SentListDto,
+    SlideOpsDto, UpdateRunDto, UpdatesDto, VersionChoice, VersionPanelDto, VersionRunDto,
+    WhatChangedDto, WrittenDto, ledger_lines,
 };
 
 /// What a call returns: the JSON envelope and any bytes.
@@ -181,6 +182,14 @@ fn observed_map(text: &str) -> Result<std::collections::BTreeMap<Id, String>> {
         }
     }
     Ok(map)
+}
+
+/// The person's choices on update cards, by version.
+fn choices_of(choices: &[VersionChoice]) -> Vec<(Id, String, lineage_core::merge::Decision)> {
+    choices
+        .iter()
+        .map(|c| (c.node.clone(), c.card.clone(), c.decision.into()))
+        .collect()
 }
 
 fn fold(ledger: &[u8]) -> Result<FamilyState> {
@@ -564,10 +573,7 @@ impl Session {
             Ok(t) => t,
             Err(e) => return Reply::failure(&e),
         };
-        let choices: Vec<(Id, String, lineage_core::merge::Decision)> = choices
-            .into_iter()
-            .map(|c| (c.node, c.card, c.decision.into()))
-            .collect();
+        let choices = choices_of(&choices);
         let run = {
             let source = Recording::new(&self.cache);
             let mut ctx = Context {
@@ -600,6 +606,97 @@ impl Session {
             .filter_map(|v| Some((v.node.as_str().to_owned(), v.file.clone()?)))
             .collect();
         reply
+    }
+
+    /// Bring in for the open tailored deck, first half (decision 0019): the
+    /// version's line and the slide steps from `file` (the open deck) to the
+    /// merged deck, which is the reply's file. Records nothing.
+    pub fn prepare_open_deck(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        file: &[u8],
+        choices: &str,
+        now_ms: f64,
+    ) -> Reply {
+        let prepared = fold(ledger).and_then(|s| {
+            Ok((
+                s,
+                id(node)?,
+                choices_of(&json::<Vec<VersionChoice>>(choices)?),
+                timestamp(now_ms)?,
+            ))
+        });
+        let (state, node, choices, now) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        let plan = {
+            let source = Recording::new(&self.cache);
+            let mut ctx = Context {
+                now,
+                ids: &mut self.ids,
+                author: self.author.clone(),
+            };
+            let result =
+                lineage::decks::prepare_open(&mut ctx, &state, &node, file, &choices, &source)
+                    .map_err(Failure::from);
+            Self::finish(result, &source)
+        };
+        match plan {
+            Ok(plan) => {
+                let mut reply = Reply::ok(&OpenDeckPlanDto {
+                    version: VersionRunDto::new(&plan.run, &state),
+                    steps: SlideOpsDto::from(&plan.ops),
+                    has_file: plan.merged.is_some(),
+                });
+                reply.file = plan.merged;
+                reply
+            }
+            Err(e) => Reply::failure(&e),
+        }
+    }
+
+    /// Bring in for the open tailored deck, second half: `original` is the
+    /// deck the first half had, `held` what PowerPoint holds now. Records a
+    /// checkpoint of `held` when it is the merged deck; the outcome's ids are
+    /// the ones to set in the open deck.
+    pub fn finish_open_deck(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        original: &[u8],
+        held: &[u8],
+        choices: &str,
+        now_ms: f64,
+    ) -> Reply {
+        let prepared = fold(ledger).and_then(|s| {
+            Ok((
+                s,
+                id(node)?,
+                choices_of(&json::<Vec<VersionChoice>>(choices)?),
+            ))
+        });
+        let (state, node, choices) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.command(now_ms, |ctx, source| {
+            lineage::decks::finish_open(ctx, &state, &node, original, held, &choices, source)
+        })
+    }
+
+    /// The slide steps from one deck to another, for putting the open deck
+    /// back as it was (decision 0019).
+    #[must_use]
+    pub fn deck_slide_ops(&self, from: &[u8], to: &[u8]) -> Reply {
+        let ops = lineage_core::Deck::open(from)
+            .and_then(|a| Ok((a, lineage_core::Deck::open(to)?)))
+            .and_then(|(a, b)| lineage_core::pptx::slides::slide_ops(&a, &b));
+        match ops {
+            Ok(ops) => Reply::ok(&SlideOpsDto::from(&ops)),
+            Err(e) => Reply::failure(&Failure::Lineage(e.into())),
+        }
     }
 
     /// "Offer it to …": `versions` is a JSON array of node ids.

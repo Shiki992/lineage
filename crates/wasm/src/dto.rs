@@ -824,37 +824,107 @@ pub struct UpdateRunDto {
     pub versions: Vec<VersionRunDto>,
 }
 
+impl VersionRunDto {
+    pub fn new(v: &lineage::decks::VersionRun, state: &FamilyState) -> Self {
+        use lineage::decks::RunResult;
+        Self {
+            node: v.node.clone(),
+            name: v.name.clone(),
+            result: match v.result {
+                RunResult::Updated => "updated",
+                RunResult::UpToDate => "upToDate",
+                RunResult::NeedsChoice => "needsChoice",
+                RunResult::NotUpdated => "notUpdated",
+            },
+            text: v.text.clone(),
+            brought_in: v.brought_in,
+            saved_edits: v.saved_edits,
+            left: WhatChangedDto::from(&v.left),
+            has_file: v.file.is_some(),
+            storage_ref: state
+                .node(&v.node)
+                .map(|n| n.storage_ref.clone())
+                .unwrap_or_default(),
+        }
+    }
+}
+
 impl UpdateRunDto {
     pub fn new(run: &lineage::decks::UpdateRun, lines: String, state: &FamilyState) -> Self {
-        use lineage::decks::RunResult;
         Self {
             outcome: OutcomeDto::new(&run.outcome, lines, None),
             headline: run.headline.clone(),
             versions: run
                 .versions
                 .iter()
-                .map(|v| VersionRunDto {
-                    node: v.node.clone(),
-                    name: v.name.clone(),
-                    result: match v.result {
-                        RunResult::Updated => "updated",
-                        RunResult::UpToDate => "upToDate",
-                        RunResult::NeedsChoice => "needsChoice",
-                        RunResult::NotUpdated => "notUpdated",
-                    },
-                    text: v.text.clone(),
-                    brought_in: v.brought_in,
-                    saved_edits: v.saved_edits,
-                    left: WhatChangedDto::from(&v.left),
-                    has_file: v.file.is_some(),
-                    storage_ref: state
-                        .node(&v.node)
-                        .map(|n| n.storage_ref.clone())
-                        .unwrap_or_default(),
-                })
+                .map(|v| VersionRunDto::new(v, state))
                 .collect(),
         }
     }
+}
+
+/// One step PowerPoint takes on the open deck (decision 0019). Slides are
+/// named as Office.js names them, `"<sldId>#<creationId>"`.
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SlideOpDto {
+    Delete {
+        slide: String,
+    },
+    /// From the source deck, after `after` (null: first).
+    Insert {
+        slide: String,
+        after: Option<String>,
+    },
+    Move {
+        slide: String,
+        index: usize,
+    },
+}
+
+/// The steps from the open deck to another, and the order they lead to.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlideOpsDto {
+    pub ops: Vec<SlideOpDto>,
+    pub order: Vec<String>,
+}
+
+impl From<&lineage_core::pptx::slides::SlideOps> for SlideOpsDto {
+    fn from(ops: &lineage_core::pptx::slides::SlideOps) -> Self {
+        use lineage_core::pptx::slides::SlideOp;
+        Self {
+            ops: ops
+                .ops
+                .iter()
+                .map(|op| match op {
+                    SlideOp::Delete { slide } => SlideOpDto::Delete {
+                        slide: slide.clone(),
+                    },
+                    SlideOp::Insert { slide, after } => SlideOpDto::Insert {
+                        slide: slide.clone(),
+                        after: after.clone(),
+                    },
+                    SlideOp::Move { slide, index } => SlideOpDto::Move {
+                        slide: slide.clone(),
+                        index: *index,
+                    },
+                })
+                .collect(),
+            order: ops.order.clone(),
+        }
+    }
+}
+
+/// Bring in for the open deck, first half: the version's line and the slide
+/// steps. The merged deck, when there is one, is the reply's file.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenDeckPlanDto {
+    pub version: VersionRunDto,
+    pub steps: SlideOpsDto,
+    /// True when the reply's file is the merged deck to insert slides from.
+    pub has_file: bool,
 }
 
 /// A node and a card decision, for "Update N versions".
