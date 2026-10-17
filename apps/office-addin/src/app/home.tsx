@@ -18,7 +18,7 @@ const ACTIONS: Record<string, Action> = {
   "Send a copy": "sendCopy",
 };
 
-function Actions({
+export function Actions({
   labels,
   busy,
   onAction,
@@ -50,7 +50,7 @@ function Actions({
 }
 
 /** The footer: "What I've sent", "A file came back" and "My documents". */
-function Footer({
+export function Footer({
   label,
   onSent,
   onCameBack,
@@ -151,6 +151,7 @@ export function MasterHome({
 export function VersionHome({
   panel,
   busy,
+  deck = false,
   onReview,
   onAction,
   onSent,
@@ -160,10 +161,12 @@ export function VersionHome({
 }: {
   panel: VersionPanel;
   busy: boolean;
+  /** A deck: updates come from the master deck's panel (decision 0018). */
+  deck?: boolean;
   onReview: () => void;
   onAction: (action: Action) => void;
   onSent: () => void;
-  onCameBack?: () => void;
+  onCameBack?: (() => void) | undefined;
   onReviewReturned?: (returned: string) => void;
   /** Opens My documents in the browser; absent when this build doesn't know where it is. */
   onMyDocuments?: (() => void) | undefined;
@@ -177,9 +180,16 @@ export function VersionHome({
       {panel.updates && (
         <section className="callout stack" style={{ gap: 8 }} aria-label="Updates from the master">
           <p>{panel.updates}</p>
-          <Button primary disabled={busy} onClick={onReview}>
-            Review them
-          </Button>
+          {deck ? (
+            <p className="small">
+              PowerPoint can't change a deck while it's open here. Open the master deck and use
+              Update versions there; this deck gets the changes, and a checkpoint from before.
+            </p>
+          ) : (
+            <Button primary disabled={busy} onClick={onReview}>
+              Review them
+            </Button>
+          )}
         </section>
       )}
       <LatestCheckpoint card={panel.latest} />

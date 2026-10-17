@@ -327,3 +327,29 @@ details > summary {
   margin-top: 2px;
   accent-color: var(--accent);
 }
+
+/* Shape text keeps its line breaks (a deck's text boxes and chart figures). */
+.what {
+  white-space: pre-wrap;
+}
+
+/* A checkbox with its label and a line under it, at the touch-target height. */
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  min-height: var(--target);
+}
+
+.check input {
+  margin-top: 4px;
+}
+
+.block {
+  display: block;
+}
+
+fieldset.card legend {
+  font-weight: 600;
+  padding: 0 4px;
+}

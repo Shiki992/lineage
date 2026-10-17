@@ -6,12 +6,8 @@
 
 import type { DocumentHost, FileLocation, Ids } from "@lineage/shell";
 import { LineageError } from "@lineage/shell";
+import { CHECKPOINT, FAMILY, base64, describeOpenFile, idsFrom, readWholeFile } from "./common";
 
-const FAMILY = "LineageFamilyId";
-const CHECKPOINT = "LineageCheckpointId";
-const ID = /^[0-9a-f]{32}$/;
-/** getFileAsync slices: at most 4 MB on Windows, Mac and the web. */
-const SLICE = 4 * 1024 * 1024;
 /** Document.insertFileFromBase64 refuses anything larger. */
 export const MAX_REPLACE_BYTES = 100 * 1024 * 1024;
 /**
@@ -21,76 +17,10 @@ export const MAX_REPLACE_BYTES = 100 * 1024 * 1024;
 const LIFT_SIZE_LIMIT =
   import.meta.env.DEV && import.meta.env["VITE_LINEAGE_LIFT_SIZE_LIMIT"] === "1";
 
-function base64(bytes: Uint8Array): string {
-  let binary = "";
-  const step = 0x8000;
-  for (let i = 0; i < bytes.length; i += step) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + step));
-  }
-  return btoa(binary);
-}
-
-function asAsync<T>(start: (done: (result: Office.AsyncResult<T>) => void) => void): Promise<T> {
-  return new Promise((resolve, reject) => {
-    start((result) => {
-      if (result.status === Office.AsyncResultStatus.Succeeded) {
-        resolve(result.value);
-      } else {
-        reject(
-          new LineageError(
-            "Word couldn't give Lineage this file just now. Try again.",
-            `${result.error.name}: ${result.error.message}`,
-          ),
-        );
-      }
-    });
-  });
-}
-
-/** The file name at the end of a URL or path. */
-export function fileNameOf(url: string): string {
-  const last = url.split(/[\\/]/).pop() ?? "";
-  const clean = last.split(/[?#]/)[0] ?? "";
-  try {
-    return decodeURIComponent(clean) || "This document";
-  } catch {
-    return clean || "This document";
-  }
-}
-
 export class WordHost implements DocumentHost {
-  /**
-   * The whole document as a .docx, unsaved edits included: Office makes a
-   * temporary copy for getFileAsync. The file must be closed after reading, or
-   * the next call fails.
-   * https://learn.microsoft.com/office/dev/add-ins/develop/get-the-whole-document-from-an-add-in-for-powerpoint-or-word
-   */
-  async readBytes(): Promise<Uint8Array> {
-    const file = await asAsync<Office.File>((done) => {
-      Office.context.document.getFileAsync(Office.FileType.Compressed, { sliceSize: SLICE }, done);
-    });
-    try {
-      const parts: Uint8Array[] = [];
-      for (let i = 0; i < file.sliceCount; i++) {
-        const slice = await asAsync<Office.Slice>((done) => {
-          file.getSliceAsync(i, done);
-        });
-        parts.push(new Uint8Array(slice.data as ArrayLike<number>));
-      }
-      const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-      let at = 0;
-      for (const part of parts) {
-        out.set(part, at);
-        at += part.length;
-      }
-      return out;
-    } finally {
-      await new Promise<void>((resolve) => {
-        file.closeAsync(() => {
-          resolve();
-        });
-      });
-    }
+  /** The whole document as a .docx, unsaved edits included. */
+  readBytes(): Promise<Uint8Array> {
+    return readWholeFile("Word");
   }
 
   /**
@@ -109,11 +39,7 @@ export class WordHost implements DocumentHost {
       if (family.isNullObject || checkpoint.isNullObject) {
         return null;
       }
-      const f: unknown = family.value;
-      const c: unknown = checkpoint.value;
-      return typeof f === "string" && typeof c === "string" && ID.test(f) && ID.test(c)
-        ? { family: f, checkpoint: c }
-        : null;
+      return idsFrom(family.value, checkpoint.value);
     });
   }
 
@@ -186,17 +112,8 @@ export class WordHost implements DocumentHost {
     });
   }
 
-  /**
-   * The file's name and where it lives. `url` is a OneDrive or SharePoint
-   * address, a local path on desktop, or empty for a document never saved.
-   * https://learn.microsoft.com/javascript/api/office/office.document#office-office-document-url-member
-   */
   describe(): Promise<{ name: string; url: string | null }> {
-    const url = Office.context.document.url;
-    if (!url) {
-      return Promise.resolve({ name: "This document", url: null });
-    }
-    return Promise.resolve({ name: fileNameOf(url), url });
+    return Promise.resolve(describeOpenFile("This document"));
   }
 
   /**

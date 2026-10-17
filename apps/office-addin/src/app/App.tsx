@@ -8,6 +8,7 @@
 import type {
   Candidate,
   CardDecision,
+  DeckPanel,
   DocumentHost,
   Engine,
   Family,
@@ -18,7 +19,9 @@ import type {
   SendArgs,
   SentList,
   Storage,
+  UpdateRun,
   Updates,
+  VersionChoice,
   WhatChanged,
 } from "@lineage/shell";
 import { EngineError, Lineage, userMessage } from "@lineage/shell";
@@ -27,6 +30,7 @@ import { Diagnostics } from "../dev/Diagnostics";
 import { errorKind, pageStart, timing } from "../metrics";
 import type { StorageChoice } from "../storage/choose";
 import { UpdatesView } from "./changes";
+import { DeckHome, UpdateReport } from "./deck";
 import { MakeVersion, SaveCheckpoint, SendCopy } from "./forms";
 import type { Action } from "./home";
 import { Elsewhere, MasterHome, SignIn, StartTracking, VersionHome } from "./home";
@@ -52,6 +56,7 @@ type Screen =
       canReviewHere: boolean;
     }
   | { kind: "returnedReview"; review: ReturnReview }
+  | { kind: "updateReport"; run: UpdateRun }
   | { kind: "diagnostics" };
 
 export interface AppProps {
@@ -74,6 +79,8 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; open?: () => void } | null>(null);
   const [crashed, setCrashed] = useState(false);
+  /** The pitch deck panel, for a master deck (decision 0018). */
+  const [deckPanel, setDeckPanel] = useState<DeckPanel | null>(null);
   /** For an untracked document: whether it looks like a copy that came back. */
   const [untrackedReturning, setUntrackedReturning] = useState<Returning | null>(null);
   const lineage = useMemo(
@@ -172,6 +179,45 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
   const home = useCallback(() => {
     setScreen({ kind: "home" });
   }, []);
+
+  // A master deck shows the pitch deck panel: what just changed, and the
+  // versions to update. Read again whenever the panel is read.
+  const isMasterDeck = opened?.kind === "master" && opened.file.format === "pptx";
+  useEffect(() => {
+    if (!lineage || !isMasterDeck || screen.kind !== "home") {
+      return;
+    }
+    let live = true;
+    lineage.deckPanel().then(
+      (panel) => {
+        if (live) {
+          setDeckPanel(panel);
+        }
+      },
+      (e: unknown) => {
+        console.error(e);
+        if (live) {
+          setError(userMessage(e));
+        }
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [lineage, isMasterDeck, opened, screen.kind]);
+
+  /** "Update N versions", and choices on what a previous run left. */
+  const updateVersions = (versions: string[], choices: VersionChoice[], note?: string) => {
+    void run("Updating the versions", async (l) => {
+      const result = await l.updateVersions(
+        versions,
+        choices,
+        note === undefined || note === "" ? undefined : note,
+      );
+      setOpened(await l.refresh());
+      setScreen({ kind: "updateReport", run: result });
+    });
+  };
 
   const refresh = async (l: Lineage) => {
     setOpened(await l.refresh());
@@ -420,6 +466,17 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         }
       />
     );
+  } else if (screen.kind === "updateReport") {
+    body = (
+      <UpdateReport
+        run={screen.run}
+        busy={busy !== null}
+        onChoose={(versions, choices) => {
+          updateVersions(versions, choices);
+        }}
+        onDone={home}
+      />
+    );
   } else if (screen.kind === "updates") {
     body = (
       <UpdatesView
@@ -474,6 +531,33 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         onCameBack={cameBackLink}
       />
     );
+  } else if (opened.kind === "master" && opened.file.format === "pptx") {
+    body = deckPanel ? (
+      <DeckHome
+        key={deckPanel.master.latest.id + String(deckPanel.justChanged?.cards.length ?? 0)}
+        panel={deckPanel}
+        busy={busy !== null}
+        onUpdate={(versions, note) => {
+          updateVersions(versions, [], note);
+        }}
+        onCheck={() =>
+          void run("Looking for changes", async (l) => {
+            setDeckPanel(await l.deckPanel());
+          })
+        }
+        onOpen={(ref) => void run("Opening", (l) => l.openStored(ref))}
+        onOpenSent={(sent) => void run("Opening what they saw", (l) => l.openSentCopy(sent))}
+        onAction={onAction}
+        onSent={() =>
+          void run("Getting what you've sent", async (l) => {
+            setScreen({ kind: "sent", list: await l.sentList() });
+          })
+        }
+        onMyDocuments={openMyDocuments}
+      />
+    ) : (
+      <p role="status">Opening…</p>
+    );
   } else if (opened.kind === "master") {
     body = (
       <MasterHome
@@ -501,10 +585,12 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
       />
     );
   } else {
+    const deck = opened.file.format === "pptx";
     body = (
       <VersionHome
         panel={opened.panel}
         busy={busy !== null}
+        deck={deck}
         onAction={onAction}
         onReview={() =>
           void run("Getting the updates", async (l) => {
@@ -516,7 +602,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
             setScreen({ kind: "sent", list: await l.sentList() });
           })
         }
-        onCameBack={cameBackLink}
+        onCameBack={deck ? undefined : cameBackLink}
         onReviewReturned={reviewReturned}
         onMyDocuments={openMyDocuments}
       />

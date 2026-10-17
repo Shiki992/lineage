@@ -211,7 +211,7 @@ export function SendCopy({
       </div>
       <div className="field">
         <span style={{ fontWeight: 600 }}>Format</span>
-        <p>Word (.docx)</p>
+        <p>{family.format === "pptx" ? "PowerPoint (.pptx)" : "Word (.docx)"}</p>
         <p className="secondary small">PDF is coming later.</p>
       </div>
       <label className="row" htmlFor={ids.id} style={{ minHeight: "var(--target)" }}>
@@ -226,8 +226,10 @@ export function SendCopy({
         <span>Add a Lineage ID, so you can recognise the file if it comes back</span>
       </label>
       <p className="callout small">
-        <span aria-hidden="true">🔒 </span>Always a clean copy: no comments, tracked changes, hidden
-        text or document properties.
+        <span aria-hidden="true">🔒 </span>
+        {family.format === "pptx"
+          ? "Always a clean copy: no comments, hidden slides or document properties. Speaker notes stay."
+          : "Always a clean copy: no comments, tracked changes, hidden text or document properties."}
       </p>
       <Button type="submit" primary wide disabled={busy}>
         Save copy and record it

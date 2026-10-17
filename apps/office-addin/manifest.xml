@@ -5,11 +5,13 @@
 
   The development manifest: the task pane is served by `pnpm dev` at
   https://localhost:3000. Add-in-only (XML) manifest, valid for production Word
-  add-ins (decision 0008):
+  and PowerPoint add-ins (decisions 0008 and 0018):
   https://learn.microsoft.com/office/dev/add-ins/develop/add-in-manifests
-  WordApi 1.5 is the floor: Document.insertFileFromBase64 writes brought-in
-  changes into the open document.
-  https://learn.microsoft.com/javascript/api/requirement-sets/word/word-api-requirement-sets
+  One add-in for both: a <Requirements> on WordApi here would keep it out of
+  PowerPoint, so the floors are checked when the pane starts (main.tsx):
+  WordApi 1.5 (Document.insertFileFromBase64) in Word, PowerPointApi 1.7
+  (custom properties) in PowerPoint.
+  https://learn.microsoft.com/office/dev/add-ins/develop/specify-office-hosts-and-api-requirements
 -->
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -30,12 +32,8 @@
   </AppDomains>
   <Hosts>
     <Host Name="Document"/>
+    <Host Name="Presentation"/>
   </Hosts>
-  <Requirements>
-    <Sets DefaultMinVersion="1.1">
-      <Set Name="WordApi" MinVersion="1.5"/>
-    </Sets>
-  </Requirements>
   <DefaultSettings>
     <SourceLocation DefaultValue="https://localhost:3000/taskpane.html"/>
   </DefaultSettings>
@@ -79,6 +77,43 @@
           </ExtensionPoint>
         </DesktopFormFactor>
       </Host>
+      <Host xsi:type="Presentation">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="GetStarted.Title"/>
+            <Description resid="GetStarted.DeckDescription"/>
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
+          </GetStarted>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="Lineage.Group.Deck">
+                <Label resid="Group.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16"/>
+                  <bt:Image size="32" resid="Icon.32"/>
+                  <bt:Image size="80" resid="Icon.80"/>
+                </Icon>
+                <Control xsi:type="Button" id="Lineage.Open.Deck">
+                  <Label resid="Button.Label"/>
+                  <Supertip>
+                    <Title resid="Button.Label"/>
+                    <Description resid="Button.DeckTooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16"/>
+                    <bt:Image size="32" resid="Icon.32"/>
+                    <bt:Image size="80" resid="Icon.80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>Lineage.Taskpane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
     </Hosts>
     <Resources>
       <bt:Images>
@@ -98,6 +133,8 @@
       <bt:LongStrings>
         <bt:String id="GetStarted.Description" DefaultValue="Open Lineage from the Home tab to track this file and its tailored versions."/>
         <bt:String id="Button.Tooltip" DefaultValue="Track this file, make tailored versions and record the copies you send."/>
+        <bt:String id="GetStarted.DeckDescription" DefaultValue="Open Lineage from the Home tab to track this deck and the versions you make for each investor or customer."/>
+        <bt:String id="Button.DeckTooltip" DefaultValue="Track this deck, update its tailored versions and record the copies you send."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

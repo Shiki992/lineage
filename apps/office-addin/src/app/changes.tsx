@@ -51,7 +51,7 @@ function Choices({
   );
 }
 
-function ChangeView({
+export function ChangeView({
   card,
   chosen,
   onChoose,
@@ -73,7 +73,7 @@ function ChangeView({
   );
 }
 
-function OverlapView({
+export function OverlapView({
   card,
   chosen,
   onChoose,
