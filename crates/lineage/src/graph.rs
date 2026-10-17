@@ -190,7 +190,7 @@ pub fn family_graph(state: &FamilyState) -> FamilyGraph {
                 let from = parent_node
                     .and_then(|n| state.node(n))
                     .map_or_else(String::new, |n| {
-                        format!("{} ", n.display_name.trim_end_matches(".docx"))
+                        format!("{} ", crate::commands::stem(&n.display_name))
                     });
                 (
                     EdgeKind::Restored,
@@ -229,7 +229,7 @@ pub fn family_graph(state: &FamilyState) -> FamilyGraph {
             .and_then(|n| archived_node.get(n))
             .copied()
             .unwrap_or(false);
-        let format = if s.format == "pdf" { "PDF" } else { "Word" };
+        let format = crate::library::format_label(&s.format);
         let id = if s.id_embedded {
             "Lineage ID inside"
         } else {

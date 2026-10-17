@@ -52,7 +52,8 @@ fn journey<S: Storage + Tamper>(mut panel: Panel<S>) {
     assert_eq!(resume.kind, "Word document");
     let deck = &library.entries[2];
     assert_eq!(deck.kind, "PowerPoint deck");
-    assert!(!deck.can_open);
+    assert!(deck.can_open, "decks open since Phase 4");
+    assert_eq!((deck.facts.tailored, deck.facts.sent), (1, 2));
 
     // 3. The resume's page and tree.
     let (page, graph) = panel.document(&made.resume).expect("page");

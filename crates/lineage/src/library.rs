@@ -109,7 +109,18 @@ pub struct LibraryEntry {
 /// Formats the engine reads today.
 #[must_use]
 pub fn readable_format(format: &str) -> bool {
-    format == "docx"
+    lineage_core::doc::readable(format)
+}
+
+/// How a sent copy's format is named: "Word", "PowerPoint", "PDF".
+#[must_use]
+pub fn format_label(format: &str) -> &'static str {
+    match format {
+        "pdf" => "PDF",
+        "pptx" | "gslides" => "PowerPoint",
+        "xlsx" | "gsheet" => "Excel",
+        _ => "Word",
+    }
 }
 
 fn plural(n: usize, one: &str, many: &str) -> String {

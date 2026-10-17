@@ -6,19 +6,20 @@
 //! the family app's Playwright runs. Every name and every word is invented.
 //!
 //! - [`three_families`]: a resume with tailored versions, copies sent and files
-//!   that came back; a cover letter; and a pitch deck (a PowerPoint history
-//!   this version of Lineage can show but not open). One version's file has
-//!   moved, and the library index is out of date.
+//!   that came back; a cover letter; and a pitch deck with a version for an
+//!   investor and copies sent. One version's file has moved, and the library
+//!   index is out of date (missing the deck, and the letter's last copy).
 //! - [`damaged`]: a family whose ledger was cut off part-way through a line.
 //! - [`large`]: 300 checkpoints and 50 copies sent.
 
-use lineage::blob::{Blob, BlobHash};
-use lineage::event::{self, CleanSummary, Event, MatchedBy, RECORD_VERSION, Record, Role};
-use lineage::identity::Fingerprint;
+use lineage::blob::Blob;
+use lineage::event::{self, CleanSummary, Event, MatchedBy, RECORD_VERSION, Record};
 use lineage::state::FamilyState;
 use lineage::{Id, IdSource, SequentialIds, Timestamp};
 use lineage_core::Package;
 use lineage_core::merge::Decision;
+use lineage_testkit::decks;
+use lineage_testkit::pptx::{self as decks_builder, Placed, Shape as DeckShape, p as deck_p};
 use lineage_testkit::resume::{self, Line};
 use lineage_testkit::returned::{cover_letter_v1_lines, cover_letter_v2_lines, light_edits};
 
@@ -35,6 +36,8 @@ pub const OLD: &str = "Tailored versions/Resume – old.docx";
 /// Where the platform version's file was moved to, by hand.
 pub const PLATFORM_MOVED: &str = "Tailored versions/Platform roles (renamed).docx";
 pub const LETTER: &str = "Cover letter.docx";
+pub const DECK: &str = "Pitch deck.pptx";
+pub const DECK_NORTHGATE: &str = "Tailored versions/Pitch deck – Northgate Capital.pptx";
 
 /// Someone edits a file in Word: its body becomes these lines; its ids stay.
 pub fn edit<S: Storage>(storage: &mut S, from: &str, to: &str, lines: &[Line]) -> Result<()> {
@@ -215,108 +218,55 @@ fn letter_family<S: Storage>(panel: &mut Panel<S>) -> Result<Id> {
     family_of(panel)
 }
 
-/// A pitch deck's history, as a PowerPoint add-in would write it. Its
-/// snapshots aren't stored: this version of Lineage only shows decks.
-fn deck_family<S: Storage>(storage: &mut S) -> Result<Id> {
-    let mut ids = SequentialIds::new(0xd0);
-    let family = ids.next_id();
-    let master = ids.next_id();
-    let investor = ids.next_id();
-    let snapshot = BlobHash::of(b"a deck snapshot (not stored)");
-    let file = Blob::new(b"a sent deck (not stored)".to_vec());
-    let day = |n: i64| Timestamp(START.0 - (20 - n) * 86_400_000);
-    let mut events = vec![
-        (
-            day(0),
-            Event::FamilyStarted {
-                family_id: family.clone(),
-                name: "Pitch deck".to_owned(),
-                format: "pptx".to_owned(),
-            },
-        ),
-        (
-            day(0),
-            Event::NodeAdded {
-                node_id: master.clone(),
-                role: Role::Master,
-                display_name: "Pitch deck.pptx".to_owned(),
-                storage_ref: "Pitch deck.pptx".to_owned(),
-                made_from_checkpoint_id: None,
-                follows_master: false,
-            },
-        ),
-    ];
-    let mut checkpoints = Vec::new();
-    for (n, note) in ["Started tracking", "New traction numbers", "Team slide"]
-        .iter()
-        .enumerate()
-    {
-        let id = ids.next_id();
-        events.push((
-            day(n as i64 * 3),
-            Event::CheckpointSaved {
-                checkpoint_id: id.clone(),
-                node_id: master.clone(),
-                parent_ids: checkpoints.last().cloned().into_iter().collect(),
-                snapshot: snapshot.clone(),
-                fingerprint: Fingerprint::default(),
-                note: (*note).to_owned(),
-                author: None,
-                changes: None,
-                engine_version: lineage::ENGINE_VERSION.to_owned(),
-            },
-        ));
-        checkpoints.push(id);
-    }
-    events.push((
-        day(7),
-        Event::NodeAdded {
-            node_id: investor.clone(),
-            role: Role::Variant,
-            display_name: "Pitch deck – Northgate Capital.pptx".to_owned(),
-            storage_ref: "Tailored versions/Pitch deck – Northgate Capital.pptx".to_owned(),
-            made_from_checkpoint_id: Some(checkpoints[1].clone()),
-            follows_master: true,
-        },
-    ));
-    let version_checkpoint = ids.next_id();
-    events.push((
-        day(7),
-        Event::CheckpointSaved {
-            checkpoint_id: version_checkpoint.clone(),
-            node_id: investor,
-            parent_ids: vec![checkpoints[1].clone()],
-            snapshot,
-            fingerprint: Fingerprint::default(),
-            note: "Made from master v2".to_owned(),
-            author: None,
-            changes: None,
-            engine_version: lineage::ENGINE_VERSION.to_owned(),
-        },
-    ));
-    for (n, (who, from)) in [
-        ("Northgate Capital", &version_checkpoint),
-        ("Pellow Ventures", &checkpoints[2]),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        events.push((
-            day(8 + n as i64 * 4),
-            Event::CopySent {
-                sent_copy_id: ids.next_id(),
-                from_checkpoint_id: from.clone(),
-                recipient: who.to_owned(),
-                purpose: Some("Seed round".to_owned()),
-                format: "pptx".to_owned(),
-                file: file.hash.clone(),
-                id_embedded: true,
-                cleaned: CleanSummary::default(),
-            },
-        ));
-    }
-    append(storage, &family, events)?;
+/// A pitch deck's history, pressed through the deck panel twenty days
+/// earlier than the rest: tracked, a version for Northgate Capital that takes
+/// the new traction numbers, a copy sent to each investor, and a team slide.
+fn deck_family<S: Storage>(panel: &mut Panel<S>) -> Result<Id> {
+    let back_then = panel.now();
+    panel.set_now(Timestamp(START.0 - 20 * 86_400_000));
+    panel
+        .storage
+        .write_file(DECK, &decks::pitch_deck().to_bytes())?;
+    panel.start_tracking(DECK)?;
+    let family = family_of(panel)?;
+    panel.make_tailored_version(DECK_NORTHGATE)?;
+    edit_deck(
+        &mut panel.storage,
+        DECK,
+        &decks::edits::traction_update(decks::pitch_deck()),
+    )?;
+    panel.save_checkpoint(DECK, "New traction numbers")?;
+    panel.update_versions(&[DECK_NORTHGATE], &[])?;
+    panel.send_a_copy(
+        DECK_NORTHGATE,
+        "Northgate Capital",
+        Some("Seed round"),
+        true,
+    )?;
+    let mut team = decks::edits::traction_update(decks::pitch_deck());
+    team.slide_mut(decks::ids::TEAM).shapes[0] =
+        Placed::from(DeckShape::Title(vec![deck_p("Team and advisors")]));
+    edit_deck(&mut panel.storage, DECK, &team)?;
+    panel.save_checkpoint(DECK, "Team slide")?;
+    panel.send_a_copy(DECK, "Pellow Ventures", Some("Seed round"), true)?;
+    panel.set_now(back_then);
     Ok(family)
+}
+
+/// Someone edits a deck in PowerPoint: it becomes `built`; its ids stay.
+pub fn edit_deck<S: Storage>(
+    storage: &mut S,
+    file: &str,
+    built: &decks_builder::Deck,
+) -> Result<()> {
+    let old = Package::read(&storage.read_file(file)?).map_err(lineage::Error::from)?;
+    let ids = lineage_core::docx::props::read_ids(&old)
+        .map_err(lineage::Error::from)?
+        .ok_or_else(|| HarnessError::Panel(format!("{file} is not tracked")))?;
+    let mut package = Package::read(&built.to_bytes()).map_err(lineage::Error::from)?;
+    lineage_core::docx::props::write_ids(&mut package, &ids).map_err(lineage::Error::from)?;
+    storage.write_file(file, &package.to_bytes().map_err(lineage::Error::from)?)?;
+    Ok(())
 }
 
 /// What [`three_families`] made.
@@ -333,10 +283,11 @@ pub struct ThreeFamilies {
 /// # Errors
 /// When a button fails; never for these inputs.
 pub fn three_families<S: Storage + Tamper>(panel: &mut Panel<S>) -> Result<ThreeFamilies> {
-    let deck = deck_family(&mut panel.storage)?;
     let resume = resume_family(panel)?;
     let letter = letter_family(panel)?;
     let before = panel.storage.read_index()?;
+    let deck = deck_family(panel)?;
+    panel.open_family_of(LETTER)?;
     panel.send_a_copy(LETTER, "Harbour Bank", None, false)?;
     let moved = panel.storage.read_file(PLATFORM)?;
     panel.storage.write_file(PLATFORM_MOVED, &moved)?;

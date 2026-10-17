@@ -6,14 +6,12 @@
 //! events to append, the blobs to store and the bytes to write. The host does the
 //! storing and writing, then folds the new events into its state.
 
-use lineage_core::clean::clean_copy;
-use lineage_core::diff::{diff, spec};
+use lineage_core::doc::{self, Doc};
 use lineage_core::docx::props::{LineageIds, read_ids, write_ids};
-use lineage_core::merge::{self, Decision, Status};
-use lineage_core::summary::summarize;
-use lineage_core::view::{WhatChanged, from_diff, from_plan};
-use lineage_core::write::{Revision, apply};
-use lineage_core::{Docx, ENGINE_VERSION, Package};
+use lineage_core::merge::{Decision, Status};
+use lineage_core::view::{Theirs, WhatChanged};
+use lineage_core::write::Revision;
+use lineage_core::{ENGINE_VERSION, Package};
 
 use crate::blob::{Blob, BlobHash, BlobSource, Layered, restore, snapshot};
 use crate::changes::{checkpoint_pair, detect, variant_status};
@@ -135,13 +133,8 @@ pub(crate) fn same_content(a: &[u8], b: &[u8]) -> Result<bool> {
     if strip(&pa) == strip(&pb) {
         return Ok(true);
     }
-    for view in [lineage_core::View::Accepted, lineage_core::View::Rejected] {
-        let (da, db) = (Docx::open_view(a, view)?, Docx::open_view(b, view)?);
-        if !diff(&da, &db).changes.is_empty() {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    let format = lineage_core::pptx::kind_of(a)?.format();
+    Ok(!doc::changed(a, b, format)?)
 }
 
 /// Checks the file is a checkpoint of `node` in this family. A copy that was
@@ -189,7 +182,7 @@ pub(crate) fn checkpoint_into(
         checkpoint: checkpoint.to_string(),
     };
     let bytes = with_ids(bytes, &ids)?;
-    let docx = Docx::open(&bytes)?;
+    let docx = Doc::open_as(&bytes, &builder.state.format)?;
     let (manifest, blobs) = snapshot(&bytes)?;
     builder.blobs(blobs);
     let is_master = builder.state.node(node).map(|n| n.role) == Some(Role::Master);
@@ -200,11 +193,11 @@ pub(crate) fn checkpoint_into(
             .and_then(|p| builder.state.checkpoint(p))
             .cloned()
     {
-        let before = Docx::open(&restore(&parent.snapshot, &builder.source())?)?;
-        let d = diff(&before, &docx);
-        let list = spec::change_list(&d.changes, |c| {
-            Some(summarize(c, &docx.styles, Some(&docx)))
-        });
+        let before = Doc::open_as(
+            &restore(&parent.snapshot, &builder.source())?,
+            &builder.state.format,
+        )?;
+        let list = doc::change_list(&before, &docx)?;
         let blob = Blob::new(list.to_json().into_bytes());
         changes = Some(blob.hash.clone());
         builder.blobs(vec![blob]);
@@ -231,8 +224,20 @@ pub(crate) fn checkpoint_into(
     Ok((checkpoint, bytes))
 }
 
-fn stem(name: &str) -> &str {
-    name.strip_suffix(".docx").unwrap_or(name)
+/// A file name without its Office extension.
+pub(crate) fn stem(name: &str) -> &str {
+    [".docx", ".pptx", ".DOCX", ".PPTX"]
+        .iter()
+        .find_map(|ext| name.strip_suffix(ext))
+        .unwrap_or(name)
+}
+
+/// The extension files of a family's format have: ".docx", ".pptx".
+pub(crate) fn extension(format: &str) -> &'static str {
+    match format {
+        "pptx" => ".pptx",
+        _ => ".docx",
+    }
 }
 
 /// "Start tracking": the file becomes the master of a new family, with its
@@ -240,7 +245,7 @@ fn stem(name: &str) -> &str {
 ///
 /// # Errors
 /// [`Error::NotAllowed`] when the file is already tracked; engine errors when
-/// it is not a Word document Lineage can read.
+/// it is not a Word document or deck Lineage can read.
 pub fn start_tracking(
     ctx: &mut Context<'_>,
     bytes: &[u8],
@@ -252,7 +257,7 @@ pub fn start_tracking(
     if read_ids(&package)?.is_some() {
         return Err(Error::NotAllowed("this file is already tracked".to_owned()));
     }
-    Docx::open(bytes)?;
+    let format = Doc::open(bytes)?.format();
     let family = ctx.ids.next_id();
     let master = ctx.ids.next_id();
     let started = Record {
@@ -262,7 +267,7 @@ pub fn start_tracking(
         event: Event::FamilyStarted {
             family_id: family,
             name: stem(display_name).to_owned(),
-            format: "docx".to_owned(),
+            format: format.to_owned(),
         },
     };
     let state = FamilyState::from_records(std::slice::from_ref(&started))?;
@@ -394,9 +399,9 @@ pub fn what_changed(
     let latest = state
         .latest(node)
         .ok_or_else(|| Error::Ledger("a node without checkpoints".to_owned()))?;
-    let before = Docx::open(&restore(&latest.snapshot, blobs)?)?;
-    let after = Docx::open(bytes)?;
-    let mut view = from_diff(&diff(&before, &after), &after);
+    let before = Doc::open_as(&restore(&latest.snapshot, blobs)?, &state.format)?;
+    let after = Doc::open_as(bytes, &state.format)?;
+    let mut view = doc::what_changed(&before, &after)?;
     view.headline = if view.changes.is_empty() && view.formatting.is_empty() {
         format!("No changes since {}", state.label(&latest.id))
     } else {
@@ -478,7 +483,7 @@ pub fn updates(
 ) -> Result<Updates> {
     check_file(state, version, bytes)?;
     let status = variant_status(state, version, blobs)?;
-    let ours = Docx::open(bytes)?;
+    let ours = Doc::open_as(bytes, &state.format)?;
     let mut groups = Vec::new();
     let mut total = 0;
     for checkpoint in state.master_checkpoints() {
@@ -492,8 +497,8 @@ pub fn updates(
             continue;
         }
         let (before, after) = checkpoint_pair(state, checkpoint, blobs)?;
-        let plan = merge::plan(&before, &ours, &after);
-        let mut view = from_plan(&plan);
+        let plan = doc::plan(&before, &ours, &after)?;
+        let mut view = plan.view(&Theirs::Master);
         view.changes.retain(|c| offered.contains(&&c.id));
         view.formatting.retain(|c| offered.contains(&&c.id));
         view.overlaps.retain(|c| offered.contains(&&c.id));
@@ -561,13 +566,13 @@ pub fn decide(
             continue;
         }
         let (before, after) = checkpoint_pair(state, checkpoint, blobs)?;
-        let ours = Docx::open(&current)?;
-        let plan = merge::plan(&before, &ours, &after);
+        let ours = Doc::open_as(&current, &state.format)?;
+        let plan = doc::plan(&before, &ours, &after)?;
         for (id, decision) in &local {
-            let item = plan.item(id).ok_or_else(|| {
+            let status = plan.status(id).ok_or_else(|| {
                 Error::NotAllowed(format!("change {id} is not in this checkpoint"))
             })?;
-            if matches!(item.status, Status::AlreadyThere { .. }) {
+            if matches!(status, Status::AlreadyThere { .. }) {
                 continue;
             }
             let state_now = if decision.brings_in() {
@@ -591,7 +596,7 @@ pub fn decide(
                 how: How::Clicked,
             })?;
         }
-        current = apply(&plan, &local, &revision)?;
+        current = plan.apply(&local, &revision)?;
     }
     let mut result = None;
     if !merged.is_empty() && !same_content(&current, bytes)? {
@@ -707,7 +712,7 @@ pub fn send_copy(
         family: state.family_id.to_string(),
         checkpoint: sent.to_string(),
     });
-    let (copy, report) = clean_copy(&from_bytes, ids.as_ref())?;
+    let (copy, report) = doc::clean_copy(&from_bytes, ids.as_ref())?;
     let blob = Blob::new(copy.clone());
     let file = blob.hash.clone();
     builder.blobs(vec![blob]);
@@ -716,17 +721,22 @@ pub fn send_copy(
         from_checkpoint_id: from,
         recipient: recipient.to_owned(),
         purpose: purpose.map(str::to_owned),
-        format: "docx".to_owned(),
+        format: state.format.clone(),
         file,
         id_embedded: embed_id,
         cleaned: CleanSummary {
             revisions: report.revisions,
             comments: report.comments,
             hidden_runs: report.hidden_runs,
+            hidden_slides: report.hidden_slides,
         },
     })?;
     builder.out.new_file = Some(NewFile {
-        name: format!("{} ({recipient}).docx", stem(&node_info.display_name)),
+        name: format!(
+            "{} ({recipient}){}",
+            stem(&node_info.display_name),
+            extension(&state.format)
+        ),
         bytes: copy,
     });
     builder.out.created = Some(sent);
@@ -785,14 +795,14 @@ fn readable(state: &FamilyState) -> Result<()> {
 pub fn compare(state: &FamilyState, a: &Id, b: &Id, blobs: &dyn BlobSource) -> Result<WhatChanged> {
     readable(state)?;
     let (from, to) = (checkpoint_name(state, a)?, checkpoint_name(state, b)?);
-    let snapshot = |id: &Id| -> Result<Docx> {
+    let snapshot = |id: &Id| -> Result<Doc> {
         let c = state
             .checkpoint(id)
             .ok_or_else(|| Error::NotAllowed("unknown checkpoint".to_owned()))?;
-        Ok(Docx::open(&restore(&c.snapshot, blobs)?)?)
+        Ok(Doc::open_as(&restore(&c.snapshot, blobs)?, &state.format)?)
     };
     let (before, after) = (snapshot(a)?, snapshot(b)?);
-    let mut view = from_diff(&diff(&before, &after), &after);
+    let mut view = doc::what_changed(&before, &after)?;
     view.headline = if view.changes.is_empty() && view.formatting.is_empty() {
         format!("No changes from {from} to {to}")
     } else {

@@ -6,10 +6,14 @@
 
 use super::Deck;
 use super::diff::{Change, DeckDiff, Loc, Unit};
+use super::merge::{Item, Plan};
 use super::summary::summarize;
 use crate::diff::ChangeKind;
 use crate::diff::spec::{ChangeList, Location, SpecChange};
-use crate::view::{ChangeCard, Choice, WhatChanged, by_hand_reason};
+use crate::diff::{Segment, SegmentKind};
+use crate::merge::{OverlapKind, Status};
+use crate::summary::quote;
+use crate::view::{ChangeCard, Choice, OverlapCard, Theirs, WhatChanged, by_hand_reason};
 
 /// The card for one change.
 #[must_use]
@@ -49,6 +53,116 @@ pub fn from_diff(diff: &DeckDiff) -> WhatChanged {
         "No changes".to_owned()
     } else {
         count(total, "change", "changes")
+    };
+    view
+}
+
+fn what(change: &Change) -> String {
+    let line = |t: &Option<String>| {
+        t.as_deref()
+            .and_then(|t| t.lines().find(|l| !l.trim().is_empty()))
+            .map(quote)
+    };
+    match change.unit {
+        Unit::Slide => "this slide".to_owned(),
+        Unit::Notes => "the speaker notes".to_owned(),
+        Unit::Settings => "the slide's settings".to_owned(),
+        Unit::Animations => "the animations".to_owned(),
+        Unit::Design => "the design".to_owned(),
+        Unit::Shape => match change.shape_kind {
+            Some(super::model::ShapeKind::Text) | None => line(&change.before_text)
+                .or_else(|| line(&change.after_text))
+                .unwrap_or_else(|| "a text box".to_owned()),
+            Some(kind) => kind.noun().to_owned(),
+        },
+    }
+}
+
+fn overlap_summary(item: &Item, theirs: &Theirs) -> String {
+    let (who, they) = (theirs.who(), theirs.they());
+    let what = what(&item.change);
+    match item.status {
+        Status::Overlap(OverlapKind::BothAdded) => {
+            format!("You and {they} both added a slide here")
+        }
+        Status::Overlap(OverlapKind::DeletedVsEdited) if item.change.unit == Unit::Slide => {
+            format!("{who} removed this slide and you changed it")
+        }
+        Status::Overlap(OverlapKind::DeletedVsEdited) => {
+            format!("{who} removed {what} and you changed it")
+        }
+        Status::Overlap(OverlapKind::EditedVsDeleted) => {
+            format!("{who} changed {what} and you removed it")
+        }
+        Status::Overlap(OverlapKind::FormattingVsText) => {
+            format!("Both changed {what}: one the words, one the formatting")
+        }
+        _ if *theirs == Theirs::Master => format!("Both changed {what}"),
+        _ => format!("You and {they} both changed {what}"),
+    }
+}
+
+fn mine_segments(item: &Item) -> Vec<Segment> {
+    match &item.mine {
+        Some(mine) if !mine.segments.is_empty() => mine.segments.clone(),
+        _ => item
+            .change
+            .before_text
+            .clone()
+            .filter(|t| !t.is_empty())
+            .map(|text| {
+                vec![Segment {
+                    kind: SegmentKind::Same,
+                    text,
+                }]
+            })
+            .unwrap_or_default(),
+    }
+}
+
+/// "What changed" for `theirs`' changes to a deck, judged against this deck:
+/// an offer from the master, or the changes in a deck that came back.
+#[must_use]
+pub fn from_plan_for(plan: &Plan<'_>, theirs: &Theirs) -> WhatChanged {
+    let mut view = WhatChanged::default();
+    for item in &plan.items {
+        let choices: Vec<Choice> = item
+            .choices()
+            .into_iter()
+            .map(|decision| Choice {
+                decision,
+                label: theirs.label(decision).to_owned(),
+            })
+            .collect();
+        match &item.status {
+            Status::Clean if item.change.formatting_only => {
+                view.formatting.push(card(&item.change, choices));
+            }
+            Status::Clean => view.changes.push(card(&item.change, choices)),
+            Status::AlreadyThere { .. } => view.already_there.push(card(&item.change, choices)),
+            Status::ByHand(reason) => {
+                let mut c = card(&item.change, choices);
+                c.by_hand = Some(by_hand_reason(*reason).to_owned());
+                view.by_hand.push(c);
+            }
+            Status::Overlap(_) => view.overlaps.push(OverlapCard {
+                id: item.change.id.clone(),
+                summary: overlap_summary(item, theirs),
+                place: (item.change.unit != Unit::Design).then(|| item.change.place()),
+                before: item.change.before_text.clone().filter(|t| !t.is_empty()),
+                mine: mine_segments(item),
+                masters: item.change.segments.clone(),
+                choices,
+            }),
+        }
+    }
+    let offered =
+        view.changes.len() + view.formatting.len() + view.overlaps.len() + view.by_hand.len();
+    view.headline = match theirs {
+        Theirs::Master if offered == 0 => "You're up to date with the master".to_owned(),
+        Theirs::Master => format!("{} from the master", count(offered, "update", "updates")),
+        Theirs::Returned { .. } if offered == 0 => "Nothing left to review".to_owned(),
+        Theirs::Returned { who } => format!("{} from {who}", count(offered, "change", "changes")),
     };
     view
 }

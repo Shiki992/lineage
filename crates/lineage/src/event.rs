@@ -75,6 +75,14 @@ pub struct CleanSummary {
     pub revisions: usize,
     pub comments: usize,
     pub hidden_runs: usize,
+    /// Hidden slides left out of a deck. Older records have none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hidden_slides: usize,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// Every kind of event.

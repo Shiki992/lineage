@@ -12,6 +12,7 @@
 pub mod check;
 pub mod clean;
 pub mod diff;
+pub mod doc;
 pub mod docx;
 pub mod error;
 pub mod hash;

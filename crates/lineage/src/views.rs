@@ -329,8 +329,7 @@ pub fn sent_list(state: &FamilyState, search: Option<&str>) -> SentList {
             .and_then(|c| state.node(&c.node));
         let version = format!(
             "{} · {}",
-            node.map_or("", |n| n.display_name.as_str())
-                .trim_end_matches(".docx"),
+            crate::commands::stem(node.map_or("", |n| n.display_name.as_str())),
             state.label(&copy.from)
         );
         if let Some(needle) = &needle {
@@ -370,7 +369,7 @@ pub fn sent_list(state: &FamilyState, search: Option<&str>) -> SentList {
             recipient: copy.recipient.clone(),
             version,
             purpose: copy.purpose.clone(),
-            format: if copy.format == "pdf" { "PDF" } else { "Word" }.to_owned(),
+            format: crate::library::format_label(&copy.format).to_owned(),
             date: copy.at.day_label(),
             chip,
             returned: returned.map(|r| r.id.clone()),
@@ -446,7 +445,6 @@ pub fn document_page(state: &FamilyState, damage: Option<String>) -> DocumentPag
     let readable = crate::library::readable_format(&state.format);
     let note = damage.clone().or_else(|| {
         (!readable).then(|| match state.format.as_str() {
-            "pptx" => "Comes with PowerPoint support. You can see this deck's history, but not open or compare it yet.".to_owned(),
             "xlsx" => "Comes with Excel support. You can see this workbook's history, but not open or compare it yet.".to_owned(),
             _ => "This version of Lineage can't open these files yet.".to_owned(),
         })

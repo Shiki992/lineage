@@ -111,17 +111,22 @@ fn the_page_lists_each_file_newest_first_with_milestones_and_sent_copies() {
 }
 
 #[test]
-fn a_deck_family_shows_its_history_but_offers_nothing_to_open() {
+fn a_workbook_family_shows_its_history_but_offers_nothing_to_open() {
     let mut state = everything().host.state().clone();
     state.format = "pptx".to_owned();
+    let page = document_page(&state, None);
+    assert!(page.can_change, "decks can be opened since Phase 4");
+    assert_eq!(page.note, None);
+    assert_eq!(page.kind, "PowerPoint deck");
+    state.format = "xlsx".to_owned();
     let page = document_page(&state, None);
     assert!(!page.can_change);
     assert!(
         page.note
             .expect("note")
-            .starts_with("Comes with PowerPoint support")
+            .starts_with("Comes with Excel support")
     );
-    assert_eq!(page.kind, "PowerPoint deck");
+    assert_eq!(page.kind, "Excel workbook");
     let blobs = crate::blob::MemoryBlobs::default();
     let (a, b) = (&state.checkpoints[0].id, &state.checkpoints[1].id);
     assert!(matches!(

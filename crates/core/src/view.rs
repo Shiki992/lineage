@@ -117,7 +117,7 @@ impl Theirs {
     }
 
     /// Who made the changes, in the middle of a sentence.
-    fn they(&self) -> &str {
+    pub(crate) fn they(&self) -> &str {
         match self {
             Self::Master => "the master",
             Self::Returned { who } => who,
@@ -125,7 +125,7 @@ impl Theirs {
     }
 
     /// Who made the changes, at the start of a sentence.
-    fn who(&self) -> String {
+    pub(crate) fn who(&self) -> String {
         let they = self.they();
         let mut chars = they.chars();
         chars.next().map_or_else(String::new, |first| {
