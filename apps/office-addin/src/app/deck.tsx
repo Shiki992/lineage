@@ -110,13 +110,12 @@ export function DeckHome({
           </p>
         </fieldset>
       )}
-      {!changed && (
-        <div className="row">
-          <Button disabled={busy} onClick={onCheck}>
-            Check for changes
-          </Button>
-        </div>
-      )}
+      {/* Always there: more edits can follow the ones a call-out shows. */}
+      <div className="row">
+        <Button disabled={busy} onClick={onCheck}>
+          Check for changes
+        </Button>
+      </div>
       <LatestCheckpoint card={master.latest} />
       {panel.lastSent && (
         <section className="card row row--spread" aria-label="Last copy sent">

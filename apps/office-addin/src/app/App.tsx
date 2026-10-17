@@ -208,6 +208,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
 
   /** "Update N versions", and choices on what a previous run left. */
   const updateVersions = (versions: string[], choices: VersionChoice[], note?: string) => {
+    setNotice(null);
     void run("Updating the versions", async (l) => {
       const result = await l.updateVersions(
         versions,
@@ -534,17 +535,23 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
   } else if (opened.kind === "master" && opened.file.format === "pptx") {
     body = deckPanel ? (
       <DeckHome
-        key={deckPanel.master.latest.id + String(deckPanel.justChanged?.cards.length ?? 0)}
+        // A fresh look at the deck starts the ticks afresh.
+        key={[
+          deckPanel.master.latest.id,
+          ...(deckPanel.justChanged?.cards.map((c) => c.id) ?? []),
+          ...deckPanel.targets.map((t) => `${t.id}:${String(t.checked)}`),
+        ].join(" ")}
         panel={deckPanel}
         busy={busy !== null}
         onUpdate={(versions, note) => {
           updateVersions(versions, [], note);
         }}
-        onCheck={() =>
+        onCheck={() => {
+          setNotice(null);
           void run("Looking for changes", async (l) => {
             setDeckPanel(await l.deckPanel());
-          })
-        }
+          });
+        }}
         onOpen={(ref) => void run("Opening", (l) => l.openStored(ref))}
         onOpenSent={(sent) => void run("Opening what they saw", (l) => l.openSentCopy(sent))}
         onAction={onAction}

@@ -22,12 +22,13 @@ describe("the pitch deck panel", () => {
     const panel = golden("deck-panel") as DeckPanel;
     const onUpdate = vi.fn();
     const onOpenSent = vi.fn();
+    const onCheck = vi.fn();
     render(
       <DeckHome
         panel={panel}
         busy={false}
         onUpdate={onUpdate}
-        onCheck={vi.fn()}
+        onCheck={onCheck}
         onOpen={vi.fn()}
         onOpenSent={onOpenSent}
         onAction={vi.fn()}
@@ -39,12 +40,20 @@ describe("the pitch deck panel", () => {
     expect(within(changed).getByText("'$1.2M' changed to '$2.0M'")).toBeTruthy();
     expect(within(changed).getAllByText("1.2M")[0]?.tagName).toBe("DEL");
     expect(within(changed).getAllByText("2.0M")[0]?.tagName).toBe("INS");
+    // More edits can follow: PowerPoint has no change event, so the person can
+    // always ask for a fresh look (found in the PowerPoint run).
+    fireEvent.click(screen.getByRole("button", { name: "Check for changes" }));
+    expect(onCheck).toHaveBeenCalled();
 
     const boxes = screen.getAllByRole("checkbox");
     expect(boxes).toHaveLength(2);
     expect(screen.getByText("Last sent 15 Oct, before this change")).toBeTruthy();
     // Untick the second version: the button says so.
-    fireEvent.click(boxes[1] as HTMLElement);
+    const second = boxes[1];
+    if (!second) {
+      throw new Error("two versions to tick");
+    }
+    fireEvent.click(second);
     fireEvent.click(screen.getByRole("button", { name: "Update 1 version" }));
     expect(onUpdate).toHaveBeenCalledWith([panel.targets[0]?.id], "Changed Slide 6 · Traction");
 
