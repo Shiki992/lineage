@@ -133,6 +133,14 @@ pub struct VersionPanel {
     pub footer: String,
 }
 
+/// The text with its first letter in lower case, for the middle of a sentence.
+fn lower_first(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_lowercase().chain(chars).collect()
+    })
+}
+
 fn card(state: &FamilyState, node: &Id) -> Option<CheckpointCard> {
     let latest = state.latest(node)?;
     Some(CheckpointCard {
@@ -263,7 +271,8 @@ pub fn version_panel(
     Ok(VersionPanel {
         file_name: info.display_name.clone(),
         chip: "Tailored version".to_owned(),
-        status: format!("Made from master {made_from} · {}", has.to_lowercase()),
+        // "Has v1 · last sent 17 Oct" → "has v1 · last sent 17 Oct".
+        status: format!("Made from master {made_from} · {}", lower_first(&has)),
         latest: card(state, node)
             .ok_or_else(|| crate::Error::Ledger("no checkpoint".to_owned()))?,
         updates: match offered {
