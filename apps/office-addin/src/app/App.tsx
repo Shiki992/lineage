@@ -30,7 +30,7 @@ import { Diagnostics } from "../dev/Diagnostics";
 import { errorKind, pageStart, timing } from "../metrics";
 import type { StorageChoice } from "../storage/choose";
 import { UpdatesView } from "./changes";
-import { DeckHome, UpdateReport } from "./deck";
+import { DeckHome, DeckVersionReview, UpdateReport } from "./deck";
 import { MakeVersion, SaveCheckpoint, SendCopy } from "./forms";
 import type { Action } from "./home";
 import { Elsewhere, MasterHome, SignIn, StartTracking, VersionHome } from "./home";
@@ -43,6 +43,8 @@ type Screen =
   | { kind: "saveCheckpoint"; changes: WhatChanged | null }
   | { kind: "makeVersion" }
   | { kind: "updates"; updates: Updates }
+  /** A tailored deck open in PowerPoint brings changes in itself (decision 0019). */
+  | { kind: "deckUpdates"; updates: Updates }
   | { kind: "sendCopy"; family: Family }
   | { kind: "sent"; list: SentList }
   | { kind: "chooseReturned" }
@@ -497,6 +499,27 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         }
       />
     );
+  } else if (screen.kind === "deckUpdates") {
+    body = (
+      <DeckVersionReview
+        updates={screen.updates}
+        node={opened.file.nodeId}
+        busy={busy !== null}
+        onBack={home}
+        onBringIn={(choices) =>
+          void run("Bringing the changes into this deck", async (l) => {
+            const line = await l.bringInOpenDeck(choices);
+            await refresh(l);
+            setNotice({
+              text:
+                line.result === "updated"
+                  ? `${line.text}. Lineage saved a checkpoint of this deck.`
+                  : line.text,
+            });
+          })
+        }
+      />
+    );
   } else if (screen.kind === "sendCopy") {
     body = (
       <SendCopy
@@ -593,15 +616,18 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
     );
   } else {
     const deck = opened.file.format === "pptx";
+    const bringsIn = deck && lineage?.bringsIntoOpenDeck === true;
     body = (
       <VersionHome
         panel={opened.panel}
         busy={busy !== null}
         deck={deck}
+        bringsIn={bringsIn}
         onAction={onAction}
         onReview={() =>
           void run("Getting the updates", async (l) => {
-            setScreen({ kind: "updates", updates: await l.updates() });
+            const updates = await l.updates();
+            setScreen(deck ? { kind: "deckUpdates", updates } : { kind: "updates", updates });
           })
         }
         onSent={() =>

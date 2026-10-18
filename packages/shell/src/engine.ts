@@ -57,6 +57,13 @@ export interface UpdateResult {
   readonly files: ReadonlyMap<string, Uint8Array>;
 }
 
+/** Bring in on an open deck, first half: the plan, and the deck the slides come from. */
+export interface OpenDeckResult {
+  readonly plan: s.OpenDeckPlan;
+  /** The merged deck to insert slides from; undefined when nothing changes. */
+  readonly merged: Uint8Array | undefined;
+}
+
 /** The engine as the TypeScript shell sees it. Every method is synchronous. */
 export interface Engine {
   /** Engine version, from the Rust workspace manifest. */
@@ -110,6 +117,32 @@ export interface Engine {
     nowMs: number,
     open?: readonly string[],
   ): UpdateResult;
+  /**
+   * Bring in on a tailored deck open in PowerPoint, first half (decision
+   * 0019): its line, and the slide steps from `file` to the merged deck.
+   * Records nothing.
+   */
+  prepareOpenDeck(
+    ledger: Uint8Array,
+    node: string,
+    file: Uint8Array,
+    choices: readonly s.VersionChoice[],
+    nowMs: number,
+  ): OpenDeckResult;
+  /**
+   * The second half: `original` is the deck the first half had, `held` what
+   * PowerPoint holds now. Fails (engine) when `held` isn't the merged deck.
+   */
+  finishOpenDeck(
+    ledger: Uint8Array,
+    node: string,
+    original: Uint8Array,
+    held: Uint8Array,
+    choices: readonly s.VersionChoice[],
+    nowMs: number,
+  ): CommandResult;
+  /** The slide steps from one deck to another, for putting the open deck back. */
+  deckSlideOps(from: Uint8Array, to: Uint8Array): s.SlideOps;
   decide(
     ledger: Uint8Array,
     node: string,
@@ -447,6 +480,39 @@ function wrap(seed: Uint8Array): Engine {
         reply.free();
       }
     },
+    prepareOpenDeck(ledger, node, file, choices, nowMs) {
+      const { value, reply } = call("prepareOpenDeck", (e) =>
+        e.prepareOpenDeck(
+          ledger,
+          node,
+          file,
+          json(checked(v.array(s.VersionChoice), choices, "prepareOpenDeck")),
+          nowMs,
+        ),
+      );
+      try {
+        const plan = checked(s.OpenDeckPlan, value, "prepareOpenDeck");
+        const merged = reply.takeFile();
+        if (plan.hasFile !== (merged !== undefined)) {
+          throw new EngineBoundaryError("prepareOpenDeck: hasFile does not match the bytes");
+        }
+        return { plan, merged };
+      } finally {
+        reply.free();
+      }
+    },
+    finishOpenDeck: (ledger, node, original, held, choices, nowMs) =>
+      command("finishOpenDeck", (e) =>
+        e.finishOpenDeck(
+          ledger,
+          node,
+          original,
+          held,
+          json(checked(v.array(s.VersionChoice), choices, "finishOpenDeck")),
+          nowMs,
+        ),
+      ),
+    deckSlideOps: (from, to) => view("deckSlideOps", s.SlideOps, (e) => e.deckSlideOps(from, to)),
     decide: (ledger, node, file, cards, nowMs) =>
       command("decide", (e) =>
         e.decide(

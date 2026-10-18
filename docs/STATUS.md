@@ -1,5 +1,46 @@
 # Status
 
+## Phase 4 follow-up: bringing changes into an open deck (2026-10-18). Built, and checked in PowerPoint for Windows with a scratch dev folder.
+
+Branch `claude/laughing-payne-b62016`, from `phase-4-deck-variants` at `06a8d55` (not pushed, so it may need a rebase when that is). Not pushed.
+
+Decision: [0019 Bringing the master's changes into an open deck](decisions/0019-bringing-changes-into-an-open-deck.md); [0018](decisions/0018-how-deck-changes-land.md) points to it. No new dependencies.
+
+**Done**
+
+- **Engine** (`crates/core/src/pptx/slides.rs`, `check.rs`): slide steps from one deck to another (delete, insert after a slide, move), naming slides as Office.js does (`"<sldId>#<creationId>"`), changed slides deleted before they go back so they keep their ids; `check::landed`, whether what PowerPoint holds is the deck that was meant; `Error::NotLanded`.
+- **Family logic** (`crates/lineage/src/decks.rs`): `prepare_open` runs "Update N versions" for the one open version and returns its line, the merged deck and the steps, recording nothing; `finish_open` runs it again, checks what PowerPoint holds, and records a checkpoint of that deck (or only the choices, for Keep mine on everything). A deck's version sees every pending master change, since a master deck has no offer step.
+- **Boundary and shell:** wasm `prepareOpenDeck`, `finishOpenDeck`, `deckSlideOps`, with schemas and golden replies; `SlideHost` (`applySlideOps`, `canChangeSlides`); `Lineage.bringInOpenDeck`: carries out the steps, checks in the engine, appends once, retries once on a conflicting append, and otherwise puts the original slides and ids back and says so; `FakePowerPoint` for tests.
+- **PowerPoint pane:** `PowerPointHost.applySlideOps` (one sync per step; PowerPointApi 1.8 for `moveTo`); a tailored deck's panel shows **Review them**; the review lists what comes in, what both changed with **Keep mine** / **Use the master's**, and what stays by hand, with **Bring in N changes**. Without 1.8, the old "close it and update from the master" text stays.
+- Manual test script: steps 10a to 10c in [docs/testing/powerpoint-founder.md](testing/powerpoint-founder.md).
+
+**Checked in PowerPoint for Windows** (Current Channel, PowerPointApi 1.8), the pane driven through the DevTools port, history in a scratch folder holding only the invented pitch deck (not `.dev-storage`):
+
+1. master "$1.2M" → "$2.0M", checkpoint; Seed fund open: **Review them**, **Bring in 1 change**: slide 6 changed, kept `261#1002066859`, the deck's ids moved to the new checkpoint, one append. 1.06 s;
+2. Northgate open with its own unsaved "$1.4M": the overlap shown side by side, **Use the master's**: "Your edits before the update", then the master's number. 1.2 s;
+3. master added a Pricing slide and moved Market after Traction: Seed fund took both in one press, in the master's order. 3.0 s in a pane just reloaded; Northgate later 0.95 s;
+4. a step forced to fail halfway (the new slide in, the move refused) and a forced mismatch (the new slide at the start): both put back exactly (same slides, ids and checkpoint), nothing recorded, and the pane said so;
+5. **Keep mine** on Seed fund's own "$2.2M" against the master's "$2.4M": no slide changed, the choice recorded, nothing left waiting;
+6. **The audit** (`dev_folder.rs`) of that folder after PowerPoint saved the decks: 12 checkpoints restore and hold together, 15 blobs check, and both versions on disk are their nodes' checkpoints.
+
+**Bug found in the PowerPoint run, and fixed** (with a test): an open deck version showed no updates, because a deck version saw only _offered_ changes and a master deck never offers on its own.
+
+**Tests**
+
+- **Rust:** 363 pass, 3 ignored (was 342): slide steps and the landed check (with PowerPoint's own re-saved decks), a property test that the steps reach the merged deck and back, the open-deck family logic, golden replies.
+- **TypeScript:** 257 pass (was 240): shell 138 (the open-deck path with a fake PowerPoint), add-in 38.
+- **All checks pass:** fmt, clippy, cargo-deny, headers, fixtures, lint, typecheck, Prettier, budgets (wasm 1,429,062 bytes raw, under 4 MB; task pane JavaScript 164,461 gzipped).
+
+**Not done**
+
+- **PowerPoint on the web, and AutoSave on OneDrive**, where the open deck saves itself while slides change. The maintainer's run.
+- **Sections:** Office.js has no section API. The merge never changes sections, but if PowerPoint puts a new or moved slide in a different section than the engine expects, the check fails and the deck is put back. Not met in the run (the pitch deck has none).
+
+**Known issues**
+
+- Typing in the deck during the second or so Bring in takes can make the check fail; the deck is then put back, and that typing on the changed slides with it.
+- After **Keep mine** on everything, the pane says "Nothing brought in". True, but it could say the choice was kept.
+
 ## Phase 4: PowerPoint deck variants (2026-10-17). Built, and the founder journey clicked through in PowerPoint for Windows with the dev folder. PowerPoint on the web and OneDrive are the maintainer's run.
 
 Branch `phase-4-deck-variants`, from `phase-3b-my-documents` at `c75e934`. Not pushed.

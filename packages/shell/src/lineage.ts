@@ -10,7 +10,8 @@
 // copies) are written after the append.
 
 import type { CommandResult, Engine, FamilyLedger, UpdateResult } from "./engine.js";
-import type { DocumentHost } from "./host.js";
+import type { DocumentHost, SlideHost } from "./host.js";
+import { changesSlides } from "./host.js";
 import type * as s from "./schemas.js";
 import type { Storage } from "./storage.js";
 import type { FileLocation } from "./storage.js";
@@ -54,6 +55,10 @@ export interface LineageOptions {
 }
 
 const utf8 = new TextEncoder();
+
+/** Why an open deck's Bring in was put back (decision 0019). */
+const TOOK_CHANGES = "PowerPoint didn't take the changes exactly as Lineage made them";
+const NOT_RECORDED = "Lineage couldn't record the change in this deck's history";
 
 /** "d.docs.live.net" for a web address, "path" for a file on this computer. */
 function addressKind(ref: string): string {
@@ -811,6 +816,119 @@ export class Lineage {
         }
       }
     });
+  }
+
+  /**
+   * True when the open tailored deck's own panel can bring the master's
+   * changes in (decision 0019): PowerPoint can change its slides.
+   */
+  get bringsIntoOpenDeck(): boolean {
+    return this.openFile?.format === "pptx" && changesSlides(this.host);
+  }
+
+  /**
+   * Bring in, on a tailored deck open in PowerPoint (decision 0019). PowerPoint
+   * can't replace the open file, so the engine works out slide steps from the
+   * open deck to the merged one; PowerPoint carries them out (each changed
+   * slide deleted, then inserted from the merged deck, so it keeps its ids);
+   * and the engine checks that what PowerPoint then holds is the merged deck
+   * before recording a checkpoint of it. The history is appended once. If a
+   * step fails, the deck isn't what was meant, or the history can't be
+   * written, the original slides are put back from the deck as it was read,
+   * and nothing is recorded.
+   */
+  bringInOpenDeck(choices: readonly s.VersionChoice[] = []): Promise<s.VersionRun> {
+    return this.serial("bringInOpenDeck", async () => {
+      const file = this.requireFile();
+      const host = this.host;
+      if (file.role !== "variant" || file.format !== "pptx" || !changesSlides(host)) {
+        throw new LineageError(
+          "Update this deck from the master deck's panel.",
+          "bringInOpenDeck without a tailored deck PowerPoint can change",
+        );
+      }
+      const original = await host.readBytes();
+      const previousIds = await host.readIds();
+      const start = await this.ledger(file.familyId);
+      const { plan, merged } = await this.withBlobs(file.familyId, () =>
+        this.engine.prepareOpenDeck(start, file.nodeId, original, choices, this.now()),
+      );
+      if (!plan.records) {
+        return plan.version;
+      }
+      // With nothing to bring in ("Keep mine" on everything), only the
+      // choices are recorded, and the deck stays as it is.
+      let held = original;
+      if (merged) {
+        try {
+          await host.applySlideOps(plan.steps.ops, merged);
+          held = await host.readBytes();
+        } catch (error) {
+          return this.putDeckBack(host, original, previousIds, TOOK_CHANGES, String(error));
+        }
+      }
+      for (let attempt = 0; ; attempt++) {
+        const { bytes: ledger, version } = await this.storage.readLedger(file.familyId);
+        let recorded = false;
+        try {
+          const result = await this.withBlobs(file.familyId, () =>
+            this.engine.finishOpenDeck(ledger, file.nodeId, original, held, choices, this.now()),
+          );
+          recorded = true;
+          await this.storeBlobs(file.familyId, result);
+          if (result.outcome.ids) {
+            await host.writeIds(result.outcome.ids);
+          }
+          await this.append(file.familyId, version, ledger, result.outcome.ledgerLines);
+          return plan.version;
+        } catch (error) {
+          if (error instanceof StorageConflict && attempt === 0) {
+            continue;
+          }
+          return this.putDeckBack(
+            host,
+            original,
+            previousIds,
+            recorded ? NOT_RECORDED : TOOK_CHANGES,
+            String(error),
+          );
+        }
+      }
+    });
+  }
+
+  /**
+   * Puts the open deck's slides and ids back as they were in `original`, then
+   * throws what to tell the person: `lead` and that nothing changed, or that
+   * putting it back failed too.
+   */
+  private async putDeckBack(
+    host: SlideHost & DocumentHost,
+    original: Uint8Array,
+    ids: s.Ids | null,
+    lead: string,
+    detail: string,
+  ): Promise<never> {
+    try {
+      const back = this.engine.deckSlideOps(await host.readBytes(), original);
+      if (back.ops.length > 0) {
+        await host.applySlideOps(back.ops, original);
+      }
+      await host.writeIds(ids);
+      const left = this.engine.deckSlideOps(await host.readBytes(), original);
+      if (left.ops.length > 0) {
+        throw new Error(`${String(left.ops.length)} steps still to go`);
+      }
+    } catch (error) {
+      throw new LineageError(
+        `${lead}, and putting this deck back didn't work either. Close it without saving to keep it as it was.`,
+        `${detail}; putting back: ${String(error)}`,
+      );
+    }
+    throw new LineageError(
+      `${lead}, so this deck was put back as it was. Nothing was changed.`,
+      detail,
+    );
   }
 
   /** "Open" on a tailored version. */

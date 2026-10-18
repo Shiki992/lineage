@@ -6,13 +6,13 @@
 // the properties, and replacing the contents brings the new file's properties in.
 
 import type { Engine } from "../engine.js";
-import type { DocumentHost } from "../host.js";
-import type { Ids } from "../schemas.js";
+import type { DocumentHost, SlideHost } from "../host.js";
+import type { Ids, SlideOp } from "../schemas.js";
 import type { FileLocation } from "../storage.js";
 
 export class FakeHost implements DocumentHost {
-  private content: Uint8Array;
-  private ids: Ids | null;
+  protected content: Uint8Array;
+  protected ids: Ids | null;
   saves = 0;
   replaced = 0;
   readonly opened: FileLocation[] = [];
@@ -77,6 +77,48 @@ export class FakeHost implements DocumentHost {
 
   openCopy(bytes: Uint8Array): Promise<void> {
     this.copies.push(bytes);
+    return Promise.resolve();
+  }
+}
+
+/**
+ * PowerPoint for the open-deck path (decision 0019). It can't look inside a
+ * deck, so carrying out the steps makes it hold the source deck, as real
+ * PowerPoint does when every step lands. Tests script the rest: what it holds
+ * instead (`lands`), a step that fails (`failAt`, holding `halfway`), or a
+ * failure while putting the deck back (`failPutBack`).
+ */
+export class FakePowerPoint extends FakeHost implements SlideHost {
+  /** Every call's steps, in order. */
+  readonly applied: SlideOp[][] = [];
+  /** Changes what PowerPoint holds after the steps; by default, the source. */
+  lands: ((source: Uint8Array) => Uint8Array) | undefined;
+  /** Throws at this step (0-based) of the next call, holding `halfway`. */
+  failAt: number | undefined;
+  halfway: Uint8Array | undefined;
+  /** The second call (putting the deck back) throws. */
+  failPutBack = false;
+  supported = true;
+
+  canChangeSlides(): boolean {
+    return this.supported;
+  }
+
+  applySlideOps(ops: readonly SlideOp[], source: Uint8Array): Promise<void> {
+    this.applied.push([...ops]);
+    if (this.failPutBack && this.applied.length > 1) {
+      return Promise.reject(new Error("SlideNotFound while putting back"));
+    }
+    if (this.failAt !== undefined && this.failAt < ops.length) {
+      this.failAt = undefined;
+      if (this.halfway) {
+        this.content = this.halfway;
+      }
+      return Promise.reject(new Error("SlideNotFound"));
+    }
+    const lands = this.lands;
+    this.lands = undefined;
+    this.content = lands ? lands(source) : source;
     return Promise.resolve();
   }
 }

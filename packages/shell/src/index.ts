@@ -2,8 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export { EngineBoundaryError, EngineError, loadEngine, loadEngineAsync } from "./engine.js";
-export type { CommandResult, Engine, FamilyLedger, Observed, UpdateResult } from "./engine.js";
-export type { DocumentHost } from "./host.js";
+export type {
+  CommandResult,
+  Engine,
+  FamilyLedger,
+  Observed,
+  OpenDeckResult,
+  UpdateResult,
+} from "./engine.js";
+export type { DocumentHost, SlideHost } from "./host.js";
+export { changesSlides } from "./host.js";
 export { History } from "./history.js";
 export { Library } from "./library.js";
 export type { LibraryOptions, MissingFile, OpenedDocument } from "./library.js";
@@ -42,6 +50,8 @@ export type {
   SendArgs,
   SentList,
   SentRow,
+  SlideOp,
+  SlideOps,
   TimelineEntry,
   UpdateRun,
   Updates,
@@ -49,6 +59,7 @@ export type {
   VersionChoice,
   VersionPanel,
   VersionRow,
+  VersionRun,
   WhatChanged,
   Written,
 } from "./schemas.js";

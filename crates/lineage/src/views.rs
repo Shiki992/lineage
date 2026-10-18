@@ -167,7 +167,15 @@ fn version_status(
         .filter(|p| !p.offered)
         .map(|p| format!("{}:{}", p.checkpoint, p.change.id))
         .collect();
-    let offered = status.offerable.iter().filter(|p| p.offered).count();
+    // A master deck has no "offer" step: "Update N versions" offers and brings
+    // in at once (decision 0018), so a deck version waits for every pending
+    // change, offered or not (decision 0019).
+    let deck = state.format == "pptx";
+    let offered = status
+        .offerable
+        .iter()
+        .filter(|p| p.offered || deck)
+        .count();
     Ok((text, offered, not_offered))
 }
 

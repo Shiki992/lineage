@@ -41,6 +41,7 @@ fn category(error: &Error) -> &'static str {
         Error::NotAnOfficeFile(_) => "not an Office file",
         Error::BadXml { .. } => "bad XML",
         Error::CannotEdit(_) => "cannot edit",
+        Error::NotLanded(_) => "did not land",
     }
 }
 

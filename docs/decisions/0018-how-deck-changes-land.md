@@ -74,6 +74,8 @@ The **version panel's Bring in is not wired in this phase.** The spike shows it 
 
 Until then, a tailored deck's panel says to close it and choose Update versions in the master deck.
 
+**Update (2026-10-18):** built, with all three, in [decision 0019](0019-bringing-changes-into-an-open-deck.md). A tailored deck open in PowerPoint (PowerPointApi 1.8) brings changes in from its own panel; without 1.8 the text above still shows.
+
 ### What a sent deck leaves out (`pptx::clean`)
 
 A sent deck has:

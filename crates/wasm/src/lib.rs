@@ -163,6 +163,43 @@ impl Engine {
         Reply(self.0.update_versions(ledger, choices, now_ms))
     }
 
+    #[wasm_bindgen(js_name = prepareOpenDeck)]
+    pub fn prepare_open_deck(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        file: &[u8],
+        choices: &str,
+        now_ms: f64,
+    ) -> Reply {
+        Reply(
+            self.0
+                .prepare_open_deck(ledger, node, file, choices, now_ms),
+        )
+    }
+
+    #[wasm_bindgen(js_name = finishOpenDeck)]
+    pub fn finish_open_deck(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        original: &[u8],
+        held: &[u8],
+        choices: &str,
+        now_ms: f64,
+    ) -> Reply {
+        Reply(
+            self.0
+                .finish_open_deck(ledger, node, original, held, choices, now_ms),
+        )
+    }
+
+    #[wasm_bindgen(js_name = deckSlideOps)]
+    #[must_use]
+    pub fn deck_slide_ops(&self, from: &[u8], to: &[u8]) -> Reply {
+        Reply(self.0.deck_slide_ops(from, to))
+    }
+
     #[wasm_bindgen(js_name = startTracking)]
     pub fn start_tracking(
         &mut self,

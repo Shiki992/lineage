@@ -31,6 +31,9 @@ pub enum Error {
     BadXml { part: String, detail: String },
     /// The engine refused to write, because it could not do so without risking the file.
     CannotEdit(String),
+    /// What PowerPoint holds after Lineage changed its slides isn't what Lineage
+    /// meant it to hold (decision 0019).
+    NotLanded(String),
 }
 
 impl Error {
@@ -54,6 +57,9 @@ impl Error {
             Self::CannotEdit(_) => {
                 "Lineage couldn't make this change safely, so it left the file as it was."
             }
+            Self::NotLanded(_) => {
+                "PowerPoint didn't take the changes exactly as Lineage wrote them."
+            }
         }
     }
 }
@@ -71,6 +77,7 @@ impl fmt::Display for Error {
             Self::NotAnOfficeFile(detail) => write!(f, "not an Office file: {detail}"),
             Self::BadXml { part, detail } => write!(f, "bad XML in {part}: {detail}"),
             Self::CannotEdit(detail) => write!(f, "cannot edit safely: {detail}"),
+            Self::NotLanded(detail) => write!(f, "did not land: {detail}"),
         }
     }
 }
@@ -100,6 +107,7 @@ mod tests {
                 detail: String::new(),
             },
             Error::CannotEdit(String::new()),
+            Error::NotLanded(String::new()),
         ];
         for error in all {
             let message = error.user_message();

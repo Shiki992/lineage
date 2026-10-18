@@ -627,7 +627,18 @@ fn deck_replies(golden: &mut Golden) {
     let value = golden.keep("update-versions", &reply);
     assert_eq!(value["value"]["headline"], "Updated all 2 versions");
     let mut reply = reply;
-    assert!(reply.files.iter().any(|(n, _)| *n == versions[0].0));
+    let seed_file = reply
+        .files
+        .iter()
+        .find(|(n, _)| *n == versions[0].0)
+        .map(|(_, f)| f.clone())
+        .expect("seed fund written");
+    let north_file = reply
+        .files
+        .iter()
+        .find(|(n, _)| *n == versions[1].0)
+        .map(|(_, f)| f.clone())
+        .expect("northgate written");
     reply.files.clear();
     let v: Value = serde_json::from_str(&reply.json).expect("json");
     host.ledger.extend_from_slice(
@@ -636,4 +647,61 @@ fn deck_replies(golden: &mut Golden) {
             .expect("lines")
             .as_bytes(),
     );
+
+    // What Northgate, open in PowerPoint, still has to choose.
+    let value = golden.keep(
+        "updates-deck",
+        &host
+            .session
+            .updates(&host.ledger, &versions[1].0, &north_file),
+    );
+    assert_eq!(
+        value["value"]["groups"][0]["view"]["overlaps"][0]["summary"],
+        "Both changed '$1.2M ARR'"
+    );
+
+    // Bring in for the open deck (decision 0019): the master's notes change,
+    // into Seed fund open in PowerPoint.
+    let edited = with_ids(
+        &master_file,
+        &edits::notes_edited(edits::traction_update(pitch_deck())),
+    );
+    let reply = host.session.save_checkpoint(
+        &host.ledger,
+        &master,
+        &edited,
+        "Notes for the traction slide",
+        host.now,
+    );
+    host.take(reply);
+    let reply =
+        host.session
+            .prepare_open_deck(&host.ledger, &versions[0].0, &seed_file, "[]", host.now);
+    let value = golden.keep("prepare-open-deck", &reply);
+    assert_eq!(value["value"]["version"]["text"], "Brought in 1 change");
+    let merged = reply.file.expect("merged deck");
+    golden.keep(
+        "deck-slide-ops",
+        &host.session.deck_slide_ops(&merged, &seed_file),
+    );
+    let reply = host.session.finish_open_deck(
+        &host.ledger,
+        &versions[0].0,
+        &seed_file,
+        &merged,
+        "[]",
+        host.now,
+    );
+    let value = golden.keep("finish-open-deck", &reply);
+    assert!(value["value"]["ids"]["checkpoint"].is_string());
+    host.take(reply);
+    let reply = host.session.finish_open_deck(
+        &host.ledger,
+        &versions[0].0,
+        &seed_file,
+        &seed_file,
+        "[]",
+        host.now,
+    );
+    assert!(reply.json.contains(r#""ok":false"#), "{}", reply.json);
 }

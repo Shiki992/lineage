@@ -7,21 +7,70 @@
 // PowerPoint differs from Word in three ways that shape the deck panel
 // (decision 0018):
 // - there are no tracked changes, and no way to replace the open file, so a
-//   deck's tailored versions are updated as stored files from the master's
-//   panel, never through the open document;
+//   deck's closed tailored versions are updated as stored files from the
+//   master's panel, and an open one by changing its slides: the engine says
+//   which to delete, insert from the merged deck, and move (decision 0019);
 // - an add-in can't open a file by its address: "Open" goes to PowerPoint for
 //   the web for a file in OneDrive;
 // - there is no save call: PowerPoint saves files in OneDrive itself, and the
 //   person saves a file on this computer.
 
-import type { DocumentHost, FileLocation, Ids } from "@lineage/shell";
+import type { DocumentHost, FileLocation, Ids, SlideHost, SlideOp } from "@lineage/shell";
 import { LineageError } from "@lineage/shell";
 import { CHECKPOINT, FAMILY, base64, describeOpenFile, idsFrom, readWholeFile } from "./common";
 
 /** PowerPointApi 1.7 has the custom properties Lineage's ids live in. */
 export const NEEDED = "1.7";
 
-export class PowerPointHost implements DocumentHost {
+/** PowerPointApi 1.8 adds `Slide.moveTo`, the last kind of slide step. */
+export const SLIDE_STEPS = "1.8";
+
+export class PowerPointHost implements DocumentHost, SlideHost {
+  /**
+   * True when this PowerPoint can carry out every kind of slide step, so an
+   * open tailored deck can bring changes in from its own panel.
+   */
+  canChangeSlides(): boolean {
+    return Office.context.requirements.isSetSupported("PowerPointApi", SLIDE_STEPS);
+  }
+
+  /**
+   * Carries out the engine's slide steps (decision 0019), one sync each so a
+   * failure stops where it is. A changed slide comes as a delete followed by
+   * an insert: deleted first, the inserted slide keeps its ids (the Phase 4
+   * spike). Inserted slides take this deck's theme and layouts.
+   * https://learn.microsoft.com/javascript/api/powerpoint/powerpoint.presentation#powerpoint-powerpoint-presentation-insertslidesfrombase64-member(1)
+   * https://learn.microsoft.com/javascript/api/powerpoint/powerpoint.insertslideoptions
+   * https://learn.microsoft.com/javascript/api/powerpoint/powerpoint.slide#powerpoint-powerpoint-slide-moveto-member(1)
+   */
+  async applySlideOps(ops: readonly SlideOp[], source: Uint8Array): Promise<void> {
+    if (ops.length === 0) {
+      return;
+    }
+    const from = base64(source);
+    await PowerPoint.run(async (context) => {
+      const slides = context.presentation.slides;
+      for (const op of ops) {
+        switch (op.kind) {
+          case "delete":
+            slides.getItem(op.slide).delete();
+            break;
+          case "insert":
+            context.presentation.insertSlidesFromBase64(from, {
+              formatting: PowerPoint.InsertSlideFormatting.useDestinationTheme,
+              sourceSlideIds: [op.slide],
+              ...(op.after === null ? {} : { targetSlideId: op.after }),
+            });
+            break;
+          case "move":
+            slides.getItem(op.slide).moveTo(op.index);
+            break;
+        }
+        await context.sync();
+      }
+    });
+  }
+
   readBytes(): Promise<Uint8Array> {
     return readWholeFile("PowerPoint");
   }
@@ -64,7 +113,7 @@ export class PowerPointHost implements DocumentHost {
   replaceContents(): Promise<void> {
     return Promise.reject(
       new LineageError(
-        "Update this deck from the master deck's panel.",
+        "Bring the changes in from this deck's panel, or update it from the master deck's.",
         "PowerPoint can't replace the open presentation",
       ),
     );
