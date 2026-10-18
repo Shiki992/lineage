@@ -502,6 +502,7 @@ fn golden_replies() {
     host.take(reply);
 
     deck_replies(&mut golden);
+    workbook_replies(&mut golden);
 
     // Errors.
     let fresh = Session::new([7; 32]);
@@ -704,4 +705,237 @@ fn deck_replies(golden: &mut Golden) {
         host.now,
     );
     assert!(reply.json.contains(r#""ok":false"#), "{}", reply.json);
+}
+
+/// The JSON for "bring in" on every item id of a workbook card.
+fn bring_in_ids(card: &Value) -> String {
+    let cards: Vec<Value> = card["ids"]
+        .as_array()
+        .expect("ids")
+        .iter()
+        .map(|c| serde_json::json!({"card": c, "decision": "bringIn"}))
+        .collect();
+    serde_json::to_string(&cards).expect("json")
+}
+
+/// The founder's financial model: what changed in the five categories with
+/// Excel's hints, a cell side by side, the master's price brought into a
+/// tailored workbook open in Excel, and a copy that came back kept in the
+/// master (decision 0023).
+fn workbook_replies(golden: &mut Golden) {
+    use lineage_core::docx::props::{read_ids, write_ids};
+    use lineage_testkit::workbooks::{self, Assumptions};
+
+    let with_ids = |file: &[u8], built: &lineage_testkit::xlsx::Workbook| -> Vec<u8> {
+        let ids = read_ids(&Package::read(file).expect("reads"))
+            .expect("reads")
+            .expect("ids");
+        let mut package = Package::read(&built.to_bytes()).expect("reads");
+        write_ids(&mut package, &ids).expect("writes");
+        package.to_bytes().expect("bytes")
+    };
+    let model = |new_seats: i128, price: &str, churn: &str| {
+        workbooks::financial_model(&Assumptions {
+            new_seats,
+            price: price.to_owned(),
+            churn: churn.to_owned(),
+            ..Assumptions::default()
+        })
+    };
+    let base = Assumptions::default();
+    let (seats, price, churn) = (base.new_seats, base.price.clone(), base.churn.clone());
+    let mut host = Host {
+        session: Session::new([44; 32]),
+        ledger: Vec::new(),
+        stored: Vec::new(),
+        now: START,
+    };
+    let reply = host.session.start_tracking(
+        &workbooks::model_master().to_bytes(),
+        "Startup model.xlsx",
+        "Startup model.xlsx",
+        host.now,
+    );
+    let (master_file, _) = host.take(reply);
+    let master_file = master_file.expect("ids written");
+    let state: Value = serde_json::from_str(&host.session.family(&host.ledger).json).expect("json");
+    let family_id = id(&state["value"]["familyId"]);
+    let master = id(&state["value"]["nodes"][0]["id"]);
+    let reply = host.session.make_tailored_version(
+        &host.ledger,
+        "Startup model - Northwind.xlsx",
+        "Tailored versions/Startup model - Northwind.xlsx",
+        host.now,
+    );
+    let created: Value = serde_json::from_str(&reply.json).expect("json");
+    let northwind = id(&created["value"]["created"]);
+    let (_, file) = host.take(reply);
+    let north_file = with_ids(&file.expect("version file"), &model(12, &price, &churn));
+    let reply = host.session.save_checkpoint(
+        &host.ledger,
+        &northwind,
+        &north_file,
+        "Northwind's seat plan",
+        host.now,
+    );
+    let (file, _) = host.take(reply);
+    let north_file = file.unwrap_or(north_file);
+
+    // Send a copy: what goes with it, then the copy.
+    golden.keep(
+        "goes-with-copy",
+        &host
+            .session
+            .goes_with_copy(&workbooks::awkward_cells().to_bytes()),
+    );
+    let reply = host.session.send_copy(
+        &host.ledger,
+        &master,
+        &master_file,
+        r#"{"recipient":"Harbor Lane Capital","purpose":"Series A","embedId":true}"#,
+        host.now,
+    );
+    golden.keep("send-copy-workbook", &reply);
+    let (_, copy) = host.take(reply);
+    let copy = copy.expect("the copy");
+
+    // The founder changes the price in Excel.
+    let edited = with_ids(&master_file, &model(seats, "55", &churn));
+    let value = golden.keep(
+        "workbook-what-changed",
+        &host.session.workbook_what_changed(
+            &host.ledger,
+            &master,
+            &edited,
+            r#"[{"sheet":"Assumptions","address":"B4"}]"#,
+        ),
+    );
+    assert_eq!(
+        value["value"]["workbook"]["groups"][0]["cards"][0]["why"],
+        "Edited in this session"
+    );
+    golden.keep(
+        "cell-side-by-side",
+        &host.session.cell_side_by_side(
+            &host.ledger,
+            &master,
+            &edited,
+            r#"{"sheet":"Assumptions","address":"B4"}"#,
+        ),
+    );
+    let reply = host
+        .session
+        .save_checkpoint(&host.ledger, &master, &edited, "New price", host.now);
+    let (file, _) = host.take(reply);
+    let master_file = file.unwrap_or(edited);
+    let reply = host.session.offer_to_versions(
+        &host.ledger,
+        &serde_json::to_string(&[&northwind]).expect("json"),
+        host.now,
+    );
+    host.take(reply);
+
+    // Northwind, open in Excel, brings the price in.
+    let updates = golden.keep(
+        "updates-workbook",
+        &host.session.updates(&host.ledger, &northwind, &north_file),
+    );
+    let cards =
+        bring_in_ids(&updates["value"]["groups"][0]["view"]["workbook"]["groups"][0]["cards"][0]);
+    let value = golden.keep(
+        "prepare-workbook-offer",
+        &host
+            .session
+            .prepare_workbook_offer(&host.ledger, &northwind, &north_file, &cards),
+    );
+    assert_eq!(value["value"]["text"], "Brings in 1 change");
+    // Excel didn't take it: nothing is recorded.
+    let reply = host.session.finish_workbook_offer(
+        &host.ledger,
+        &northwind,
+        &north_file,
+        &north_file,
+        &cards,
+        host.now,
+    );
+    golden.keep("error-not-landed", &reply);
+    // The way back after Excel carried out the plan's one step, and the check
+    // that the workbook is as it was.
+    let value = golden.keep(
+        "workbook-way-back",
+        &host
+            .session
+            .workbook_way_back(&host.ledger, &northwind, &north_file, &cards, 1, None),
+    );
+    assert_eq!(value["value"][0]["value"]["text"], "49");
+    golden.keep(
+        "workbook-put-back",
+        &host.session.workbook_put_back(&north_file, &north_file),
+    );
+    // What Excel holds after carrying out the plan.
+    let held = with_ids(&north_file, &model(12, "55", &churn));
+    let reply = host.session.finish_workbook_offer(
+        &host.ledger,
+        &northwind,
+        &north_file,
+        &held,
+        &cards,
+        host.now,
+    );
+    let value = golden.keep("finish-workbook-offer", &reply);
+    assert!(value["value"]["ids"]["checkpoint"].is_string(), "{value}");
+    host.take(reply);
+
+    // Harbor Lane's copy comes back with a different churn rate.
+    let back = with_ids(&copy, &model(seats, &price, "0.03"));
+    let ledgers = serde_json::json!([{
+        "family": family_id,
+        "ledger": String::from_utf8(host.ledger.clone()).expect("utf-8"),
+    }])
+    .to_string();
+    let found: Value =
+        serde_json::from_str(&host.session.recognise(&back, &ledgers).json).expect("json");
+    let candidate = &found["value"]["candidates"][0];
+    let reply = host.session.record_returned(
+        &host.ledger,
+        &back,
+        &serde_json::json!({
+            "name": "Startup model - Harbor Lane comments.xlsx",
+            "checkpoint": candidate["checkpoint"],
+            "sent": candidate["sent"],
+            "matchedBy": "ids",
+        })
+        .to_string(),
+        host.now,
+    );
+    let recorded: Value = serde_json::from_str(&reply.json).expect("json");
+    let returned = id(&recorded["value"]["created"]);
+    host.take(reply);
+    let review = golden.keep(
+        "returned-review-workbook",
+        &host
+            .session
+            .returned_review(&host.ledger, &master, &master_file, &returned),
+    );
+    let cards = bring_in_ids(&review["value"]["view"]["workbook"]["groups"][0]["cards"][0]);
+    let value = golden.keep(
+        "prepare-workbook-keep",
+        &host
+            .session
+            .prepare_workbook_keep(&host.ledger, &master, &master_file, &returned, &cards),
+    );
+    assert_eq!(value["value"]["text"], "Keeps 1 change");
+    let held = with_ids(&master_file, &model(seats, "55", "0.03"));
+    let reply = host.session.finish_workbook_keep(
+        &host.ledger,
+        &master,
+        &master_file,
+        &held,
+        &returned,
+        &cards,
+        host.now,
+    );
+    let value = golden.keep("finish-workbook-keep", &reply);
+    assert_eq!(value["ok"], true, "{value}");
+    host.take(reply);
 }

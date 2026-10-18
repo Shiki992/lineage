@@ -22,7 +22,9 @@ use lineage_core::view::{ChangeCard, Choice, OverlapCard, WhatChanged};
 use serde::{Deserialize, Serialize};
 
 mod history;
+mod workbook;
 pub use history::*;
+pub use workbook::*;
 
 // ---------------------------------------------------------------- inputs
 
@@ -473,7 +475,7 @@ pub struct ChoiceDto {
     pub label: String,
 }
 
-fn choices(choices: &[Choice]) -> Vec<ChoiceDto> {
+pub(crate) fn choices(choices: &[Choice]) -> Vec<ChoiceDto> {
     choices
         .iter()
         .map(|c| ChoiceDto {
@@ -542,6 +544,9 @@ pub struct WhatChangedDto {
     pub overlaps: Vec<OverlapCardDto>,
     pub by_hand: Vec<ChangeCardDto>,
     pub already_there: Vec<ChangeCardDto>,
+    /// A workbook's changes in the five categories (decision 0022).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workbook: Option<WorkbookViewDto>,
 }
 
 impl From<&WhatChanged> for WhatChangedDto {
@@ -554,6 +559,7 @@ impl From<&WhatChanged> for WhatChangedDto {
             overlaps: w.overlaps.iter().map(OverlapCardDto::from).collect(),
             by_hand: cards(&w.by_hand),
             already_there: cards(&w.already_there),
+            workbook: w.workbook.as_deref().map(WorkbookViewDto::from),
         }
     }
 }

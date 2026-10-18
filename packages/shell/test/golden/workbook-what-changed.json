@@ -1,0 +1,193 @@
+{
+  "ok": true,
+  "value": {
+    "alreadyThere": [],
+    "byHand": [],
+    "changes": [
+      {
+        "byHand": null,
+        "choices": [],
+        "id": "xf2c3697854f6942d",
+        "place": "Assumptions!B4 · Price per seat, Value",
+        "summary": "'$49' changed to '$55'",
+        "text": [
+          {
+            "kind": "removed",
+            "text": "$49"
+          },
+          {
+            "kind": "added",
+            "text": "$55"
+          }
+        ]
+      },
+      {
+        "byHand": null,
+        "choices": [],
+        "id": "knockOn-3-B2",
+        "place": null,
+        "summary": "This changed 83 calculated cells, including Summary!B2 and Summary!B3.",
+        "text": []
+      }
+    ],
+    "formatting": [],
+    "headline": "1 input, 83 knock-on changes since v1",
+    "overlaps": [],
+    "workbook": {
+      "groups": [
+        {
+          "cards": [
+            {
+              "address": "B4",
+              "after": {
+                "formula": null,
+                "shown": "$55"
+              },
+              "before": {
+                "formula": null,
+                "shown": "$49"
+              },
+              "byHand": null,
+              "cells": 1,
+              "choices": [],
+              "conflict": null,
+              "id": "xf2c3697854f6942d",
+              "ids": [],
+              "mine": null,
+              "place": "Assumptions!B4 · Price per seat, Value",
+              "sheet": "Assumptions",
+              "summary": "'$49' changed to '$55'",
+              "why": "Edited in this session"
+            }
+          ],
+          "category": "input",
+          "more": 0,
+          "summary": "1 typed value changed",
+          "title": "Inputs"
+        },
+        {
+          "cards": [
+            {
+              "address": "B2",
+              "after": {
+                "formula": "='P&L'!B2",
+                "shown": "$130,977"
+              },
+              "before": {
+                "formula": "='P&L'!B2",
+                "shown": "$116,689"
+              },
+              "byHand": null,
+              "cells": 1,
+              "choices": [],
+              "conflict": null,
+              "id": "3-B2",
+              "ids": [],
+              "mine": null,
+              "place": "Summary!B2 · Year 1 revenue",
+              "sheet": "Summary",
+              "summary": "'$116,689' changed to '$130,977'",
+              "why": "Follows from a change above"
+            },
+            {
+              "address": "B3",
+              "after": {
+                "formula": "='P&L'!C2",
+                "shown": "$247,401"
+              },
+              "before": {
+                "formula": "='P&L'!C2",
+                "shown": "$220,412"
+              },
+              "byHand": null,
+              "cells": 1,
+              "choices": [],
+              "conflict": null,
+              "id": "3-B3",
+              "ids": [],
+              "mine": null,
+              "place": "Summary!B3 · Year 2 revenue",
+              "sheet": "Summary",
+              "summary": "'$220,412' changed to '$247,401'",
+              "why": "Follows from a change above"
+            },
+            {
+              "address": "B4",
+              "after": {
+                "formula": "='P&L'!C6",
+                "shown": "-$817,131"
+              },
+              "before": {
+                "formula": "='P&L'!C6",
+                "shown": "-$839,262"
+              },
+              "byHand": null,
+              "cells": 1,
+              "choices": [],
+              "conflict": null,
+              "id": "3-B4",
+              "ids": [],
+              "mine": null,
+              "place": "Summary!B4 · Year 2 EBITDA",
+              "sheet": "Summary",
+              "summary": "'-$839,262' changed to '-$817,131'",
+              "why": "Follows from a change above"
+            },
+            {
+              "address": "E2",
+              "after": {
+                "formula": "=C2-D2",
+                "shown": "5,303.76"
+              },
+              "before": {
+                "formula": "=C2-D2",
+                "shown": "4,725.17"
+              },
+              "byHand": null,
+              "cells": 1,
+              "choices": [],
+              "conflict": null,
+              "id": "1-E2",
+              "ids": [],
+              "mine": null,
+              "place": "Revenue!E2",
+              "sheet": "Revenue",
+              "summary": "'4,725.17' changed to '5,303.76'",
+              "why": "Follows from a change above"
+            },
+            {
+              "address": "E3",
+              "after": {
+                "formula": "=C3-D3",
+                "shown": "5,966.73"
+              },
+              "before": {
+                "formula": "=C3-D3",
+                "shown": "5,315.81"
+              },
+              "byHand": null,
+              "cells": 1,
+              "choices": [],
+              "conflict": null,
+              "id": "1-E3",
+              "ids": [],
+              "mine": null,
+              "place": "Revenue!E3",
+              "sheet": "Revenue",
+              "summary": "'5,315.81' changed to '5,966.73'",
+              "why": "Follows from a change above"
+            }
+          ],
+          "category": "knockOn",
+          "more": 78,
+          "summary": "This changed 83 calculated cells, including Summary!B2 and Summary!B3.",
+          "title": "Knock-on changes"
+        }
+      ],
+      "headline": "1 input, 83 knock-on changes",
+      "notes": [],
+      "unmatched": [],
+      "untracked": []
+    }
+  }
+}

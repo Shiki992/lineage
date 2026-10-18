@@ -25,11 +25,12 @@ use serde::Serialize;
 
 use crate::cache::{BlobCache, DEFAULT_LIMIT, Recording};
 use crate::dto::{
-    CardDecision, CopyOfDto, DeckPanelDto, DocumentDto, DocumentPageDto, FamilyDto, FamilyGraphDto,
-    IdsDto, LedgerDto, LibraryDto, MasterPanelDto, ObservedDto, OpenDeckPlanDto, OpenFileDto,
-    OutcomeDto, RecognitionDto, RecordArgs, RefreshedDto, ReturnReviewDto, SendArgs, SentListDto,
-    SlideOpsDto, UpdateRunDto, UpdatesDto, VersionChoice, VersionPanelDto, VersionRunDto,
-    WhatChangedDto, WrittenDto, ledger_lines,
+    CardDecision, CellArgs, CopyOfDto, DeckPanelDto, DocumentDto, DocumentPageDto, FamilyDto,
+    FamilyGraphDto, HintDto, IdsDto, LedgerDto, LibraryDto, MasterPanelDto, ObservedDto,
+    OpenDeckPlanDto, OpenFileDto, OutcomeDto, RecognitionDto, RecordArgs, RefreshedDto,
+    ReturnReviewDto, SendArgs, SentListDto, SideBySideDto, SlideOpsDto, StepDto, UpdateRunDto,
+    UpdatesDto, VersionChoice, VersionPanelDto, VersionRunDto, WhatChangedDto, WorkbookPlanDto,
+    WrittenDto, ledger_lines,
 };
 
 /// What a call returns: the JSON envelope and any bytes.
@@ -189,6 +190,32 @@ fn choices_of(choices: &[VersionChoice]) -> Vec<(Id, String, lineage_core::merge
     choices
         .iter()
         .map(|c| (c.node.clone(), c.card.clone(), c.decision.into()))
+        .collect()
+}
+
+/// `[{card, decision}]` as pairs.
+fn cards_of(text: &str) -> Result<Vec<(String, lineage_core::merge::Decision)>> {
+    let cards: Vec<CardDecision> = json(text)?;
+    Ok(cards
+        .into_iter()
+        .map(|c| (c.card, c.decision.into()))
+        .collect())
+}
+
+/// Most hints one call takes: Excel's events in one session, merged.
+const MAX_HINTS: usize = 10_000;
+
+/// `[{sheet, address}]` as the engine's hints.
+fn hints_of(text: &str) -> Result<Vec<lineage_core::xlsx::diff::Hint>> {
+    let list: Vec<HintDto> = json(text)?;
+    if list.len() > MAX_HINTS {
+        return Err(Failure::BadInput("too many hints".to_owned()));
+    }
+    list.iter()
+        .map(|h| {
+            h.to_hint()
+                .ok_or_else(|| Failure::BadInput("a hint isn't a cell or range".to_owned()))
+        })
         .collect()
 }
 
@@ -697,6 +724,204 @@ impl Session {
         match ops {
             Ok(ops) => Reply::ok(&SlideOpsDto::from(&ops)),
             Err(e) => Reply::failure(&Failure::Lineage(e.into())),
+        }
+    }
+
+    /// "What changed" in the open workbook since its latest checkpoint, with
+    /// the ranges Excel reported as edited in this session: `hints` is a JSON
+    /// array of `{sheet, address}` (decision 0022).
+    #[must_use]
+    pub fn workbook_what_changed(
+        &self,
+        ledger: &[u8],
+        node: &str,
+        file: &[u8],
+        hints: &str,
+    ) -> Reply {
+        let prepared = fold(ledger).and_then(|s| Ok((s, id(node)?, hints_of(hints)?)));
+        let (state, node, hints) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.view(|source| {
+            lineage::workbooks::what_changed(&state, &node, file, &hints, source)
+                .map(|v| WhatChangedDto::from(&v))
+        })
+    }
+
+    /// One cell of the open workbook beside the same cell at the latest
+    /// checkpoint: `cell` is `{sheet, address}`.
+    #[must_use]
+    pub fn cell_side_by_side(&self, ledger: &[u8], node: &str, file: &[u8], cell: &str) -> Reply {
+        let prepared = fold(ledger).and_then(|s| Ok((s, id(node)?, json::<CellArgs>(cell)?)));
+        let (state, node, cell) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.view(|source| {
+            lineage::workbooks::side_by_side(
+                &state,
+                &node,
+                file,
+                &cell.sheet,
+                &cell.address,
+                source,
+            )
+            .map(|s| SideBySideDto::from(&s))
+        })
+    }
+
+    /// Bring in for the open tailored workbook, first half (decision 0023):
+    /// the apply plan for `cards` (a JSON array of `{card, decision}`) on
+    /// `file`, the workbook as Excel holds it. Records nothing.
+    #[must_use]
+    pub fn prepare_workbook_offer(
+        &self,
+        ledger: &[u8],
+        node: &str,
+        file: &[u8],
+        cards: &str,
+    ) -> Reply {
+        let prepared = fold(ledger).and_then(|s| Ok((s, id(node)?, cards_of(cards)?)));
+        let (state, node, cards) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.view(|source| {
+            lineage::workbooks::prepare(&state, &node, file, &cards, source)
+                .map(|p| WorkbookPlanDto::from(&p))
+        })
+    }
+
+    /// Bring in for the open tailored workbook, second half: `original` is
+    /// the workbook the first half had, `held` what Excel holds after the
+    /// plan. Records the choices and a checkpoint when `held` is what the plan
+    /// meant; otherwise fails with "did not land", and the pane runs the
+    /// plan's undo.
+    pub fn finish_workbook_offer(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        original: &[u8],
+        held: &[u8],
+        cards: &str,
+        now_ms: f64,
+    ) -> Reply {
+        let prepared = fold(ledger).and_then(|s| Ok((s, id(node)?, cards_of(cards)?)));
+        let (state, node, cards) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.command(now_ms, |ctx, source| {
+            lineage::workbooks::finish(ctx, &state, &node, original, held, &cards, source)
+        })
+    }
+
+    /// "Keep" on a returned workbook, first half: the plan for the kept
+    /// changes in the open workbook of `node`.
+    #[must_use]
+    pub fn prepare_workbook_keep(
+        &self,
+        ledger: &[u8],
+        node: &str,
+        file: &[u8],
+        returned: &str,
+        cards: &str,
+    ) -> Reply {
+        let prepared =
+            fold(ledger).and_then(|s| Ok((s, id(node)?, id(returned)?, cards_of(cards)?)));
+        let (state, node, back, cards) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.view(|source| {
+            lineage::workbooks::prepare_keep(&state, &back, &node, file, &cards, source)
+                .map(|p| WorkbookPlanDto::from(&p))
+        })
+    }
+
+    /// "Keep" on a returned workbook, second half, as
+    /// [`Session::finish_workbook_offer`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn finish_workbook_keep(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        original: &[u8],
+        held: &[u8],
+        returned: &str,
+        cards: &str,
+        now_ms: f64,
+    ) -> Reply {
+        let prepared =
+            fold(ledger).and_then(|s| Ok((s, id(node)?, id(returned)?, cards_of(cards)?)));
+        let (state, node, back, cards) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.command(now_ms, |ctx, source| {
+            lineage::workbooks::finish_keep(
+                ctx, &state, &back, &node, original, held, &cards, source,
+            )
+        })
+    }
+
+    /// The way back after Excel carried out only the first `done` steps of
+    /// the plan for `original` and `cards`: the offer's plan, or, with
+    /// `returned`, the plan for keeping that returned file's changes.
+    #[must_use]
+    pub fn workbook_way_back(
+        &self,
+        ledger: &[u8],
+        node: &str,
+        original: &[u8],
+        cards: &str,
+        done: u32,
+        returned: Option<&str>,
+    ) -> Reply {
+        let prepared = fold(ledger).and_then(|s| {
+            let back = returned.map(id).transpose()?;
+            Ok((s, id(node)?, cards_of(cards)?, back))
+        });
+        let (state, node, cards, back) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        let done = done as usize;
+        self.view(|source| {
+            let steps = match &back {
+                Some(r) => lineage::workbooks::keep_way_back(
+                    &state, r, &node, original, &cards, done, source,
+                )?,
+                None => {
+                    lineage::workbooks::way_back(&state, &node, original, &cards, done, source)?
+                }
+            };
+            Ok(steps.iter().map(StepDto::from).collect::<Vec<_>>())
+        })
+    }
+
+    /// Checks that the open workbook (`actual`) holds the inputs and formulas
+    /// of `original` again, after the way back ran. Null, or "did not land".
+    #[must_use]
+    pub fn workbook_put_back(&self, original: &[u8], actual: &[u8]) -> Reply {
+        let checked = lineage_core::Workbook::open_for_panel(original).and_then(|a| {
+            let b = lineage_core::Workbook::open_for_panel(actual)?;
+            lineage_core::xlsx::apply::put_back(&a, &b)
+        });
+        match checked {
+            Ok(()) => Reply::ok(&()),
+            Err(e) => Reply::failure(&Failure::Lineage(e.into())),
+        }
+    }
+
+    /// What goes with a copy that Send a copy should say before saving:
+    /// hidden sheets, rows and columns, and macros (decision 0026).
+    #[must_use]
+    pub fn goes_with_copy(&self, file: &[u8]) -> Reply {
+        match lineage::workbooks::goes_with_copy(file) {
+            Ok(notes) => Reply::ok(&notes),
+            Err(e) => Reply::failure(&Failure::Lineage(e)),
         }
     }
 

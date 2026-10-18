@@ -200,6 +200,115 @@ impl Engine {
         Reply(self.0.deck_slide_ops(from, to))
     }
 
+    #[wasm_bindgen(js_name = workbookWhatChanged)]
+    #[must_use]
+    pub fn workbook_what_changed(
+        &self,
+        ledger: &[u8],
+        node: &str,
+        file: &[u8],
+        hints: &str,
+    ) -> Reply {
+        Reply(self.0.workbook_what_changed(ledger, node, file, hints))
+    }
+
+    #[wasm_bindgen(js_name = cellSideBySide)]
+    #[must_use]
+    pub fn cell_side_by_side(&self, ledger: &[u8], node: &str, file: &[u8], cell: &str) -> Reply {
+        Reply(self.0.cell_side_by_side(ledger, node, file, cell))
+    }
+
+    #[wasm_bindgen(js_name = prepareWorkbookOffer)]
+    #[must_use]
+    pub fn prepare_workbook_offer(
+        &self,
+        ledger: &[u8],
+        node: &str,
+        file: &[u8],
+        cards: &str,
+    ) -> Reply {
+        Reply(self.0.prepare_workbook_offer(ledger, node, file, cards))
+    }
+
+    #[wasm_bindgen(js_name = finishWorkbookOffer)]
+    pub fn finish_workbook_offer(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        original: &[u8],
+        held: &[u8],
+        cards: &str,
+        now_ms: f64,
+    ) -> Reply {
+        Reply(
+            self.0
+                .finish_workbook_offer(ledger, node, original, held, cards, now_ms),
+        )
+    }
+
+    #[wasm_bindgen(js_name = prepareWorkbookKeep)]
+    #[must_use]
+    pub fn prepare_workbook_keep(
+        &self,
+        ledger: &[u8],
+        node: &str,
+        file: &[u8],
+        returned: &str,
+        cards: &str,
+    ) -> Reply {
+        Reply(
+            self.0
+                .prepare_workbook_keep(ledger, node, file, returned, cards),
+        )
+    }
+
+    #[wasm_bindgen(js_name = finishWorkbookKeep)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn finish_workbook_keep(
+        &mut self,
+        ledger: &[u8],
+        node: &str,
+        original: &[u8],
+        held: &[u8],
+        returned: &str,
+        cards: &str,
+        now_ms: f64,
+    ) -> Reply {
+        Reply(
+            self.0
+                .finish_workbook_keep(ledger, node, original, held, returned, cards, now_ms),
+        )
+    }
+
+    #[wasm_bindgen(js_name = workbookWayBack)]
+    #[must_use]
+    pub fn workbook_way_back(
+        &self,
+        ledger: &[u8],
+        node: &str,
+        original: &[u8],
+        cards: &str,
+        done: u32,
+        returned: Option<String>,
+    ) -> Reply {
+        Reply(
+            self.0
+                .workbook_way_back(ledger, node, original, cards, done, returned.as_deref()),
+        )
+    }
+
+    #[wasm_bindgen(js_name = workbookPutBack)]
+    #[must_use]
+    pub fn workbook_put_back(&self, original: &[u8], actual: &[u8]) -> Reply {
+        Reply(self.0.workbook_put_back(original, actual))
+    }
+
+    #[wasm_bindgen(js_name = goesWithCopy)]
+    #[must_use]
+    pub fn goes_with_copy(&self, file: &[u8]) -> Reply {
+        Reply(self.0.goes_with_copy(file))
+    }
+
     #[wasm_bindgen(js_name = startTracking)]
     pub fn start_tracking(
         &mut self,
