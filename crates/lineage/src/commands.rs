@@ -224,20 +224,34 @@ pub(crate) fn checkpoint_into(
     Ok((checkpoint, bytes))
 }
 
-/// A file name without its Office extension.
-pub(crate) fn stem(name: &str) -> &str {
-    [".docx", ".pptx", ".DOCX", ".PPTX"]
-        .iter()
-        .find_map(|ext| name.strip_suffix(ext))
-        .unwrap_or(name)
+const EXTENSIONS: [&str; 4] = [".docx", ".pptx", ".xlsx", ".xlsm"];
+
+/// The Office extension `name` ends with, in any case, as written.
+fn own_extension(name: &str) -> Option<&str> {
+    EXTENSIONS.iter().find_map(|ext| {
+        let tail = name.get(name.len().checked_sub(ext.len())?..)?;
+        tail.eq_ignore_ascii_case(ext).then_some(tail)
+    })
 }
 
-/// The extension files of a family's format have: ".docx", ".pptx".
+/// A file name without its Office extension.
+pub(crate) fn stem(name: &str) -> &str {
+    own_extension(name).map_or(name, |ext| &name[..name.len() - ext.len()])
+}
+
+/// The extension files of a family's format have: ".docx", ".pptx", ".xlsx".
 pub(crate) fn extension(format: &str) -> &'static str {
     match format {
         "pptx" => ".pptx",
+        "xlsx" => ".xlsx",
         _ => ".docx",
     }
+}
+
+/// The extension a copy of `name` gets: its own (a workbook with macros stays
+/// `.xlsm`), or else the family format's.
+pub(crate) fn extension_for<'a>(name: &'a str, format: &str) -> &'a str {
+    own_extension(name).unwrap_or_else(|| extension(format))
 }
 
 /// "Start tracking": the file becomes the master of a new family, with its
@@ -803,7 +817,7 @@ pub fn send_copy(
         name: format!(
             "{} ({recipient}){}",
             stem(&node_info.display_name),
-            extension(&state.format)
+            extension_for(&node_info.display_name, &state.format)
         ),
         bytes: copy,
     });
@@ -1027,4 +1041,21 @@ pub fn relink(
     })?;
     builder.out.created = Some(node.clone());
     Ok(builder.finish())
+}
+
+#[cfg(test)]
+mod names {
+    use super::{extension_for, stem};
+
+    #[test]
+    fn copies_keep_their_own_extension() {
+        assert_eq!(stem("Startup model.xlsx"), "Startup model");
+        assert_eq!(stem("Model.XLSM"), "Model");
+        assert_eq!(stem("Résumé.docx"), "Résumé");
+        assert_eq!(stem("Notes"), "Notes");
+        assert_eq!(extension_for("Model.xlsm", "xlsx"), ".xlsm");
+        assert_eq!(extension_for("Deck.PPTX", "pptx"), ".PPTX");
+        assert_eq!(extension_for("Model", "xlsx"), ".xlsx");
+        assert_eq!(extension_for("Resume", "docx"), ".docx");
+    }
 }
