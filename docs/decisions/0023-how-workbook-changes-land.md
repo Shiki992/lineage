@@ -1,6 +1,6 @@
 # 0023: How the master's changes land in a workbook
 
-Date: 2026-10-18. Status: the merge, the apply plan and the writer accepted; how Excel carries the plan out is checked at stop 2 (the Excel spike), and this note is finished then.
+Date: 2026-10-18. Status: the merge, the apply plan and the writer accepted; checked in Excel at stop 2 (below); the open questions from the spike go to the maintainer before the Excel screens are built.
 
 ## Context
 
@@ -55,6 +55,42 @@ For closed files, the test harness's pilot runs and fidelity tests, the writer c
 It refuses to delete rows, and to insert rows on a sheet a chart, a pivot table or a what-if data table reads.
 
 Checked: the writer's row inserted above Price per seat, with its two cells typed, gives exactly the inputs, formulas and names of Excel's own (`fixtures/xlsx/excel/model-row-inserted.xlsx`). Every writer output tested opens in real Excel without repair (`scripts/excel-smoke.ps1`). A property test merges random changes into an unchanged base and writes them: the result is the changed version, cell for cell.
+
+## What Excel for Windows showed (stop 2, 2026-10-18)
+
+Excel 16.0.20430 (Current Channel, ExcelApi up to 1.21), invented workbooks in a scratch folder, the pane driven through the DevTools port with the real shell, the dev-folder storage and `apps/office-addin/src/office/excel-host.ts`.
+
+**Reading the workbook.** `getFileAsync(Compressed)` works in Excel for Windows, in one slice for these files, in 125 to 150 ms. It includes unsaved edits: a cell set through Office.js, with `isDirty` true, was in the bytes. So the pane never saves before planning.
+
+**Writing values.** `range.formulas` and `range.values` read a string as if it were typed:
+
+- "00123" became 123, "TRUE" a boolean, "=1+1" a formula, "#N/A" an error, and " 12" became 12;
+- "1E-7", "1,234", "50%", "$5" and "12/03/2026" became numbers, and **also changed the cell's number format**;
+- only 15 digits were kept: "0.30000000000000004" became 0.3.
+
+So the host writes each kind differently:
+
+- **numbers** as JavaScript numbers through `values`. That keeps every digit of the double (stored `0.30000000000000004`, `1.2345678901234568E+17`) and leaves the format alone. The plan still carries the lexeme; the host writes the double it stands for, which is what the engine compares;
+- **text** through `valuesAsJson` as a string (ExcelApi 1.16). Every string above was stored exactly, as a shared string, with the format untouched. The exception is a leading apostrophe: Excel takes it as the quote prefix even there. So text starting with `'` is written with one more, and Excel gives the cell its quote-prefix style;
+- **booleans** through `values`; **errors** and **en-US formulas** (with `=`) through `formulas`. Cross-sheet references such as `='P&L'!B2` were stored as written.
+
+**Row steps.** `getRange("5:5").insert(down)` inside the budget's table grew the table (A1:D18) and kept its structured references. The summary's SUMIFS recalculated, and the landed check passed. `delete(up)` in the way back took the row out again. Excel gives inserted rows the format of the row above (its own "format same as above"). The plan doesn't set formats, and formats come in by hand in v0.
+
+**The runs.**
+
+1. The model's new price into Northwind: one `set`, landed, ids moved, one append. 0.62 s for the whole bring-in.
+2. The budget's new row in the middle of the table, and February's rent below it: insert, five cells, landed. 0.61 s.
+3. Two formulas changed in P&L: written as formulas, recalculated, landed. 0.76 s on a later run, with each file read about 140 ms and the plan itself 63 ms. One earlier run of the same kind took 5.6 s; it wasn't reproduced.
+4. Two new rows with text that looks like a number and a boolean ("00123", "TRUE"): landed as text. 0.95 s.
+5. Excel stopped after the insert (simulated with `PlanStopped(1)`): the way back was the one `deleteRows`, the workbook was back, and nothing was recorded.
+6. The person typed into another cell while the plan ran: the landed check refused it, naming only the cell. The way back ran, but `put_back` then found the person's own typing, so the pane said to close without saving.
+
+**Events.** A change Lineage wrote through Office.js has `triggerSource` `ThisLocalAddin`, so it isn't taken as the person's edit; "What changed" didn't call the new price "Edited in this session".
+
+**Other findings.**
+
+- Two text cells typed in a column that was empty before read as "Added column C", which comes in by hand. This is right by decision 0021, but a person may expect two inputs.
+- After a bring-in, a tailored workbook on this computer is left unsaved; the history already has its checkpoint.
 
 ## Alternatives
 
