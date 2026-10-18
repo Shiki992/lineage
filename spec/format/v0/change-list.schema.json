@@ -19,8 +19,8 @@
   },
   "$defs": {
     "format": {
-      "description": "Document format the change list describes. v0 covers Word and PowerPoint.",
-      "enum": ["docx", "pptx"]
+      "description": "Document format the change list describes. v0 covers Word, PowerPoint and Excel.",
+      "enum": ["docx", "pptx", "xlsx"]
     },
     "changeId": {
       "description": "Stable identifier for one change within its change list.",
@@ -62,6 +62,14 @@
           "description": "Plain-English summary for people, for example \"'Data engineer' changed to 'Senior data engineer'\".",
           "type": "string",
           "minLength": 1
+        },
+        "category": {
+          "description": "xlsx only, and required there: which of the five kinds of workbook change this is. input: a typed value changed. formula: the formula changed, even when its result didn't. knockOn: a calculated result changed while its formula didn't. refreshed: data from a connection, another workbook or a volatile function. structure: sheets, rows, columns, names, tables, formats and settings.",
+          "enum": ["input", "formula", "knockOn", "refreshed", "structure"]
+        },
+        "provenance": {
+          "description": "xlsx only, and required there: why the change happened, as far as the evidence goes. directEdit: a change event from the editing session matches it. downstream: the dependency graph links it to an input or formula change in the same list, and nothing else upstream changed. refresh: a data refresh, another workbook or a volatile function. likelyDownstream: the graph suggests it, but other explanations remain. unknown: anything else.",
+          "enum": ["directEdit", "downstream", "refresh", "likelyDownstream", "unknown"]
         }
       },
       "allOf": [
@@ -87,12 +95,71 @@
         {
           "if": { "properties": { "kind": { "const": "format" } } },
           "then": { "properties": { "formattingOnly": { "const": true } } }
+        },
+        {
+          "if": {
+            "properties": { "location": { "properties": { "format": { "const": "xlsx" } } } }
+          },
+          "then": { "required": ["category", "provenance"] },
+          "else": {
+            "not": { "anyOf": [{ "required": ["category"] }, { "required": ["provenance"] }] }
+          }
         }
       ]
     },
     "location": {
       "description": "Where a change is, keyed by format. Each format adds its own shape in later versions.",
-      "oneOf": [{ "$ref": "#/$defs/docxLocation" }, { "$ref": "#/$defs/pptxLocation" }]
+      "oneOf": [
+        { "$ref": "#/$defs/docxLocation" },
+        { "$ref": "#/$defs/pptxLocation" },
+        { "$ref": "#/$defs/xlsxLocation" }
+      ]
+    },
+    "xlsxLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "part", "sheet", "sheetIndex"],
+      "properties": {
+        "format": { "const": "xlsx" },
+        "part": {
+          "description": "Package part holding the sheet, for example xl/worksheets/sheet1.xml, or xl/workbook.xml for a change to the workbook.",
+          "type": "string",
+          "pattern": "^xl/[A-Za-z0-9_./-]+\\.xml$"
+        },
+        "sheet": {
+          "description": "The sheet's name, in the version the change is in. Empty for a change to the workbook.",
+          "type": "string"
+        },
+        "sheetIndex": {
+          "description": "Zero-based position of the sheet among the tabs.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "address": {
+          "description": "The cell or range in A1 style, in the version the change is in (the later one, or the earlier one for a deletion). Whole rows are 4:6, whole columns B:C.",
+          "type": "string",
+          "pattern": "^\\$?[A-Z]{1,3}\\$?[0-9]{1,7}(:\\$?[A-Z]{1,3}\\$?[0-9]{1,7})?$|^[A-Z]{1,3}:[A-Z]{1,3}$|^[0-9]{1,7}:[0-9]{1,7}$"
+        },
+        "addressBefore": {
+          "description": "Where the cell was in the earlier version, when rows or columns moved it.",
+          "type": "string",
+          "pattern": "^\\$?[A-Z]{1,3}\\$?[0-9]{1,7}$"
+        },
+        "target": {
+          "description": "What changed when it isn't one cell: rows, columns, the sheet itself, a defined name, a table, a data connection, the workbook's settings, or a part kept but not tracked yet (macros, pivot tables, charts and so on).",
+          "enum": [
+            "cell",
+            "rows",
+            "columns",
+            "sheet",
+            "name",
+            "table",
+            "connection",
+            "workbook",
+            "untracked"
+          ]
+        }
+      }
     },
     "pptxLocation": {
       "type": "object",

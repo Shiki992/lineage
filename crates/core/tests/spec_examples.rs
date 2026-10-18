@@ -104,3 +104,39 @@ fn deck_change_lists_from_the_engine_are_valid() {
         }
     }
 }
+
+#[test]
+fn workbook_change_lists_from_the_engine_are_valid() {
+    use lineage_core::Workbook;
+    use lineage_core::xlsx::{diff::diff, view::change_list};
+    use lineage_testkit::workbooks;
+
+    let (schemas, index) = compile_schema();
+    let open = |wb: lineage_testkit::xlsx::Workbook| Workbook::open(&wb.to_bytes()).expect("opens");
+    for (a, b) in [
+        (workbooks::model_master(), workbooks::model_price_update()),
+        (workbooks::model_master(), workbooks::model_hosting()),
+        (
+            workbooks::model_master(),
+            workbooks::model_harbor_lane(workbooks::model_master()),
+        ),
+        (workbooks::budget_master(), workbooks::budget_sorted()),
+        (workbooks::budget_master(), workbooks::budget_added()),
+        (workbooks::tracker_master(), workbooks::tracker_filtered()),
+        (
+            workbooks::connected_master(),
+            workbooks::connected_refreshed(),
+        ),
+    ] {
+        let (a, b) = (open(a), open(b));
+        let list = change_list(&diff(&a, &b, &[]), &a, &b);
+        assert!(!list.changes.is_empty());
+        let instance: Value = serde_json::from_str(&list.to_json()).expect("json");
+        if let Err(error) = schemas.validate(&instance, index) {
+            panic!(
+                "engine output should be valid:\n{error:#}\n{}",
+                list.to_json()
+            );
+        }
+    }
+}
