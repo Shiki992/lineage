@@ -1,6 +1,6 @@
 # 0023: How the master's changes land in a workbook
 
-Date: 2026-10-18. Status: the merge, the apply plan and the writer accepted; checked in Excel at stop 2 (below); the open questions from the spike go to the maintainer before the Excel screens are built.
+Date: 2026-10-18. Status: accepted, after the stop 2 spike in Excel and the maintainer's choices on what it found.
 
 ## Context
 
@@ -92,6 +92,13 @@ So the host writes each kind differently:
 - Two text cells typed in a column that was empty before read as "Added column C", which comes in by hand. This is right by decision 0021, but a person may expect two inputs.
 - After a bring-in, a tailored workbook on this computer is left unsaved; the history already has its checkpoint.
 
+## Settled with the maintainer after the spike (2026-10-18)
+
+1. **Typing while the plan runs is kept.** After the way back, the engine checks the workbook again with the cells Excel's change events say the person edited left out (`put_back_except`). When only those differ, the pane says "Lineage took its changes back out. What you typed meanwhile stays. Nothing was recorded." Anything else still says to close the workbook without saving.
+2. **The workbook is saved after a bring-in** (`Workbook.save`, ExcelApi 1.11), as Word's document is, so a file on this computer matches the checkpoint just recorded. A failed save leaves it unsaved; the history is already written.
+3. **ExcelApi 1.16 to bring changes in** (Office 2024 and Microsoft 365): text is written exactly only through `valuesAsJson`. Older Excel still shows what changed, and says to update Excel (decision 0020).
+4. **New rows take Excel's formatting from the row above.** Every update card for new rows says "New rows take the formatting of the row above." Formats still come in by hand.
+
 ## Alternatives
 
 - **Rewriting the open workbook from bytes.** Office.js can't. `insertWorksheetsFromBase64` adds whole sheets, which would break every reference into the sheet it replaced.
@@ -101,4 +108,5 @@ So the host writes each kind differently:
 ## Consequences
 
 - A whole family of changes (formats, names, sorting, columns) is by hand in v0, and listed as such with the reason.
-- The plan's addresses are for the workbook as it was read; the pane must re-read and re-plan if it changed (stop 2 decides how).
+- The plan's addresses are for the workbook as it was read. The pane reads the workbook, plans and carries the plan out in one go, and the landed check catches anything that changed in between.
+- Text that starts with an apostrophe gets Excel's quote-prefix style when it comes in.
