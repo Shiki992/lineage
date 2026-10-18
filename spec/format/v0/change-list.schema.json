@@ -98,7 +98,9 @@
         },
         {
           "if": {
-            "properties": { "location": { "properties": { "format": { "const": "xlsx" } } } }
+            "properties": {
+              "location": { "type": "object", "properties": { "format": { "const": "xlsx" } } }
+            }
           },
           "then": { "required": ["category", "provenance"] },
           "else": {
