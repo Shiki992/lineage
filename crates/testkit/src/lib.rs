@@ -1,8 +1,8 @@
 // Copyright 2026 Hrishikesh Vedantam
 // SPDX-License-Identifier: Apache-2.0
 
-//! Test-only builders for synthetic Word documents and PowerPoint decks. Never
-//! shipped.
+//! Test-only builders for synthetic Word documents, PowerPoint decks and Excel
+//! workbooks. Never shipped.
 //!
 //! `cargo xtask fixtures` writes the files in [`fixtures::all`] to
 //! `fixtures/docx/synthetic/` and those in [`decks::all`] to
@@ -21,4 +21,6 @@ pub mod png;
 pub mod pptx;
 pub mod resume;
 pub mod returned;
+pub mod workbooks;
+pub mod xlsx;
 pub mod zip_writer;

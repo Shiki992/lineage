@@ -3,8 +3,8 @@
 
 //! Repository tasks. Run with `cargo xtask <task>`:
 //!
-//! - `fixtures`: write the synthetic fixtures to `fixtures/docx/synthetic/` and
-//!   `fixtures/pptx/synthetic/`.
+//! - `fixtures`: write the synthetic fixtures to `fixtures/docx/synthetic/`,
+//!   `fixtures/pptx/synthetic/` and `fixtures/xlsx/synthetic/`.
 //! - `check-fixtures`: fail if the committed fixtures differ from what the generator
 //!   produces now, or if the folder holds files the generator doesn't make.
 //! - `check-headers`: fail if any source file lacks the licence header.
@@ -19,7 +19,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use lineage_testkit::{decks, fixtures, returned};
+use lineage_testkit::{decks, fixtures, returned, workbooks};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -46,6 +46,13 @@ fn generated() -> Vec<(&'static str, Files)> {
             decks::all()
                 .into_iter()
                 .map(|(name, deck)| (name, deck.to_bytes()))
+                .collect(),
+        ),
+        (
+            workbooks::OUT_DIR,
+            workbooks::all()
+                .into_iter()
+                .map(|(name, workbook)| (name, workbook.to_bytes()))
                 .collect(),
         ),
     ]
