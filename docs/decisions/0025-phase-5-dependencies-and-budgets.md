@@ -39,14 +39,14 @@ Development and tests only:
 
 Measured on this computer: Intel Core i9-12900H (14 cores), 32 GB, Windows 11, Rust 1.99. The wasm runs were the engine built as the task pane builds it (`opt-level = "z"`, `wasm-bindgen` 0.2.129, names removed), run in Node 24, whose V8 is the engine Excel's WebView2 uses; each case ran in a fresh process, so its wasm memory (which only grows) is the case's peak. The native runs are `cargo xtask bench-xlsx`, release build, with the peak working set from `scripts/bench-xlsx.ps1`. The workbooks are invented (`cargo xtask bench-xlsx prepare`): an Orders sheet of six columns, one of them a shared Total formula, and a Summary of five `SUMIF`s.
 
-| Case                | Cells     | wasm: open one | wasm: compare two (both opens, diff, view) | wasm memory | Native: compare |
-| ------------------- | --------- | -------------- | ------------------------------------------ | ----------- | --------------- |
-| The financial model | 167       | 29 ms          | 49 ms                                      | 1 MB        | 4 ms            |
-| 61 linked sheets    | 5,164     | 84 ms          | 140 ms                                     | 4 MB        | 24 ms           |
-| 50,000 rows, edited | 300,018   | 1.5 s          | 4.7 s                                      | 89 MB       | 1.8 s, 110 MB   |
-| 50,000 rows, sorted | 300,018   | 1.8 s          | 4.5 s                                      | 96 MB       | 2.3 s, 113 MB   |
-| 200,000, edited     | 1,200,018 | 9.9 s          | 22.5 s                                     | 353 MB      | 7.6 s, 419 MB   |
-| 200,000, sorted     | 1,200,018 | 8.2 s          | 25.1 s                                     | 377 MB      | 10.2 s, 427 MB  |
+| Case                | Cells     | wasm: open one | wasm: compare two (both opens, diff, view) | wasm memory | Native: same, peak |
+| ------------------- | --------- | -------------- | ------------------------------------------ | ----------- | ------------------ |
+| The financial model | 167       | 29 ms          | 49 ms                                      | 1 MB        | 31 ms              |
+| 61 linked sheets    | 5,164     | 84 ms          | 140 ms                                     | 4 MB        | 82 ms              |
+| 50,000 rows, edited | 300,018   | 1.5 s          | 4.7 s                                      | 89 MB       | 2.8 s, 110 MB      |
+| 50,000 rows, sorted | 300,018   | 1.8 s          | 4.5 s                                      | 96 MB       | 2.9 s, 113 MB      |
+| 200,000, edited     | 1,200,018 | 9.9 s          | 22.5 s                                     | 353 MB      | 10.1 s, 419 MB     |
+| 200,000, sorted     | 1,200,018 | 8.2 s          | 25.1 s                                     | 377 MB      | 11.8 s, 427 MB     |
 
 Native stage times for 200,000 rows sorted: zip 0.25 s, model 2.7 s (each version), alignment 1.75 s, dependencies 0.6 s, the whole diff 5.9 s. The workbook engine alone is 495,549 bytes of wasm; `opt-level = 3` made it 830 KB and only about 1.4 times faster, so the build stays at `"z"`.
 
