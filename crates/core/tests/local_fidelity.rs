@@ -38,6 +38,7 @@ fn category(error: &Error) -> &'static str {
         Error::Unsupported(_) => "unsupported",
         Error::NotAWordDocument(_) => "not a Word document",
         Error::NotADeck(_) => "not a deck",
+        Error::NotAWorkbook(_) => "not a workbook",
         Error::NotAnOfficeFile(_) => "not an Office file",
         Error::BadXml { .. } => "bad XML",
         Error::CannotEdit(_) => "cannot edit",

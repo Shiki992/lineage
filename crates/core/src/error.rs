@@ -25,6 +25,8 @@ pub enum Error {
     NotAWordDocument(String),
     /// A zip archive, but not a PowerPoint deck.
     NotADeck(String),
+    /// A zip archive, but not an Excel workbook.
+    NotAWorkbook(String),
     /// A zip archive, but not an Office file at all (no content types).
     NotAnOfficeFile(String),
     /// A part that must be XML could not be parsed.
@@ -43,6 +45,7 @@ impl Error {
         match self {
             Self::NotAWordDocument(_) => "This file isn't a Word document Lineage can open.",
             Self::NotADeck(_) => "This file isn't a PowerPoint deck Lineage can open.",
+            Self::NotAWorkbook(_) => "This file isn't an Excel workbook Lineage can open.",
             Self::NotAZip(_) | Self::NotAnOfficeFile(_) => {
                 "This file isn't a document Lineage can open."
             }
@@ -74,6 +77,7 @@ impl fmt::Display for Error {
             Self::Unsupported(detail) => write!(f, "unsupported: {detail}"),
             Self::NotAWordDocument(detail) => write!(f, "not a Word document: {detail}"),
             Self::NotADeck(detail) => write!(f, "not a PowerPoint deck: {detail}"),
+            Self::NotAWorkbook(detail) => write!(f, "not an Excel workbook: {detail}"),
             Self::NotAnOfficeFile(detail) => write!(f, "not an Office file: {detail}"),
             Self::BadXml { part, detail } => write!(f, "bad XML in {part}: {detail}"),
             Self::CannotEdit(detail) => write!(f, "cannot edit safely: {detail}"),
@@ -101,6 +105,7 @@ mod tests {
             Error::Unsupported(String::new()),
             Error::NotAWordDocument(String::new()),
             Error::NotADeck(String::new()),
+            Error::NotAWorkbook(String::new()),
             Error::NotAnOfficeFile(String::new()),
             Error::BadXml {
                 part: String::new(),
