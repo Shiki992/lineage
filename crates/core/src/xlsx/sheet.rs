@@ -144,6 +144,33 @@ pub(super) fn read(part: &str, text: &str, cells: &mut usize) -> Result<SheetRea
                         _ => Some(&mut other),
                     }
                 };
+                // The default row height follows Excel's font metrics (15
+                // in one program, 14.5 in another) unless someone set it.
+                // Whether a filter is on is the filter's own change.
+                if main && (local == "sheetFormatPr" || local == "sheetPr") {
+                    let custom = truthy(attr(e, "customHeight").as_deref());
+                    // An element left with nothing in it is no setting.
+                    let mut own = Fnv::new();
+                    let mut any = !empty;
+                    for a in e.attributes().flatten() {
+                        let k = a.key.0;
+                        if k.contains(':')
+                            || (k == "defaultRowHeight" && !custom)
+                            || k == "filterMode"
+                        {
+                            continue;
+                        }
+                        any = true;
+                        own.str(k).str(&a.value);
+                    }
+                    if !empty {
+                        pull.hash_rest(&mut own)?;
+                    }
+                    if any {
+                        format.str(&local).u64(own.finish());
+                    }
+                    continue;
+                }
                 match key {
                     Some(h) => {
                         pull.hash_start(h, e);

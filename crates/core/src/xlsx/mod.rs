@@ -9,6 +9,8 @@
 
 pub mod align;
 pub mod deps;
+pub mod diff;
+pub mod display;
 pub mod formula;
 pub mod model;
 mod read;
@@ -18,6 +20,7 @@ mod stream;
 mod strings;
 pub mod styles;
 pub mod value;
+pub mod view;
 
 pub use model::*;
 pub use read::{CT_TEMPLATE, CT_TEMPLATE_MACRO, CT_WORKBOOK, CT_WORKBOOK_MACRO};

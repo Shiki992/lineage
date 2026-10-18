@@ -96,7 +96,9 @@ pub(super) fn node_key(h: &mut Fnv, node: roxmltree::Node<'_, '_>) {
             .str(node.tag_name().name());
         let mut attrs: Vec<(String, &str)> = node
             .attributes()
-            .filter(|a| !(a.namespace().is_some() && matches!(a.name(), "uid" | "dyDescent")))
+            .filter(|a| {
+                !(a.namespace().is_some() && matches!(a.name(), "uid" | "dyDescent" | "Ignorable"))
+            })
             .map(|a| {
                 (
                     format!("{}:{}", a.namespace().unwrap_or(""), a.name()),

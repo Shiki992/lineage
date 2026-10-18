@@ -218,12 +218,13 @@ pub(super) fn table(package: &Package, part: &str, sheet: usize) -> Result<Optio
     };
     let mut key = Fnv::new();
     for a in root.attributes() {
-        if !matches!(a.name(), "id" | "ref" | "uid") {
+        if a.namespace().is_none() && !matches!(a.name(), "id" | "ref") {
             key.str(a.name()).str(a.value());
         }
     }
     for child in root.children().filter(roxmltree::Node::is_element) {
-        if child.tag_name().name() != "autoFilter" {
+        // Its filter and remembered sort show as the rows' own changes.
+        if !matches!(child.tag_name().name(), "autoFilter" | "sortState") {
             node_key(&mut key, child);
         }
     }

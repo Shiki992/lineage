@@ -206,7 +206,7 @@ impl<'i> Pull<'i> {
 #[must_use]
 pub fn ignorable_attr(key: &str) -> bool {
     key.split_once(':')
-        .is_some_and(|(_, local)| matches!(local, "uid" | "dyDescent"))
+        .is_some_and(|(_, local)| matches!(local, "uid" | "dyDescent" | "Ignorable"))
 }
 
 /// The owned text so far, starting it with the plain text before.
