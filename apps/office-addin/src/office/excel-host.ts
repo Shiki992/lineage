@@ -202,9 +202,20 @@ export class ExcelHost implements DocumentHost, CellHost {
     );
   }
 
-  /** Excel saves files in OneDrive itself; the person saves a file on this computer. */
-  save(): Promise<void> {
-    return Promise.resolve();
+  /**
+   * Saves the workbook where it is (ExcelApi 1.11), so a file on this
+   * computer matches the checkpoint just recorded, as Word's does. Files in
+   * OneDrive autosave anyway.
+   * https://learn.microsoft.com/javascript/api/excel/excel.workbook#excel-excel-workbook-save-member(1)
+   */
+  async save(): Promise<void> {
+    if (!Office.context.requirements.isSetSupported("ExcelApi", "1.11")) {
+      return;
+    }
+    await Excel.run(async (context) => {
+      context.workbook.save(Excel.SaveBehavior.save);
+      await context.sync();
+    });
   }
 
   describe(): Promise<{ name: string; url: string | null }> {

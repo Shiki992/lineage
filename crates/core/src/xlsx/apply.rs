@@ -777,6 +777,28 @@ pub fn put_back(ours: &Workbook, actual: &Workbook) -> Result<()> {
     compare(&held(ours), &held(actual))
 }
 
+/// As [`put_back`], leaving out the cells the person edited (`edited`, from
+/// Excel's change events, in `actual`'s addresses): when the way back ran
+/// while they typed, their typing stays, and the rest must be as it was.
+///
+/// # Errors
+/// [`Error::NotLanded`], naming the first other cell that differs.
+pub fn put_back_except(
+    ours: &Workbook,
+    actual: &Workbook,
+    edited: &[super::diff::Hint],
+) -> Result<()> {
+    let theirs = |key: &(String, u32, u32)| {
+        edited
+            .iter()
+            .any(|h| h.sheet.to_lowercase() == key.0 && h.area.contains(key.2, key.1))
+    };
+    let keep = |m: BTreeMap<(String, u32, u32), Held>| -> BTreeMap<_, _> {
+        m.into_iter().filter(|(k, _)| !theirs(k)).collect()
+    };
+    compare(&keep(held(ours)), &keep(held(actual)))
+}
+
 fn compare(
     want: &BTreeMap<(String, u32, u32), Held>,
     have: &BTreeMap<(String, u32, u32), Held>,

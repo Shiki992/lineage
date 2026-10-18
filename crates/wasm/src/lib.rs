@@ -299,8 +299,8 @@ impl Engine {
 
     #[wasm_bindgen(js_name = workbookPutBack)]
     #[must_use]
-    pub fn workbook_put_back(&self, original: &[u8], actual: &[u8]) -> Reply {
-        Reply(self.0.workbook_put_back(original, actual))
+    pub fn workbook_put_back(&self, original: &[u8], actual: &[u8], hints: &str) -> Reply {
+        Reply(self.0.workbook_put_back(original, actual, hints))
     }
 
     #[wasm_bindgen(js_name = goesWithCopy)]

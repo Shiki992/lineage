@@ -215,8 +215,11 @@ export interface Engine {
     done: number,
     returned?: string,
   ): s.CellStep[];
-  /** Fails (engine) unless `actual` holds `original`'s inputs and formulas again. */
-  workbookPutBack(original: Uint8Array, actual: Uint8Array): void;
+  /**
+   * Fails (engine) unless `actual` holds `original`'s inputs and formulas
+   * again, apart from the cells the person edited (`hints`), which stay.
+   */
+  workbookPutBack(original: Uint8Array, actual: Uint8Array, hints: readonly s.Hint[]): s.PutBack;
   /** What goes with a copy that Send a copy says before saving (decision 0026). */
   goesWithCopy(file: Uint8Array): string[];
   decide(
@@ -655,9 +658,14 @@ function wrap(seed: Uint8Array): Engine {
           returned ?? null,
         ),
       ),
-    workbookPutBack(original, actual) {
-      view("workbookPutBack", v.null(), (e) => e.workbookPutBack(original, actual));
-    },
+    workbookPutBack: (original, actual, hints) =>
+      view("workbookPutBack", s.PutBack, (e) =>
+        e.workbookPutBack(
+          original,
+          actual,
+          json(checked(v.array(s.Hint), hints, "workbookPutBack")),
+        ),
+      ),
     goesWithCopy: (file) => view("goesWithCopy", v.array(v.string()), (e) => e.goesWithCopy(file)),
     decide: (ledger, node, file, cards, nowMs) =>
       command("decide", (e) =>

@@ -902,15 +902,31 @@ impl Session {
     }
 
     /// Checks that the open workbook (`actual`) holds the inputs and formulas
-    /// of `original` again, after the way back ran. Null, or "did not land".
+    /// of `original` again, after the way back ran. `hints` (JSON, as for
+    /// [`Session::workbook_what_changed`]) are the cells the person edited:
+    /// when only those differ, their typing stays and the workbook counts as
+    /// put back. `{theirsKept}`, or "did not land".
     #[must_use]
-    pub fn workbook_put_back(&self, original: &[u8], actual: &[u8]) -> Reply {
+    pub fn workbook_put_back(&self, original: &[u8], actual: &[u8], hints: &str) -> Reply {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct PutBack {
+            theirs_kept: bool,
+        }
+        let hints = match hints_of(hints) {
+            Ok(h) => h,
+            Err(e) => return Reply::failure(&e),
+        };
         let checked = lineage_core::Workbook::open_for_panel(original).and_then(|a| {
             let b = lineage_core::Workbook::open_for_panel(actual)?;
-            lineage_core::xlsx::apply::put_back(&a, &b)
+            match lineage_core::xlsx::apply::put_back(&a, &b) {
+                Ok(()) => Ok(false),
+                Err(strict) if hints.is_empty() => Err(strict),
+                Err(_) => lineage_core::xlsx::apply::put_back_except(&a, &b, &hints).map(|()| true),
+            }
         });
         match checked {
-            Ok(()) => Reply::ok(&()),
+            Ok(theirs_kept) => Reply::ok(&PutBack { theirs_kept }),
             Err(e) => Reply::failure(&Failure::Lineage(e.into())),
         }
     }

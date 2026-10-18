@@ -112,6 +112,23 @@ describe("bringing changes into an open workbook", () => {
     expect(ledger().length).toBeGreaterThan(appends);
     expect((await host.readIds())?.checkpoint).not.toBe(before?.checkpoint);
     expect((await pane.updates()).headline).toBe("You're up to date with the master");
+    expect(host.saves).toBe(1);
+  });
+
+  it("keeps what the person typed meanwhile when it takes its changes back out", async () => {
+    const storage = new MemoryStorage();
+    const { host, pane, ledger, cards } = await openVersion(storage);
+    const stored = ledger();
+    // The person typed new seats while the plan ran, and Excel said so.
+    host.holds.push(workbook("model-northwind.xlsx"), workbook("model-northwind.xlsx"));
+    host.hints = [{ sheet: "Assumptions", address: "B3" }];
+
+    const error = await pane.bringInWorkbook(cards).catch((e: unknown) => e);
+    expect((error as LineageError).userMessage).toBe(
+      "Excel didn't take the changes exactly as Lineage made them, so Lineage took its changes back out. What you typed meanwhile stays. Nothing was recorded.",
+    );
+    expect(ledger()).toEqual(stored);
+    expect(host.saves).toBe(0);
   });
 
   it("puts the workbook back and records nothing when Excel holds something else", async () => {

@@ -63,6 +63,20 @@ fn an_input_is_one_cell_set_with_its_lexeme() {
     let err = landed(&ours, &plan, &typed).expect_err("a mismatch");
     assert!(err.to_string().contains("assumptions!B5"), "{err}");
     put_back(&ours, &ours).expect("unchanged");
+    // After the way back, the typed churn rate stays: back as it was except
+    // where the person typed, and not otherwise.
+    let typed_back = open(&workbooks::financial_model(&Assumptions {
+        new_seats: 12,
+        churn: "0.03".to_owned(),
+        ..Assumptions::default()
+    }));
+    assert!(put_back(&ours, &typed_back).is_err());
+    let edited = |at: &str| crate::xlsx::diff::Hint {
+        sheet: "Assumptions".to_owned(),
+        area: crate::xlsx::refs::parse_area(at).expect("area"),
+    };
+    put_back_except(&ours, &typed_back, &[edited("B5")]).expect("only their typing differs");
+    assert!(put_back_except(&ours, &typed_back, &[edited("B6:C9")]).is_err());
 }
 
 #[test]

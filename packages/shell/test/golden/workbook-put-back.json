@@ -1,4 +1,6 @@
 {
   "ok": true,
-  "value": null
+  "value": {
+    "theirsKept": false
+  }
 }

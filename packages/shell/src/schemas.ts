@@ -269,6 +269,10 @@ export const SideBySide = v.strictObject({
 });
 export type SideBySide = v.InferOutput<typeof SideBySide>;
 
+/** The way back worked: exactly, or with the person's own typing kept. */
+export const PutBack = v.strictObject({ theirsKept: v.boolean() });
+export type PutBack = v.InferOutput<typeof PutBack>;
+
 /** A range Excel reported as edited in this session, not by Lineage. */
 export const Hint = v.strictObject({
   sheet: SheetName,
@@ -688,5 +692,5 @@ export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "prepare-workbook-keep": WorkbookPlan,
   "finish-workbook-keep": Outcome,
   "workbook-way-back": v.array(CellStep),
-  "workbook-put-back": v.null(),
+  "workbook-put-back": PutBack,
 };

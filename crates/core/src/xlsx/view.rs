@@ -26,6 +26,9 @@ use crate::summary::quote;
 /// The label the panel puts on parts the engine keeps but doesn't track.
 pub const UNTRACKED: &str = "Preserved; semantic tracking not yet supported.";
 
+/// Said on every update card for rows that come in.
+pub const ROWS_FORMATTED: &str = "New rows take the formatting of the row above.";
+
 /// How many examples a summarised group shows.
 pub const EXAMPLES: usize = 5;
 
@@ -873,6 +876,9 @@ pub fn from_plan(
                         formula: None,
                     }),
                     cells: rows.len(),
+                    // Excel's own insert formats a new row like the row
+                    // above it, and formats come in by hand (decision 0023).
+                    why: Some(ROWS_FORMATTED.to_owned()),
                     ..Card::default()
                 };
                 push(item, card, Category::Structure, &mut out);

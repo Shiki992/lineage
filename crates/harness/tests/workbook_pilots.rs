@@ -249,6 +249,22 @@ fn budget<S: Storage>(mut storage: S) -> Panel<S> {
     edit_in_excel(&mut panel.storage, BUDGET, &workbooks::budget_added());
     panel.save_checkpoint(BUDGET, "March").expect("saves");
     panel.offer_to_versions().expect("offers");
+    let updates = panel.updates(BROKER).expect("updates");
+    let wv = updates.groups[0]
+        .view
+        .workbook
+        .as_ref()
+        .expect("a workbook view");
+    let rows = wv
+        .groups
+        .iter()
+        .flat_map(|g| &g.cards)
+        .find(|c| c.summary.starts_with("Added rows"))
+        .expect("the March lines");
+    assert_eq!(
+        rows.why.as_deref(),
+        Some(lineage_core::xlsx::view::ROWS_FORMATTED)
+    );
     let ids = bring_in_all(&panel, BROKER);
     assert!(!ids.is_empty());
     panel

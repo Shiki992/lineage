@@ -870,7 +870,9 @@ fn workbook_replies(golden: &mut Golden) {
     assert_eq!(value["value"][0]["value"]["text"], "49");
     golden.keep(
         "workbook-put-back",
-        &host.session.workbook_put_back(&north_file, &north_file),
+        &host
+            .session
+            .workbook_put_back(&north_file, &north_file, "[]"),
     );
     // What Excel holds after carrying out the plan.
     let held = with_ids(&north_file, &model(12, "55", &churn));

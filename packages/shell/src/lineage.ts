@@ -1073,6 +1073,8 @@ export class Lineage {
             await host.writeIds(result.outcome.ids);
           }
           await this.append(file.familyId, version, ledger, result.outcome.ledgerLines);
+          // So the file matches its new checkpoint (the maintainer's choice at stop 2).
+          await this.saveQuietly(host);
           return plan;
         } catch (error) {
           if (error instanceof StorageConflict && attempt === 0) {
@@ -1091,10 +1093,20 @@ export class Lineage {
     });
   }
 
+  /** Saves the workbook; a failure leaves it unsaved, with the history already written. */
+  private async saveQuietly(host: DocumentHost): Promise<void> {
+    try {
+      await host.save();
+    } catch {
+      // The person can still save it; the checkpoint is recorded either way.
+    }
+  }
+
   /**
    * Runs the way back on the open workbook, puts its ids back, and has the
-   * engine check that it holds `original`'s inputs and formulas again; then
-   * throws what to tell the person.
+   * engine check that it holds `original`'s inputs and formulas again, apart
+   * from cells the person typed in meanwhile, which stay; then throws what to
+   * tell the person.
    */
   private async putWorkbookBack(
     host: CellHost & DocumentHost,
@@ -1104,12 +1116,17 @@ export class Lineage {
     lead: string,
     detail: string,
   ): Promise<never> {
+    let theirsKept: boolean;
     try {
       if (steps.length > 0) {
         await host.applyCellPlan(steps);
       }
       await host.writeIds(ids);
-      this.engine.workbookPutBack(original, await host.readBytes());
+      theirsKept = this.engine.workbookPutBack(
+        original,
+        await host.readBytes(),
+        host.editHints(),
+      ).theirsKept;
     } catch (error) {
       throw new LineageError(
         `${lead}, and putting this workbook back didn't work either. Close it without saving to keep it as it was.`,
@@ -1117,7 +1134,9 @@ export class Lineage {
       );
     }
     throw new LineageError(
-      `${lead}, so this workbook was put back as it was. Nothing was changed.`,
+      theirsKept
+        ? `${lead}, so Lineage took its changes back out. What you typed meanwhile stays. Nothing was recorded.`
+        : `${lead}, so this workbook was put back as it was. Nothing was changed.`,
       detail,
     );
   }
