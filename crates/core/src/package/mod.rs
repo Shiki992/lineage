@@ -7,6 +7,7 @@
 //! changed keep their original compressed bytes, so writing a package back
 //! reproduces them exactly (see docs/decisions/0005-docx-package-and-xml.md).
 
+pub mod chunks;
 pub mod edit;
 mod opc;
 pub mod props;

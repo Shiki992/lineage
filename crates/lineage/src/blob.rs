@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 
 use lineage_core::Package;
 use lineage_core::hash::sha256_hex;
+use lineage_core::package::chunks;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
@@ -131,7 +132,22 @@ pub struct Manifest {
 #[serde(deny_unknown_fields)]
 pub struct ManifestPart {
     pub name: String,
+    /// The part's own hash. For a chunked part, the part isn't stored whole:
+    /// its chunks are, and this checks them once joined.
     pub blob: BlobHash,
+    /// A large XML part, stored as deflated chunks (decision 0024). Left out
+    /// of the manifest when empty, so every manifest written before stays the
+    /// same.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chunks: Vec<ChunkRef>,
+}
+
+/// One stored chunk of a part: its blob (deflated) and its size inflated.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChunkRef {
+    pub blob: BlobHash,
+    pub len: u64,
 }
 
 /// Splits a file into part blobs and a manifest blob. Returns the manifest's
@@ -143,15 +159,41 @@ pub fn snapshot(bytes: &[u8]) -> Result<(BlobHash, Vec<Blob>)> {
     let package = Package::read(bytes)?;
     let mut blobs = Vec::new();
     let mut parts = Vec::new();
+    let add = |blob: Blob, blobs: &mut Vec<Blob>| {
+        if !blobs.iter().any(|b: &Blob| b.hash == blob.hash) {
+            blobs.push(blob);
+        }
+    };
     for (name, data) in package.parts() {
+        let pieces = if name.to_ascii_lowercase().ends_with(".xml") {
+            chunks::split(&data)
+        } else {
+            vec![data.as_slice()]
+        };
+        if pieces.len() > 1 {
+            let mut refs = Vec::with_capacity(pieces.len());
+            for piece in pieces {
+                let stored = Blob::new(chunks::deflate(piece));
+                refs.push(ChunkRef {
+                    blob: stored.hash.clone(),
+                    len: piece.len() as u64,
+                });
+                add(stored, &mut blobs);
+            }
+            parts.push(ManifestPart {
+                name,
+                blob: BlobHash::of(&data),
+                chunks: refs,
+            });
+            continue;
+        }
         let blob = Blob::new(data);
         parts.push(ManifestPart {
             name,
             blob: blob.hash.clone(),
+            chunks: Vec::new(),
         });
-        if !blobs.iter().any(|b: &Blob| b.hash == blob.hash) {
-            blobs.push(blob);
-        }
+        add(blob, &mut blobs);
     }
     let manifest = Manifest { v: 1, parts };
     let json = serde_json::to_vec(&manifest).map_err(|e| Error::Ledger(e.to_string()))?;
@@ -182,7 +224,19 @@ pub fn referenced(state: &crate::state::FamilyState) -> Vec<BlobHash> {
 #[must_use]
 pub fn manifest_parts(bytes: &[u8]) -> Option<Vec<BlobHash>> {
     let manifest: Manifest = serde_json::from_slice(bytes).ok()?;
-    (manifest.v == 1).then(|| manifest.parts.into_iter().map(|p| p.blob).collect())
+    (manifest.v == 1).then(|| {
+        manifest
+            .parts
+            .into_iter()
+            .flat_map(|p| {
+                if p.chunks.is_empty() {
+                    vec![p.blob]
+                } else {
+                    p.chunks.into_iter().map(|c| c.blob).collect()
+                }
+            })
+            .collect()
+    })
 }
 
 /// Rebuilds a file from its snapshot. Every part is identical to the one saved.
@@ -203,9 +257,32 @@ pub fn restore(manifest: &BlobHash, blobs: &dyn BlobSource) -> Result<Vec<u8>> {
     }
     let mut parts = Vec::with_capacity(manifest.parts.len());
     for part in manifest.parts {
-        let data = blobs
-            .blob(&part.blob)
-            .ok_or_else(|| Error::MissingBlob(part.blob.as_str().to_owned()))?;
+        let data = if part.chunks.is_empty() {
+            blobs
+                .blob(&part.blob)
+                .ok_or_else(|| Error::MissingBlob(part.blob.as_str().to_owned()))?
+        } else {
+            let mut whole = Vec::new();
+            for chunk in &part.chunks {
+                let stored = blobs
+                    .blob(&chunk.blob)
+                    .ok_or_else(|| Error::MissingBlob(chunk.blob.as_str().to_owned()))?;
+                if BlobHash::of(&stored) != chunk.blob {
+                    return Err(Error::Ledger(format!(
+                        "blob {} is damaged",
+                        chunk.blob.as_str()
+                    )));
+                }
+                let limit = usize::try_from(chunk.len)
+                    .map_err(|_| Error::Ledger("a chunk too large".to_owned()))?;
+                let piece = chunks::inflate(&stored, limit)?;
+                if piece.len() != limit {
+                    return Err(Error::Ledger("a chunk is the wrong size".to_owned()));
+                }
+                whole.extend_from_slice(&piece);
+            }
+            whole
+        };
         if BlobHash::of(&data) != part.blob {
             return Err(Error::Ledger(format!(
                 "blob {} is damaged",
@@ -279,6 +356,81 @@ mod tests {
         assert!(parts.iter().all(|p| blobs.iter().any(|b| &b.hash == p)));
         assert_eq!(manifest_parts(b"{\"v\":2,\"parts\":[]}"), None);
         assert_eq!(manifest_parts(&bytes), None, "a .docx is not a manifest");
+    }
+
+    #[test]
+    fn a_large_workbook_is_stored_in_chunks_and_restores_exactly() {
+        let mut list = lineage_testkit::workbooks::orders(30_000);
+        let bytes = lineage_testkit::workbooks::orders_workbook(&list).to_bytes();
+        let (manifest, blobs) = snapshot(&bytes).expect("snapshots");
+        let mut store = MemoryBlobs::default();
+        for blob in blobs.clone() {
+            store.add(blob);
+        }
+        let restored = restore(&manifest, &store).expect("restores");
+        assert_eq!(
+            Package::read(&bytes).expect("reads").parts(),
+            Package::read(&restored).expect("reads").parts()
+        );
+        let stored: usize = blobs.iter().map(|b| b.bytes.len()).sum();
+        let raw: usize = Package::read(&bytes)
+            .expect("reads")
+            .parts()
+            .iter()
+            .map(|(_, d)| d.len())
+            .sum();
+        assert!(stored * 4 < raw, "stored {stored} for {raw}");
+        // One quantity changed: most chunks are the same blobs.
+        list[20_000].qty += 1;
+        let edited = lineage_testkit::workbooks::orders_workbook(&list).to_bytes();
+        let (_, second) = snapshot(&edited).expect("snapshots");
+        let new: usize = second
+            .iter()
+            .filter(|b| !store.0.contains_key(&b.hash))
+            .map(|b| b.bytes.len())
+            .sum();
+        assert!(
+            new * 5 < stored,
+            "an edit stores {new} new bytes of {stored}"
+        );
+        let json = &blobs
+            .iter()
+            .find(|b| b.hash == manifest)
+            .expect("manifest")
+            .bytes;
+        let parts = manifest_parts(json).expect("a manifest");
+        assert!(
+            parts.iter().all(|h| store.0.contains_key(h)),
+            "lists the chunks to fetch"
+        );
+    }
+
+    #[test]
+    fn small_parts_keep_the_old_manifest_shape() {
+        let bytes = fixtures::all()[0].1.to_bytes();
+        let (manifest, blobs) = snapshot(&bytes).expect("snapshots");
+        let json = &blobs
+            .iter()
+            .find(|b| b.hash == manifest)
+            .expect("manifest")
+            .bytes;
+        assert!(!String::from_utf8_lossy(json).contains("chunks"));
+    }
+
+    #[test]
+    fn a_damaged_chunk_is_refused() {
+        let bytes = lineage_testkit::workbooks::large(30_000).to_bytes();
+        let (manifest, blobs) = snapshot(&bytes).expect("snapshots");
+        let mut store = MemoryBlobs::default();
+        let mut damaged = false;
+        for mut blob in blobs {
+            if !damaged && blob.hash != manifest && blob.bytes.len() > 1000 {
+                blob.bytes[500] ^= 1;
+                damaged = true;
+            }
+            store.0.insert(blob.hash, blob.bytes);
+        }
+        assert!(restore(&manifest, &store).is_err());
     }
 
     #[test]
