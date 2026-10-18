@@ -21,6 +21,11 @@ export * as schemas from "./schemas.js";
 export type {
   Candidate,
   CardDecision,
+  Category,
+  CellDetail,
+  CellSide,
+  CellStep,
+  CellWrite,
   ChangeCard,
   CheckpointCard,
   Choice,
@@ -34,6 +39,7 @@ export type {
   FileHistory,
   GraphEdge,
   GraphNode,
+  Hint,
   Ids,
   KeepFormatting,
   Lane,
@@ -50,6 +56,7 @@ export type {
   SendArgs,
   SentList,
   SentRow,
+  SideBySide,
   SlideOp,
   SlideOps,
   TimelineEntry,
@@ -61,6 +68,9 @@ export type {
   VersionRow,
   VersionRun,
   WhatChanged,
+  WorkbookCard,
+  WorkbookPlan,
+  WorkbookView,
   Written,
 } from "./schemas.js";
 export {
