@@ -33,13 +33,22 @@ pub(super) struct SheetRead {
     pub table_rids: Vec<String>,
 }
 
-/// Reads a worksheet part. `cells` counts cells across the workbook.
+/// The most filled cells the task pane works with (decision 0025). Larger
+/// workbooks are refused with [`Error::WorkbookTooLarge`] before they are
+/// fully read.
+pub const PANEL_CELLS: usize = 1_500_000;
+/// From this many cells, "What changed" says the workbook is large.
+pub const LARGE_CELLS: usize = 300_000;
+
+/// Reads a worksheet part. `cells` counts cells across the workbook, up to
+/// `limit`.
 ///
 /// # Errors
 /// [`Error::BadXml`] for XML that isn't a worksheet, [`Error::Damaged`] for
 /// cells out of order or out of range, [`Error::TooLarge`] past
-/// [`MAX_CELLS`], [`Error::Unsupported`] for Strict Open XML.
-pub(super) fn read(part: &str, text: &str, cells: &mut usize) -> Result<SheetRead> {
+/// [`MAX_CELLS`] and [`Error::WorkbookTooLarge`] past a lower `limit`,
+/// [`Error::Unsupported`] for Strict Open XML.
+pub(super) fn read(part: &str, text: &str, cells: &mut usize, limit: usize) -> Result<SheetRead> {
     let mut pull = Pull::new(part, text);
     let mut out = SheetRead::default();
     let mut depth = 0usize;
@@ -79,7 +88,7 @@ pub(super) fn read(part: &str, text: &str, cells: &mut usize) -> Result<SheetRea
                             if empty {
                                 out.sheet_data = span(ev.at, ev.end)?;
                             } else {
-                                read_rows(&mut pull, &mut out, cells, ev.at)?;
+                                read_rows(&mut pull, &mut out, (cells, limit), ev.at)?;
                             }
                             continue;
                         }
@@ -313,7 +322,7 @@ fn row_format(e: &BytesStart<'_>) -> u64 {
 fn read_rows(
     pull: &mut Pull<'_>,
     out: &mut SheetRead,
-    cells: &mut usize,
+    count: (&mut usize, usize),
     data_start: usize,
 ) -> Result<()> {
     let mut last_r = 0u32;
@@ -343,7 +352,7 @@ fn read_rows(
                 let row_cells = if empty {
                     Vec::new()
                 } else {
-                    read_cells(pull, r, cells)?
+                    read_cells(pull, r, (&mut *count.0, count.1))?
                 };
                 let end = pull_pos(pull);
                 out.rows.push(Row {
@@ -376,7 +385,11 @@ struct RawCell {
     inline: Option<String>,
 }
 
-fn read_cells(pull: &mut Pull<'_>, r: u32, cells: &mut usize) -> Result<Vec<Cell>> {
+fn read_cells(
+    pull: &mut Pull<'_>,
+    r: u32,
+    (cells, limit): (&mut usize, usize),
+) -> Result<Vec<Cell>> {
     let mut out: Vec<Cell> = Vec::new();
     let mut last_col = 0u32;
     loop {
@@ -421,8 +434,12 @@ fn read_cells(pull: &mut Pull<'_>, r: u32, cells: &mut usize) -> Result<Vec<Cell
                 }
                 last_col = col;
                 *cells += 1;
-                if *cells > MAX_CELLS {
-                    return Err(Error::TooLarge("too many cells".to_owned()));
+                if *cells > limit.min(MAX_CELLS) {
+                    return Err(if limit < MAX_CELLS {
+                        Error::WorkbookTooLarge
+                    } else {
+                        Error::TooLarge("too many cells".to_owned())
+                    });
                 }
                 let style = s_attr.and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
                 let raw = if empty {

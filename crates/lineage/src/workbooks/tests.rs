@@ -304,3 +304,103 @@ fn a_workbook_that_came_back_is_reviewed_and_kept() {
     let r = review(host.state(), &returned, &master, &held, &host.blobs).expect("reviews");
     assert_eq!(r.headline, "Nothing left to review");
 }
+
+#[test]
+fn what_changed_uses_excels_hints_and_shows_a_cell_side_by_side() {
+    let mut host = Host::new();
+    let file = host.start_workbook(&workbooks::model_master().to_bytes());
+    let master = host.master();
+    let edited = wb_edit(&file, &workbooks::model_price_update());
+    let hint = Hint {
+        sheet: "Assumptions".to_owned(),
+        area: lineage_core::xlsx::refs::parse_area("B4").expect("area"),
+    };
+    let state = host.state().clone();
+    let view = what_changed(&state, &master, &edited, &[hint], &host.blobs).expect("view");
+    let wv = view.workbook.as_ref().expect("a workbook view");
+    assert_eq!(
+        wv.groups[0].cards[0].why.as_deref(),
+        Some("Edited in this session")
+    );
+    assert!(view.headline.ends_with(" since v1"), "{}", view.headline);
+    let without = what_changed(&state, &master, &edited, &[], &host.blobs).expect("view");
+    assert_ne!(
+        without.workbook.expect("view").groups[0].cards[0]
+            .why
+            .as_deref(),
+        Some("Edited in this session"),
+        "no hint, no claim"
+    );
+
+    let sb =
+        side_by_side(&state, &master, &edited, "Assumptions", "B4", &host.blobs).expect("a cell");
+    assert_eq!(sb.before.expect("before").value, "49");
+    assert_eq!(sb.after.expect("after").value, "55");
+    assert!(side_by_side(&state, &master, &edited, "Nowhere", "B4", &host.blobs).is_err());
+}
+
+#[test]
+fn send_a_copy_says_what_goes_with_it() {
+    let notes = goes_with_copy(&workbooks::awkward_cells().to_bytes()).expect("reads");
+    assert_eq!(notes, ["2 hidden sheets go with this copy"]);
+    let notes = goes_with_copy(&workbooks::tracker_filtered().to_bytes()).expect("reads");
+    assert_eq!(notes, ["2 hidden rows go with this copy"]);
+    assert!(
+        goes_with_copy(&workbooks::model_master().to_bytes())
+            .expect("reads")
+            .is_empty()
+    );
+    let notes = goes_with_copy(&workbooks::model_xlsm().to_bytes()).expect("reads");
+    assert!(
+        notes.contains(&"Macros go with this copy".to_owned()),
+        "{notes:?}"
+    );
+    let deck = lineage_testkit::decks::pitch_deck().to_bytes();
+    assert!(goes_with_copy(&deck).expect("reads").is_empty());
+}
+
+#[test]
+fn the_way_back_matches_how_far_excel_got() {
+    use lineage_core::xlsx::apply::Write;
+    let ins = |at| Step::InsertRows {
+        sheet: "Data".to_owned(),
+        at,
+        count: 2,
+    };
+    let del = |at| Step::DeleteRows {
+        sheet: "Data".to_owned(),
+        at,
+        count: 2,
+    };
+    let set = |row, n: &str| Step::Set {
+        sheet: "Data".to_owned(),
+        col: 1,
+        row,
+        value: Write::Number(n.to_owned()),
+    };
+    // Rows inserted at 50 and then 10 (bottom-up), then a cell set.
+    let first = ApplyPlan {
+        steps: vec![ins(50), ins(10), set(3, "5")],
+        undo: vec![set(3, "4"), del(52), del(10)],
+        ..ApplyPlan::default()
+    };
+    let second = ApplyPlan {
+        steps: vec![set(4, "9")],
+        undo: vec![set(4, "8")],
+        ..ApplyPlan::default()
+    };
+    let plans = [&first, &second];
+    assert!(undo_after(&plans, 0).is_empty());
+    assert_eq!(
+        undo_after(&plans, 1),
+        [del(50)],
+        "only the rows it inserted"
+    );
+    assert_eq!(undo_after(&plans, 2), [del(10), del(50)], "last first");
+    assert_eq!(undo_after(&plans, 3), first.undo);
+    assert_eq!(
+        undo_after(&plans, 4),
+        [set(4, "8"), set(3, "4"), del(52), del(10)],
+        "the later plan's way back first"
+    );
+}

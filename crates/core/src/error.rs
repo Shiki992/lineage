@@ -19,6 +19,9 @@ pub enum Error {
     Encrypted,
     /// The file is larger than the engine is willing to open.
     TooLarge(String),
+    /// A workbook with more filled cells than the panel works with yet
+    /// (decision 0025).
+    WorkbookTooLarge,
     /// A real Word file that uses something this version cannot handle yet.
     Unsupported(String),
     /// A zip archive, but not a Word document.
@@ -33,8 +36,8 @@ pub enum Error {
     BadXml { part: String, detail: String },
     /// The engine refused to write, because it could not do so without risking the file.
     CannotEdit(String),
-    /// What PowerPoint holds after Lineage changed its slides isn't what Lineage
-    /// meant it to hold (decision 0019).
+    /// What the open deck or workbook holds after Lineage changed it isn't
+    /// what Lineage meant it to hold (decisions 0019, 0023).
     NotLanded(String),
 }
 
@@ -56,12 +59,15 @@ impl Error {
                 "This file is password protected. Remove the password, then try again."
             }
             Self::TooLarge(_) => "This file is too large for Lineage to open.",
+            Self::WorkbookTooLarge => {
+                "This workbook is too large for Lineage yet. Lineage works with workbooks of up to 1.5 million filled cells."
+            }
             Self::Unsupported(_) => "This kind of file isn't supported yet.",
             Self::CannotEdit(_) => {
                 "Lineage couldn't make this change safely, so it left the file as it was."
             }
             Self::NotLanded(_) => {
-                "PowerPoint didn't take the changes exactly as Lineage wrote them."
+                "The open file didn't take the changes exactly as Lineage wrote them."
             }
         }
     }
@@ -74,6 +80,7 @@ impl fmt::Display for Error {
             Self::Damaged(detail) => write!(f, "damaged package: {detail}"),
             Self::Encrypted => write!(f, "encrypted package"),
             Self::TooLarge(detail) => write!(f, "too large: {detail}"),
+            Self::WorkbookTooLarge => write!(f, "too many cells for the panel"),
             Self::Unsupported(detail) => write!(f, "unsupported: {detail}"),
             Self::NotAWordDocument(detail) => write!(f, "not a Word document: {detail}"),
             Self::NotADeck(detail) => write!(f, "not a PowerPoint deck: {detail}"),
@@ -102,6 +109,7 @@ mod tests {
             Error::Damaged(String::new()),
             Error::Encrypted,
             Error::TooLarge(String::new()),
+            Error::WorkbookTooLarge,
             Error::Unsupported(String::new()),
             Error::NotAWordDocument(String::new()),
             Error::NotADeck(String::new()),

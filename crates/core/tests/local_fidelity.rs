@@ -35,6 +35,7 @@ fn category(error: &Error) -> &'static str {
         Error::Damaged(_) => "damaged",
         Error::Encrypted => "encrypted",
         Error::TooLarge(_) => "too large",
+        Error::WorkbookTooLarge => "too large for the panel",
         Error::Unsupported(_) => "unsupported",
         Error::NotAWordDocument(_) => "not a Word document",
         Error::NotADeck(_) => "not a deck",

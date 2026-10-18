@@ -233,6 +233,20 @@ fn large_sheets_stream() {
     assert_eq!(wb.cell_count(), 6 * 5001 + 12);
 }
 
+#[test]
+fn the_panel_refuses_workbooks_past_its_limit() {
+    // 6 cells a row, and 12 on the summary: 6,018 filled cells.
+    let bytes = workbooks::large(1000).to_bytes();
+    let read = || crate::Package::read(&bytes).expect("reads");
+    assert_eq!(
+        Workbook::from_package_limited(read(), 6_000),
+        Err(Error::WorkbookTooLarge)
+    );
+    assert!(Workbook::from_package_limited(read(), 6_018).is_ok());
+    assert!(Workbook::open_for_panel(&bytes).is_ok());
+    assert_eq!(PANEL_CELLS, 1_500_000, "decision 0025");
+}
+
 /// A one-sheet workbook whose worksheet part is exactly `xml`.
 fn probe(xml: &str) -> Vec<u8> {
     let mut wb = kit::Workbook::new("Probe");

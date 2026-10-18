@@ -22,8 +22,11 @@ use lineage_core::Workbook;
 use lineage_core::docx::props::LineageIds;
 use lineage_core::merge::Decision;
 use lineage_core::view::Theirs;
+use lineage_core::view::WhatChanged;
 use lineage_core::xlsx::apply::{ApplyPlan, Expect, Skipped, Step, apply_plan, landed, put_back};
+use lineage_core::xlsx::diff::{Hint, diff};
 use lineage_core::xlsx::merge::{Plan, Status, plan};
+use lineage_core::xlsx::view::SideBySide;
 use lineage_core::xlsx::write::apply_steps;
 
 use crate::blob::{BlobSource, restore};
@@ -54,7 +57,102 @@ pub struct WorkbookPlan {
 }
 
 fn open(bytes: &[u8]) -> Result<Workbook> {
-    Ok(Workbook::open(bytes)?)
+    Ok(Workbook::open_for_panel(bytes)?)
+}
+
+/// The workbook a node's latest checkpoint holds, and the open one.
+fn latest_and_open(
+    state: &FamilyState,
+    node: &Id,
+    bytes: &[u8],
+    blobs: &dyn BlobSource,
+) -> Result<(Id, Workbook, Workbook)> {
+    check_file(state, node, bytes)?;
+    if state.format != "xlsx" {
+        return Err(Error::NotAllowed("not a workbook family".to_owned()));
+    }
+    let latest = state
+        .latest(node)
+        .ok_or_else(|| Error::Ledger("a node without checkpoints".to_owned()))?;
+    let before = open(&restore(&latest.snapshot, blobs)?)?;
+    Ok((latest.id.clone(), before, open(bytes)?))
+}
+
+/// "What changed" in the open workbook since its latest checkpoint, with
+/// the cells Excel reported as edited in this session (decision 0022): a
+/// change inside one of `hints` is a direct edit.
+///
+/// # Errors
+/// When the file isn't the node's, or a snapshot is missing.
+pub fn what_changed(
+    state: &FamilyState,
+    node: &Id,
+    bytes: &[u8],
+    hints: &[Hint],
+    blobs: &dyn BlobSource,
+) -> Result<WhatChanged> {
+    let (latest, a, b) = latest_and_open(state, node, bytes, blobs)?;
+    let mut view = lineage_core::xlsx::view::what_changed(&diff(&a, &b, hints), &a, &b);
+    view.headline = if view.changes.is_empty() && view.formatting.is_empty() {
+        format!("No changes since {}", state.label(&latest))
+    } else {
+        format!("{} since {}", view.headline, state.label(&latest))
+    };
+    Ok(view)
+}
+
+/// The side by side for one cell of the open workbook (`sheet`, `address`
+/// such as "B4"), beside the same cell at the latest checkpoint.
+///
+/// # Errors
+/// [`Error::NotAllowed`] when the workbook has no such sheet or cell;
+/// otherwise as [`what_changed`].
+pub fn side_by_side(
+    state: &FamilyState,
+    node: &Id,
+    bytes: &[u8],
+    sheet: &str,
+    address: &str,
+    blobs: &dyn BlobSource,
+) -> Result<SideBySide> {
+    let (_, a, b) = latest_and_open(state, node, bytes, blobs)?;
+    lineage_core::xlsx::view::side_by_side(&a, &b, sheet, address)
+        .ok_or_else(|| Error::NotAllowed("no such cell in this workbook".to_owned()))
+}
+
+/// What goes with a clean copy of `bytes` that the person may not expect, for
+/// Send a copy to say before saving (decision 0026): hidden sheets, rows and
+/// columns, which formulas may read, and macros. Empty for documents and
+/// decks, whose hidden content is left out.
+///
+/// # Errors
+/// When the file can't be read.
+pub fn goes_with_copy(bytes: &[u8]) -> Result<Vec<String>> {
+    let (_, report) = lineage_core::doc::clean_copy(bytes, None)?;
+    let mut out = Vec::new();
+    for (n, one, many) in [
+        (
+            report.hidden_sheets,
+            "hidden sheet goes",
+            "hidden sheets go",
+        ),
+        (report.hidden_rows, "hidden row goes", "hidden rows go"),
+        (
+            report.hidden_columns,
+            "hidden column goes",
+            "hidden columns go",
+        ),
+    ] {
+        match n {
+            0 => {}
+            1 => out.push(format!("1 {one} with this copy")),
+            n => out.push(format!("{n} {many} with this copy")),
+        }
+    }
+    if report.macros {
+        out.push("Macros go with this copy".to_owned());
+    }
+    Ok(out)
 }
 
 fn pair(
@@ -260,10 +358,8 @@ pub fn prepare(
         out.skipped.extend(ap.skipped.iter().cloned());
         out.brought += ap.brought.len();
     }
-    // The way back: the last stage's first.
-    for (_, _, ap) in c.stages.iter().rev() {
-        out.undo.extend(ap.undo.iter().cloned());
-    }
+    let plans: Vec<&ApplyPlan> = c.stages.iter().map(|(_, _, ap)| ap).collect();
+    out.undo = undo_after(&plans, out.steps.len());
     out.text = match (out.brought, out.deferred) {
         (0, _) => "Nothing to bring in".to_owned(),
         (1, 0) => "Brings in 1 change".to_owned(),
@@ -271,6 +367,72 @@ pub fn prepare(
         (n, d) => format!("Brings in {n} changes now; {d} more updates after this one"),
     };
     Ok(out)
+}
+
+/// The way back after the pane carried out only the first `done` steps of a
+/// plan made of `plans` in turn (Excel stopped partway). Each plan inserts
+/// its rows first, bottom-up, then sets cells. A plan stopped among its
+/// inserts takes out the rows it inserted, last first; a plan stopped among
+/// its cells, or finished, runs its whole way back (setting a cell back to
+/// what it held is harmless when it was never changed). Later plans' ways
+/// back run first.
+fn undo_after(plans: &[&ApplyPlan], done: usize) -> Vec<Step> {
+    let mut left = done;
+    let mut finished = Vec::new();
+    let mut partial = Vec::new();
+    for ap in plans {
+        if left == 0 {
+            break;
+        }
+        if left >= ap.steps.len() {
+            finished.push(*ap);
+            left -= ap.steps.len();
+            continue;
+        }
+        let inserts = ap
+            .steps
+            .iter()
+            .take_while(|s| matches!(s, Step::InsertRows { .. }))
+            .count();
+        if left <= inserts {
+            for step in ap.steps[..left].iter().rev() {
+                if let Step::InsertRows { sheet, at, count } = step {
+                    partial.push(Step::DeleteRows {
+                        sheet: sheet.clone(),
+                        at: *at,
+                        count: *count,
+                    });
+                }
+            }
+        } else {
+            partial.extend(ap.undo.iter().cloned());
+        }
+        break;
+    }
+    for ap in finished.iter().rev() {
+        partial.extend(ap.undo.iter().cloned());
+    }
+    partial
+}
+
+/// The way back for the open workbook after Excel carried out only the first
+/// `done` steps of the plan [`prepare`] gave for `bytes` and `decisions`.
+///
+/// # Errors
+/// As [`prepare`].
+pub fn way_back(
+    state: &FamilyState,
+    version: &Id,
+    bytes: &[u8],
+    decisions: &[(String, Decision)],
+    done: usize,
+    blobs: &dyn BlobSource,
+) -> Result<Vec<Step>> {
+    check_file(state, version, bytes)?;
+    let decided = resolve(state, version, decisions, blobs)?;
+    let c = chain(state, bytes, &decided, blobs)?;
+    let plans: Vec<&ApplyPlan> = c.stages.iter().map(|(_, _, ap)| ap).collect();
+    Ok(undo_after(&plans, done))
 }
 
 /// Records what the pane brought in: checks that `held` (what Excel holds
@@ -466,12 +628,30 @@ pub fn prepare_keep(
             n => format!("Keeps {}", crate::returned::changes(n)),
         },
         brought,
-        steps: ap.steps,
-        undo: ap.undo,
+        undo: undo_after(&[&ap], ap.steps.len()),
+        steps: ap.steps.clone(),
         expect: ap.expect,
         skipped: ap.skipped,
         deferred: 0,
     })
+}
+
+/// The way back after Excel carried out only the first `done` steps of the
+/// plan [`prepare_keep`] gave.
+///
+/// # Errors
+/// As [`prepare_keep`].
+pub fn keep_way_back(
+    state: &FamilyState,
+    returned: &Id,
+    node: &Id,
+    bytes: &[u8],
+    cards: &[(String, Decision)],
+    done: usize,
+    blobs: &dyn BlobSource,
+) -> Result<Vec<Step>> {
+    let (_, ap) = keep_plan(state, returned, node, bytes, cards, blobs)?;
+    Ok(undo_after(&[&ap], done))
 }
 
 /// Records what the pane kept from a workbook that came back, after

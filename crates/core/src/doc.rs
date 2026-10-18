@@ -42,7 +42,7 @@ impl Doc {
         match kind_of(bytes)? {
             Kind::Word => Ok(Self::Word(Docx::open(bytes)?)),
             Kind::PowerPoint => Ok(Self::Deck(Deck::open(bytes)?)),
-            Kind::Workbook => Ok(Self::Workbook(Workbook::open(bytes)?)),
+            Kind::Workbook => Ok(Self::Workbook(Workbook::open_for_panel(bytes)?)),
         }
     }
 
@@ -55,7 +55,7 @@ impl Doc {
         match format {
             "docx" => Ok(Self::Word(Docx::open(bytes)?)),
             "pptx" => Ok(Self::Deck(Deck::open(bytes)?)),
-            "xlsx" => Ok(Self::Workbook(Workbook::open(bytes)?)),
+            "xlsx" => Ok(Self::Workbook(Workbook::open_for_panel(bytes)?)),
             other => Err(Error::Unsupported(format!("{other} files"))),
         }
     }
@@ -205,7 +205,7 @@ pub fn changed(a: &[u8], b: &[u8], format: &str) -> Result<bool> {
         // Calculated results that moved by themselves (TODAY, a refresh)
         // are no one's change.
         "xlsx" => {
-            let (wa, wb) = (Workbook::open(a)?, Workbook::open(b)?);
+            let (wa, wb) = (Workbook::open_for_panel(a)?, Workbook::open_for_panel(b)?);
             let d = xlsx::diff::diff(&wa, &wb, &[]);
             Ok(!d.cells.is_empty() || !d.structure.is_empty() || !d.unmatched.is_empty())
         }

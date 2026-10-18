@@ -28,7 +28,7 @@ pub mod write;
 
 pub use model::*;
 pub use read::{CT_TEMPLATE, CT_TEMPLATE_MACRO, CT_WORKBOOK, CT_WORKBOOK_MACRO};
-pub use sheet::MAX_CELLS;
+pub use sheet::{LARGE_CELLS, MAX_CELLS, PANEL_CELLS};
 pub use styles::Styles;
 
 use crate::error::{Error, Result};
@@ -71,11 +71,29 @@ impl Workbook {
         Self::from_package(Package::read(bytes)?)
     }
 
+    /// Opens a workbook for the task pane: as [`Workbook::open`], refusing
+    /// one with more than [`PANEL_CELLS`] filled cells.
+    ///
+    /// # Errors
+    /// [`Error::WorkbookTooLarge`] past the limit; otherwise as
+    /// [`Workbook::open`].
+    pub fn open_for_panel(bytes: &[u8]) -> Result<Self> {
+        Self::from_package_limited(Package::read(bytes)?, PANEL_CELLS)
+    }
+
     /// Builds the model of an already-read package.
     ///
     /// # Errors
     /// [`Error`] when the package is not a workbook this version can read.
     pub fn from_package(package: Package) -> Result<Self> {
+        Self::from_package_limited(package, MAX_CELLS)
+    }
+
+    /// As [`Workbook::from_package`], with at most `limit` filled cells.
+    ///
+    /// # Errors
+    /// As [`Workbook::open_for_panel`].
+    pub fn from_package_limited(package: Package, limit: usize) -> Result<Self> {
         let (main_part, macro_enabled) = read::main_part(&package)?;
         let main_rels = read::rels(&package, &main_part)?;
         let wb_part = read::workbook_part(&package, &main_part, &main_rels)?;
@@ -120,7 +138,7 @@ impl Workbook {
                 .part(&entry.part)
                 .ok_or_else(|| Error::Damaged("a worksheet part is missing".to_owned()))?;
             let text = xml::text(&entry.part, bytes)?;
-            let read = sheet::read(&entry.part, text, &mut cells)?;
+            let read = sheet::read(&entry.part, text, &mut cells, limit)?;
             let sheet_rels = read::rels(&package, &entry.part)?;
             for rid in &read.table_rids {
                 if let Some(rel) = sheet_rels.by_id(rid) {

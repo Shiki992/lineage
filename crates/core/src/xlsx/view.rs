@@ -647,6 +647,10 @@ pub fn view(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> WorkbookView {
             _ => {}
         }
     }
+    // Between the budgets' two sizes (decision 0025): it works, more slowly.
+    if a.cell_count().max(b.cell_count()) >= super::LARGE_CELLS {
+        notes.push("This is a large workbook, so comparing it takes a little longer.".to_owned());
+    }
 
     let counted: Vec<String> = groups
         .iter()
@@ -1220,6 +1224,88 @@ pub fn change_list(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> ChangeList {
     }
 }
 
+/// One cell as the side by side shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CellDetail {
+    /// Where it is in its own version: "B4".
+    pub address: String,
+    /// What Excel shows, through the number format.
+    pub shown: String,
+    /// The formula, with `=`, when there is one.
+    pub formula: Option<String>,
+    /// What is stored: the value typed, or a formula's last result.
+    pub value: String,
+    /// "number", "text", "true or false", "error", "date" or "empty".
+    pub kind: &'static str,
+    /// The number format, when it isn't General.
+    pub format: Option<String>,
+}
+
+/// A cell in the later version beside the same cell in the earlier one,
+/// matched through the row and column alignment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SideBySide {
+    pub sheet: String,
+    /// `None` when the earlier version has no such cell (a new sheet, row or
+    /// column).
+    pub before: Option<CellDetail>,
+    pub after: Option<CellDetail>,
+}
+
+fn detail(wb: &Workbook, sheet: usize, col: u32, row: u32) -> CellDetail {
+    let text = wb.sheet_text(sheet);
+    let cell = wb.sheets[sheet].cell(col, row);
+    let (stored, shown, format) = match cell {
+        Some(cell) => {
+            let v = value::input(wb, text, cell)
+                .or_else(|| value::cached(text, cell))
+                .unwrap_or(value::Value::Blank);
+            let code = wb.styles.format_code(cell.style);
+            let shown = display(&v, code, wb.date1904);
+            let format = (!code.eq_ignore_ascii_case("general")).then(|| code.to_owned());
+            (v, shown, format)
+        }
+        None => (value::Value::Blank, String::new(), None),
+    };
+    CellDetail {
+        address: a1(col, row),
+        shown,
+        formula: super::deps::formula_at(wb, sheet, row, col).map(|f| format!("={f}")),
+        value: stored.text(),
+        kind: match stored {
+            value::Value::Blank => "empty",
+            value::Value::Text(_) => "text",
+            value::Value::Number(_) => "number",
+            value::Value::Bool(_) => "true or false",
+            value::Value::Error(_) => "error",
+            value::Value::Date(_) => "date",
+        },
+        format,
+    }
+}
+
+/// The side by side for `address` on `sheet` of `b`, beside where that cell
+/// is in `a`. `None` when `b` has no such sheet, or `address` isn't a cell.
+#[must_use]
+pub fn side_by_side(a: &Workbook, b: &Workbook, sheet: &str, address: &str) -> Option<SideBySide> {
+    let j = b.sheet_index(sheet)?;
+    let (col, row) = super::refs::parse_cell(address)?;
+    let before = super::align::pair_sheets(a, b)
+        .both
+        .iter()
+        .find(|(_, jb)| *jb == j)
+        .and_then(|(i, _)| {
+            let al = super::align::align(a, *i, b, j);
+            let (r, c) = (al.rows.b_to_a.get(&row)?, al.cols.b_to_a.get(&col)?);
+            Some(detail(a, *i, *c, *r))
+        });
+    Some(SideBySide {
+        sheet: b.sheets[j].name.clone(),
+        before,
+        after: Some(detail(b, j, col, row)),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use lineage_testkit::workbooks;
@@ -1297,5 +1383,38 @@ mod tests {
         assert_eq!(v.groups.len(), 1);
         assert_eq!(v.groups[0].title, "Refreshed data");
         assert!(v.groups[0].summary.contains("Nobody typed them"));
+    }
+
+    #[test]
+    fn a_cell_side_by_side_follows_its_row() {
+        let a = open(&workbooks::budget_master());
+        let b = open(&workbooks::budget_sorted());
+        // Sorted largest first: January rent is row 2 in both, Lunch with
+        // Priya moved.
+        let sb = side_by_side(&a, &b, "Transactions", "D2").expect("a cell");
+        let (before, after) = (sb.before.expect("before"), sb.after.expect("after"));
+        assert_eq!(after.value, "1450");
+        assert_eq!(after.kind, "number");
+        assert_eq!(before.value, after.value);
+        let lunch = (2..=17)
+            .find(|r| {
+                side_by_side(&a, &b, "Transactions", &format!("C{r}"))
+                    .and_then(|s| s.after)
+                    .is_some_and(|d| d.value == "Lunch with Priya")
+            })
+            .expect("lunch is there");
+        let sb = side_by_side(&a, &b, "Transactions", &format!("C{lunch}")).expect("a cell");
+        let before = sb.before.expect("matched");
+        assert_eq!(before.value, "Lunch with Priya");
+        assert_eq!(before.address, "C6", "where it was before the sort");
+        // A formula: its text, its last result, and what it shows.
+        let total = side_by_side(&a, &b, "Summary", "B8").expect("a cell");
+        let after = total.after.expect("after");
+        assert_eq!(after.formula.as_deref(), Some("=SUM(B2:B7)"));
+        assert_eq!(after.kind, "number");
+        assert_eq!(after.shown, "4,271.65", "through its number format");
+        assert!(after.format.is_some());
+        assert!(side_by_side(&a, &b, "Nowhere", "A1").is_none());
+        assert!(side_by_side(&a, &b, "Summary", "not a cell").is_none());
     }
 }
