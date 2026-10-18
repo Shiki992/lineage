@@ -7,6 +7,8 @@
 //! The saved file is the source of truth (decision 0020). Office.js reads in
 //! the task pane are hints only; every comparison here works from bytes.
 
+pub mod deps;
+pub mod formula;
 pub mod model;
 mod read;
 pub mod refs;
