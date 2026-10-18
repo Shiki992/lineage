@@ -499,11 +499,14 @@ pub fn updates(
     let ours = Doc::open_as(bytes, &state.format)?;
     let mut groups = Vec::new();
     let mut total = 0;
+    // A deck's master has no "offer" step (decision 0019): every pending
+    // change waits for the version.
+    let deck = state.format == "pptx";
     for checkpoint in state.master_checkpoints() {
         let offered: Vec<&String> = status
             .offerable
             .iter()
-            .filter(|p| p.offered && p.checkpoint == checkpoint.id)
+            .filter(|p| (p.offered || deck) && p.checkpoint == checkpoint.id)
             .map(|p| &p.change.id)
             .collect();
         if offered.is_empty() {

@@ -593,3 +593,15 @@ fn keeping_mine_on_everything_is_recorded_without_changing_a_slide() {
     assert_eq!(again.run.text, "Already up to date");
     assert!(!again.records);
 }
+
+#[test]
+fn a_deck_version_sees_the_master_change_without_an_offer() {
+    // A master deck has no "offer" step: "Update N versions" offers and
+    // brings in at once. An open version's own panel shows what waits.
+    let (host, seed, seed_file) = founder_with_update();
+    let panel = crate::views::version_panel(host.state(), &seed, &host.blobs).expect("panel");
+    assert_eq!(panel.updates.as_deref(), Some("2 updates from the master"));
+    let updates = commands::updates(host.state(), &seed, &seed_file, &host.blobs).expect("updates");
+    assert_eq!(updates.headline, "2 updates from the master");
+    assert_eq!(updates.groups.len(), 1);
+}
