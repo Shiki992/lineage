@@ -13,5 +13,6 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+lineage-core.workspace = true
 lineage-harness.workspace = true
 lineage-testkit.workspace = true

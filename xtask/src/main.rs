@@ -8,11 +8,14 @@
 //! - `check-fixtures`: fail if the committed fixtures differ from what the generator
 //!   produces now, or if the folder holds files the generator doesn't make.
 //! - `check-headers`: fail if any source file lacks the licence header.
+//! - `bench-xlsx [prepare | case]`: time each stage of comparing large
+//!   workbooks (build with `--release`).
 //! - `returned-inputs <folder>`: write the files `scripts/libreoffice-resave.ps1`
 //!   re-saves with LibreOffice into `fixtures/docx/returned/libreoffice/`.
 
 #![forbid(unsafe_code)]
 
+mod bench;
 mod headers;
 
 use std::fs;
@@ -21,7 +24,7 @@ use std::process::ExitCode;
 
 use lineage_testkit::{decks, fixtures, returned, workbooks};
 
-fn repo_root() -> PathBuf {
+pub(crate) fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("xtask lives one level below the repository root")
@@ -171,6 +174,13 @@ fn main() -> ExitCode {
                 Ok(ExitCode::FAILURE)
             }
         },
+        Some("bench-xlsx") => Ok(match bench::bench(std::env::args().nth(2).as_deref()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        }),
         Some("accounts") => match std::env::args().nth(2) {
             Some(dir) => Ok(match write_accounts(Path::new(&dir)) {
                 Ok(()) => ExitCode::SUCCESS,
@@ -186,7 +196,7 @@ fn main() -> ExitCode {
         },
         _ => {
             eprintln!(
-                "usage: cargo xtask <fixtures | check-fixtures | check-headers | returned-inputs <folder> | accounts <folder>>"
+                "usage: cargo xtask <fixtures | check-fixtures | check-headers | returned-inputs <folder> | accounts <folder> | bench-xlsx [prepare | case]>"
             );
             Ok(ExitCode::FAILURE)
         }
