@@ -83,6 +83,8 @@ pub struct Formula {
     pub dynamic: bool,
     /// `ca="1"`: Excel recalculates it on every calculation.
     pub always: bool,
+    /// The whole `<f>` element in the worksheet part, for the writer.
+    pub element: Span,
     pub cached: Option<Cached>,
 }
 
@@ -114,6 +116,8 @@ pub struct Cell {
     /// The cell has value metadata (`vm`): a linked data type or a picture in
     /// the cell. Kept, and not tracked yet.
     pub value_meta: bool,
+    /// The whole `<c>` element in the worksheet part, for the writer.
+    pub element: Span,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

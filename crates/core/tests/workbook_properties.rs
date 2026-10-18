@@ -238,3 +238,87 @@ proptest! {
         prop_assert_eq!(d.calculated[0].category, Category::KnockOn);
     }
 }
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(32))]
+
+    /// Merging a changed version against an unchanged base, and writing
+    /// every change in, reproduces the changed version's inputs and
+    /// formulas.
+    #[test]
+    fn bringing_everything_into_the_base_reproduces_the_change(
+        rows in records(),
+        edits in prop::collection::vec((0usize..25, 1u32..9), 0..4),
+        formula_row in prop::option::of(0usize..25),
+        added in 0u32..4,
+    ) {
+        use lineage_core::merge::Decision;
+        use lineage_core::xlsx::apply::{apply_plan, put_back};
+        use lineage_core::xlsx::merge::{Status, plan};
+        use lineage_core::xlsx::write::apply_steps;
+
+        let total = |_r: u32| "{q}*{p}".to_owned();
+        let base_rows = rows.clone();
+        let mut changed = rows.clone();
+        for (i, bump) in &edits {
+            let i = i % changed.len();
+            changed[i].1 += bump;
+        }
+        let top = changed.iter().map(|r| r.0).max().unwrap_or(0);
+        for k in 0..added {
+            changed.push((top + 1 + k, 3 + k, 70 + k));
+        }
+        let target = formula_row.map(|i| u32::try_from(i % rows.len()).unwrap_or(0) + 2);
+        let x_formula = move |r: u32| if Some(r) == target { "{q}*{p}+0".to_owned() } else { "{q}*{p}".to_owned() };
+
+        let kit_base = stock_bytes(&base_rows, total);
+        let kit_x = stock_bytes(&changed, x_formula);
+        let base = Workbook::open(&kit_base).expect("opens");
+        let x = Workbook::open(&kit_x).expect("opens");
+        let p = plan(&base, &base, &x);
+        let decisions: Vec<(String, Decision)> = p
+            .items
+            .iter()
+            .filter(|i| i.status == Status::Clean)
+            .map(|i| (i.id.clone(), Decision::BringIn))
+            .collect();
+        prop_assert_eq!(decisions.len(), p.items.len(), "every change is clean against an unchanged base");
+        let steps = apply_plan(&p, &decisions).expect("a plan");
+        prop_assert!(steps.skipped.is_empty(), "{:?}", steps.skipped);
+        let out = apply_steps(&kit_base, &steps.steps).expect("written");
+        put_back(&x, &Workbook::open(&out).expect("opens")).expect("the change, reproduced");
+    }
+}
+
+/// The stock sheet as bytes, keyed by ID.
+fn stock_bytes(rows: &[(u32, u32, u32)], formula_of: impl Fn(u32) -> String) -> Vec<u8> {
+    let mut wb = xlsx::Workbook::new("Stock");
+    let mut sheet = xlsx::Sheet::new("Stock", 1);
+    sheet.push_row(
+        ["ID", "Name", "Qty", "Price", "Total"]
+            .iter()
+            .map(|h| Some((text(*h), Style::Bold)))
+            .collect(),
+    );
+    for (i, (id, qty, price)) in rows.iter().enumerate() {
+        let r = u32::try_from(i).unwrap_or(0) + 2;
+        let f = formula_of(r)
+            .replace("{q}", &format!("C{r}"))
+            .replace("{p}", &format!("D{r}"));
+        sheet.push_row(vec![
+            Some((text(format!("SKU-{id:04}")), Style::General)),
+            Some((text(format!("Part {id}")), Style::General)),
+            Some((num(qty.to_string()), Style::General)),
+            Some((num(price.to_string()), Style::General)),
+            Some((
+                Value::Formula {
+                    f,
+                    cached: Some(Cached::Number((qty * price).to_string())),
+                },
+                Style::General,
+            )),
+        ]);
+    }
+    wb.sheets.push(sheet);
+    wb.to_bytes()
+}

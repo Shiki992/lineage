@@ -8,19 +8,23 @@
 //! the task pane are hints only; every comparison here works from bytes.
 
 pub mod align;
+pub mod apply;
+pub mod clean;
 pub mod deps;
 pub mod diff;
 pub mod display;
 pub mod formula;
+pub mod merge;
 pub mod model;
 mod read;
 pub mod refs;
 mod sheet;
-mod stream;
+pub(crate) mod stream;
 mod strings;
 pub mod styles;
 pub mod value;
 pub mod view;
+pub mod write;
 
 pub use model::*;
 pub use read::{CT_TEMPLATE, CT_TEMPLATE_MACRO, CT_WORKBOOK, CT_WORKBOOK_MACRO};

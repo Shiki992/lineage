@@ -371,7 +371,7 @@ fn pull_pos(pull: &Pull<'_>) -> usize {
 #[derive(Default)]
 struct RawCell {
     value: Option<Str>,
-    formula: Option<(Option<Str>, FormulaKind, bool)>,
+    formula: Option<(Option<Str>, FormulaKind, bool, Span)>,
     inline: Option<String>,
 }
 
@@ -429,12 +429,14 @@ fn read_cells(pull: &mut Pull<'_>, r: u32, cells: &mut usize) -> Result<Vec<Cell
                 } else {
                     read_cell_body(pull)?
                 };
+                let element = span(ev.at, if empty { ev.end } else { pull_pos(pull) })?;
                 let content = content_of(pull, t.as_deref(), raw, dynamic)?;
                 out.push(Cell {
                     col,
                     style,
                     content,
                     value_meta,
+                    element,
                 });
             }
             Event::End(_) => return Ok(out),
@@ -486,7 +488,8 @@ fn read_cell_body(pull: &mut Pull<'_>) -> Result<RawCell> {
                                 _ => Some(s),
                             }
                         };
-                        raw.formula = Some((text, kind, always));
+                        let element = span(ev.at, if empty { ev.end } else { pull_pos(pull) })?;
+                        raw.formula = Some((text, kind, always, element));
                     }
                     (true, "is") => {
                         raw.inline = Some(if empty {
@@ -553,7 +556,7 @@ fn number_span(pull: &Pull<'_>, value: &Str) -> Result<Span> {
 }
 
 fn content_of(pull: &Pull<'_>, t: Option<&str>, raw: RawCell, dynamic: bool) -> Result<Content> {
-    if let Some((text, kind, always)) = raw.formula {
+    if let Some((text, kind, always, element)) = raw.formula {
         let cached = match (&raw.value, t) {
             (None, _) => None,
             (Some(v), Some("str")) => Some(Cached::Text(v.clone())),
@@ -572,6 +575,7 @@ fn content_of(pull: &Pull<'_>, t: Option<&str>, raw: RawCell, dynamic: bool) -> 
             kind,
             dynamic,
             always,
+            element,
             cached,
         })));
     }
