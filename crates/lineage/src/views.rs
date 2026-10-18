@@ -461,10 +461,7 @@ pub struct DocumentPage {
 pub fn document_page(state: &FamilyState, damage: Option<String>) -> DocumentPage {
     let readable = crate::library::readable_format(&state.format);
     let note = damage.clone().or_else(|| {
-        (!readable).then(|| match state.format.as_str() {
-            "xlsx" => "Comes with Excel support. You can see this workbook's history, but not open or compare it yet.".to_owned(),
-            _ => "This version of Lineage can't open these files yet.".to_owned(),
-        })
+        (!readable).then(|| "This version of Lineage can't open these files yet.".to_owned())
     });
     let mut nodes: Vec<_> = state.nodes.iter().collect();
     nodes.sort_by_key(|n| n.role != Role::Master);

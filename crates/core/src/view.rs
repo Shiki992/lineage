@@ -59,6 +59,9 @@ pub struct WhatChanged {
     pub by_hand: Vec<ChangeCard>,
     /// Changes this version already has (copied in by hand, or made the same way).
     pub already_there: Vec<ChangeCard>,
+    /// For a workbook: the same changes in the five categories (decision
+    /// 0022), which the Excel pane draws instead of the lists above.
+    pub workbook: Option<Box<crate::xlsx::view::WorkbookView>>,
 }
 
 impl WhatChanged {

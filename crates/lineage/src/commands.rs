@@ -494,6 +494,10 @@ pub fn updates(
     bytes: &[u8],
     blobs: &dyn BlobSource,
 ) -> Result<Updates> {
+    // A workbook's merge is its own (decision 0023).
+    if state.format == "xlsx" {
+        return crate::workbooks::updates(state, version, bytes, blobs);
+    }
     check_file(state, version, bytes)?;
     let status = variant_status(state, version, blobs)?;
     let ours = Doc::open_as(bytes, &state.format)?;
@@ -572,6 +576,11 @@ pub(crate) fn decide_landing(
     landed: Option<&[u8]>,
     blobs: &dyn BlobSource,
 ) -> Result<Outcome> {
+    if state.format == "xlsx" {
+        return Err(Error::NotAllowed(
+            "a workbook's changes come in from its open panel".to_owned(),
+        ));
+    }
     check_file(state, version, bytes)?;
     let status = variant_status(state, version, blobs)?;
     for (checkpoint, change, _) in decisions {

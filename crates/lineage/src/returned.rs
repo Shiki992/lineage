@@ -113,6 +113,9 @@ pub fn prepare(bytes: &[u8]) -> Result<Prepared> {
         lineage_core::pptx::Kind::Word => {
             Doc::Word(Docx::from_package(package, lineage_core::View::Accepted)?)
         }
+        lineage_core::pptx::Kind::Workbook => {
+            Doc::Workbook(lineage_core::Workbook::from_package(package)?)
+        }
         lineage_core::pptx::Kind::PowerPoint => {
             Doc::Deck(lineage_core::Deck::from_package(package)?)
         }
@@ -230,7 +233,7 @@ pub fn base_bytes(
 }
 
 /// A blob that is a whole file (a sent copy, a returned file), checked.
-fn whole_blob(hash: &BlobHash, blobs: &dyn BlobSource) -> Result<Vec<u8>> {
+pub(crate) fn whole_blob(hash: &BlobHash, blobs: &dyn BlobSource) -> Result<Vec<u8>> {
     let bytes = blobs
         .blob(hash)
         .ok_or_else(|| Error::MissingBlob(hash.as_str().to_owned()))?;
@@ -670,11 +673,11 @@ fn recipient(state: &FamilyState, returned: &Id) -> Option<String> {
         .map(|s| s.recipient.clone())
 }
 
-fn who(state: &FamilyState, returned: &Id) -> String {
+pub(crate) fn who(state: &FamilyState, returned: &Id) -> String {
     recipient(state, returned).unwrap_or_else(|| "the returned copy".to_owned())
 }
 
-fn changes(n: usize) -> String {
+pub(crate) fn changes(n: usize) -> String {
     if n == 1 {
         "1 change".to_owned()
     } else {
@@ -683,12 +686,23 @@ fn changes(n: usize) -> String {
 }
 
 /// Removes decided cards, and words the headline for what is left.
-fn open_view(mut view: WhatChanged, decided: &BTreeSet<&String>, who: &str) -> WhatChanged {
+pub(crate) fn open_view(
+    mut view: WhatChanged,
+    decided: &BTreeSet<&String>,
+    who: &str,
+) -> WhatChanged {
     view.changes.retain(|c| !decided.contains(&c.id));
     view.formatting.retain(|c| !decided.contains(&c.id));
     view.overlaps.retain(|c| !decided.contains(&c.id));
     view.by_hand.retain(|c| !decided.contains(&c.id));
     view.already_there.retain(|c| !decided.contains(&c.id));
+    if let Some(wv) = view.workbook.as_mut() {
+        for g in &mut wv.groups {
+            g.cards
+                .retain(|c| !c.ids.iter().all(|id| decided.contains(id)));
+        }
+        wv.groups.retain(|g| !g.cards.is_empty());
+    }
     let left = view.ids().len();
     view.headline = if left == 0 {
         "Nothing left to review".to_owned()
@@ -710,22 +724,29 @@ pub fn review(
     bytes: &[u8],
     blobs: &dyn BlobSource,
 ) -> Result<ReturnReview> {
-    let (base, ours, theirs) = documents(state, returned, node, bytes, blobs)?;
     let r = state
         .returned_file(returned)
         .ok_or_else(|| Error::NotAllowed("unknown returned file".to_owned()))?;
     let who = who(state, returned);
-    let plan = merge::plan(&base, &ours, &theirs);
     let decided: BTreeSet<&String> = r.decided().collect();
-    let view = open_view(
-        from_plan_for(&plan, &Theirs::Returned { who: who.clone() }),
-        &decided,
-        &who,
-    );
-    let formatting = keep_formatting(
-        formatting_trust(&base, &theirs, &plan.theirs_diff).as_ref(),
-        &recipient(state, returned).unwrap_or_else(|| "whoever sent it back".to_owned()),
-    );
+    let (view, formatting) = if state.format == "xlsx" {
+        // A workbook's changes come in through the open workbook (decision 0023).
+        let view = crate::workbooks::returned_view(state, returned, node, bytes, blobs)?;
+        (open_view(view, &decided, &who), KeepFormatting::default())
+    } else {
+        let (base, ours, theirs) = documents(state, returned, node, bytes, blobs)?;
+        let plan = merge::plan(&base, &ours, &theirs);
+        let view = open_view(
+            from_plan_for(&plan, &Theirs::Returned { who: who.clone() }),
+            &decided,
+            &who,
+        );
+        let formatting = keep_formatting(
+            formatting_trust(&base, &theirs, &plan.theirs_diff).as_ref(),
+            &recipient(state, returned).unwrap_or_else(|| "whoever sent it back".to_owned()),
+        );
+        (view, formatting)
+    };
     let from_node = state
         .checkpoint(&r.from)
         .and_then(|c| state.node(&c.node))
@@ -796,6 +817,11 @@ pub fn decide(
 ) -> Result<Outcome> {
     if cards.is_empty() {
         return Err(Error::NotAllowed("nothing was decided".to_owned()));
+    }
+    if state.format == "xlsx" {
+        return Err(Error::NotAllowed(
+            "a workbook's kept changes come in from its open panel".to_owned(),
+        ));
     }
     let (base, ours, theirs) = documents(state, returned, node, bytes, blobs)?;
     let r = state

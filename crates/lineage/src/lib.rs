@@ -12,6 +12,7 @@
 //! - [`commands`]: one function per panel button.
 //! - [`changes`]: change states, the merge base, detection.
 //! - [`decks`]: the pitch deck panel and "Update N versions".
+//! - [`workbooks`]: bringing the master's changes into an open workbook.
 //! - [`identity`]: fingerprints and content matching.
 //! - [`returned`]: files that come back: recognising, reviewing, keeping.
 //! - [`blob`]: content-addressed blobs and snapshots.
@@ -37,6 +38,7 @@ pub mod read;
 pub mod returned;
 pub mod state;
 pub mod views;
+pub mod workbooks;
 
 pub use error::{Error, Result};
 pub use ids::{Id, IdSource, SeededIds, SequentialIds, Timestamp};

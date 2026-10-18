@@ -97,7 +97,8 @@ pub(super) fn read(part: &str, text: &str, cells: &mut usize) -> Result<SheetRea
                         }
                         "autoFilter" => {
                             out.auto_filter = attr(e, "ref").as_deref().and_then(parse_area);
-                            pull.hash_start(&mut filter, e);
+                            // Only the criteria: the range grows with the
+                            // rows, which are their own change.
                             if !empty {
                                 pull.hash_rest(&mut filter)?;
                             }

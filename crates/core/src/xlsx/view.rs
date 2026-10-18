@@ -30,7 +30,7 @@ pub const UNTRACKED: &str = "Preserved; semantic tracking not yet supported.";
 pub const EXAMPLES: usize = 5;
 
 /// One card: a cell, a group of cells, or a structure change.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Card {
     pub id: String,
     pub summary: String,
@@ -45,6 +45,15 @@ pub struct Card {
     pub cells: usize,
     /// Why, in plain words, when the evidence says something.
     pub why: Option<String>,
+    /// For an update from the master: every item id this card stands for
+    /// (a filled-down formula is one card), the choices, why it comes in
+    /// by hand, and this version's side of an overlap.
+    pub ids: Vec<String>,
+    pub choices: Vec<crate::view::Choice>,
+    pub by_hand: Option<String>,
+    pub mine: Option<CellSide>,
+    /// What the overlap is, in words.
+    pub conflict: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -163,6 +172,7 @@ fn cell_card(c: &CellChange) -> Card {
         after: Some(c.after.clone()),
         cells: 1,
         why: why(c.category, c.provenance),
+        ..Card::default()
     }
 }
 
@@ -276,6 +286,7 @@ fn structure_card(s: &StructureChange) -> Card {
         after: None,
         cells: 1,
         why: None,
+        ..Card::default()
     }
 }
 
@@ -358,6 +369,7 @@ fn calc_card(a: &Workbook, b: &Workbook, d: &WorkbookDiff, c: &Calculated) -> Ca
         after: Some(after),
         cells: 1,
         why: why(c.category, c.provenance),
+        ..Card::default()
     }
 }
 
@@ -573,6 +585,7 @@ pub fn view(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> WorkbookView {
                     after: None,
                     cells: cells.len(),
                     why: None,
+                    ..Card::default()
                 });
             }
         }
@@ -665,6 +678,383 @@ pub fn view(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> WorkbookView {
         untracked,
         notes,
     }
+}
+
+/// Why an item of the merge comes in by hand, in plain words.
+#[must_use]
+pub fn manual_reason(m: super::merge::Manual) -> String {
+    use super::merge::Manual;
+    match m {
+        Manual::Format => "Formats come in by hand for now. Copy the format from the master.".to_owned(),
+        Manual::RowsRemoved => {
+            "Removing rows can break the formulas that point at them, so remove these rows by hand.".to_owned()
+        }
+        Manual::RowsMoved => "Sort or move these rows by hand to match the master.".to_owned(),
+        Manual::Columns => "Columns come in by hand for now.".to_owned(),
+        Manual::Sheet => "Sheets come in by hand for now.".to_owned(),
+        Manual::Settings => "Names, tables, filters and settings come in by hand for now.".to_owned(),
+        Manual::Placement => "Lineage couldn't find where this goes in this version. Copy it in by hand.".to_owned(),
+        Manual::Name => {
+            "This formula uses a name this version doesn't have yet. Add the name, then copy the formula in.".to_owned()
+        }
+        Manual::Refreshed => "This came from a data refresh. Refresh this workbook's data to get it.".to_owned(),
+        Manual::Untracked(kind) => format!("{}: {UNTRACKED} Copy the change in by hand.", kind.label()),
+    }
+}
+
+fn conflict_text(c: super::merge::Conflict, theirs: &crate::view::Theirs) -> String {
+    use super::merge::Conflict;
+    let they = match theirs {
+        crate::view::Theirs::Master => "the master".to_owned(),
+        crate::view::Theirs::Returned { who } => who.clone(),
+    };
+    match c {
+        Conflict::BothChanged => format!("You and {they} both changed this cell"),
+        Conflict::FormulaAndInputs => {
+            format!("You changed what this formula reads, or the formula itself, and so did {they}")
+        }
+        Conflict::EditedVsDeleted => {
+            format!("{they} changed a row you removed").replacen("the m", "The m", 1)
+        }
+        Conflict::BothAdded => format!("You and {they} both added rows here"),
+        Conflict::CouldNotMatch => "Lineage couldn't match this row in your version".to_owned(),
+    }
+}
+
+/// The updates on offer from a merge (`theirs` into this version), as the
+/// common lists every panel reads, with the five-category view inside for
+/// the Excel pane: cards carry their choices, and a formula filled down a
+/// column is one card standing for every cell.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn from_plan(
+    p: &super::merge::Plan<'_>,
+    theirs: &crate::view::Theirs,
+) -> crate::view::WhatChanged {
+    use super::merge::{Status, What};
+    use crate::view::{ChangeCard, Choice, OverlapCard, WhatChanged};
+    let mut out = WhatChanged::default();
+    let mut groups: BTreeMap<Category, Vec<Card>> = BTreeMap::new();
+    let choices_of = |item: &super::merge::Item| -> Vec<Choice> {
+        item.choices()
+            .into_iter()
+            .map(|d| Choice {
+                decision: d,
+                label: theirs.label(d).to_owned(),
+            })
+            .collect()
+    };
+    // Filled-down formula changes with the same status are one card.
+    let mut formula_groups: BTreeMap<(usize, u32, u64, String), Vec<&super::merge::Item>> =
+        BTreeMap::new();
+    for item in &p.items {
+        if let What::Cell(c) = &item.what
+            && c.category == Category::Formula
+            && c.group != 0
+        {
+            formula_groups
+                .entry((c.sheet_b, c.at_b.0, c.group, format!("{:?}", item.status)))
+                .or_default()
+                .push(item);
+        }
+    }
+    let grouped: std::collections::HashSet<&str> = formula_groups
+        .values()
+        .filter(|v| v.len() > 1)
+        .flat_map(|v| v.iter().map(|i| i.id.as_str()))
+        .collect();
+
+    let mut push =
+        |item: &super::merge::Item, mut card: Card, category: Category, out: &mut WhatChanged| {
+            card.choices = choices_of(item);
+            let text = segments(&card);
+            match item.status {
+                Status::AlreadyThere => {
+                    out.already_there.push(ChangeCard {
+                        id: item.id.clone(),
+                        summary: card.summary.clone(),
+                        place: card.place.clone(),
+                        text,
+                        choices: Vec::new(),
+                        by_hand: None,
+                    });
+                    return;
+                }
+                Status::Clean => out.changes.push(ChangeCard {
+                    id: item.id.clone(),
+                    summary: card.summary.clone(),
+                    place: card.place.clone(),
+                    text,
+                    choices: card.choices.clone(),
+                    by_hand: None,
+                }),
+                Status::ByHand(m) => {
+                    card.by_hand = Some(manual_reason(m));
+                    out.by_hand.push(ChangeCard {
+                        id: item.id.clone(),
+                        summary: card.summary.clone(),
+                        place: card.place.clone(),
+                        text,
+                        choices: card.choices.clone(),
+                        by_hand: card.by_hand.clone(),
+                    });
+                }
+                Status::Overlap(conflict) => {
+                    card.conflict = Some(conflict_text(conflict, theirs));
+                    let side = |s: Option<&CellSide>| -> Vec<crate::diff::Segment> {
+                        s.map(|s| s.formula.clone().unwrap_or_else(|| s.shown.clone()))
+                            .filter(|t| !t.is_empty())
+                            .map(|t| {
+                                vec![crate::diff::Segment {
+                                    kind: crate::diff::SegmentKind::Added,
+                                    text: t,
+                                }]
+                            })
+                            .unwrap_or_default()
+                    };
+                    out.overlaps.push(OverlapCard {
+                        id: item.id.clone(),
+                        summary: card.conflict.clone().unwrap_or_default(),
+                        place: card.place.clone(),
+                        before: card
+                            .before
+                            .as_ref()
+                            .map(|b| b.formula.clone().unwrap_or_else(|| b.shown.clone())),
+                        mine: side(card.mine.as_ref()),
+                        masters: side(card.after.as_ref()),
+                        choices: card.choices.clone(),
+                    });
+                }
+            }
+            if card.ids.is_empty() {
+                card.ids = vec![item.id.clone()];
+            }
+            groups.entry(category).or_default().push(card);
+        };
+
+    for item in &p.items {
+        if grouped.contains(item.id.as_str()) {
+            continue;
+        }
+        match &item.what {
+            What::Cell(c) => {
+                let mut card = cell_card(c);
+                card.mine = item.mine.as_ref().map(|m| m.after.clone());
+                push(item, card, c.category, &mut out);
+            }
+            What::Rows { sheet_theirs, rows } => {
+                let sheet = p.theirs.sheets.get(*sheet_theirs);
+                let name = sheet.map_or(String::new(), |s| s.name.clone());
+                let text = p.theirs.sheet_text(*sheet_theirs);
+                let lines: Vec<String> = rows
+                    .iter()
+                    .filter_map(|r| sheet.and_then(|s| s.row(*r)))
+                    .map(|row| {
+                        row.cells
+                            .iter()
+                            .map(|c| value::either(p.theirs, text, c).text())
+                            .filter(|t| !t.is_empty())
+                            .collect::<Vec<_>>()
+                            .join(" · ")
+                    })
+                    .collect();
+                let card = Card {
+                    id: item.id.clone(),
+                    summary: format!("Added {} on {name}", rows_text(rows)),
+                    place: Some(name.clone()),
+                    sheet: name,
+                    address: Some(format!("{}:{}", rows[0], rows[rows.len() - 1])),
+                    after: Some(CellSide {
+                        shown: lines.join("\n"),
+                        formula: None,
+                    }),
+                    cells: rows.len(),
+                    ..Card::default()
+                };
+                push(item, card, Category::Structure, &mut out);
+            }
+            What::Structure(s) => push(item, structure_card(s), Category::Structure, &mut out),
+        }
+    }
+    for items in formula_groups.values().filter(|v| v.len() > 1) {
+        let What::Cell(first) = &items[0].what else {
+            continue;
+        };
+        let mut card = cell_card(first);
+        let rows: Vec<u32> = items
+            .iter()
+            .filter_map(|i| match &i.what {
+                What::Cell(c) => Some(c.at_b.1),
+                _ => None,
+            })
+            .collect();
+        let (lo, hi) = (
+            rows.iter().min().copied().unwrap_or(1),
+            rows.iter().max().copied().unwrap_or(1),
+        );
+        let range = area_name(&super::model::Area {
+            col1: first.at_b.0,
+            row1: lo,
+            col2: first.at_b.0,
+            row2: hi,
+        });
+        card.summary = format!(
+            "The formula changed in {} cells ({}!{range}), filled down",
+            items.len(),
+            first.sheet
+        );
+        card.address = Some(range);
+        card.cells = items.len();
+        card.ids = items.iter().map(|i| i.id.clone()).collect();
+        // One card for the panel's lists too, standing for every cell: its
+        // id is the first, and the pane sends the decision for all of them.
+        push(items[0], card, Category::Formula, &mut out);
+    }
+
+    let counted: usize = out.changes.len() + out.overlaps.len() + out.by_hand.len();
+    out.headline = match counted {
+        0 => "Nothing to bring in".to_owned(),
+        1 => "1 update".to_owned(),
+        n => format!("{n} updates"),
+    };
+    let mut wv = WorkbookView {
+        headline: out.headline.clone(),
+        ..WorkbookView::default()
+    };
+    for (category, cards) in groups {
+        let n: usize = cards.iter().map(|c| c.cells).sum();
+        wv.groups.push(Group {
+            category,
+            title: title(category),
+            summary: plural(n, "change", "changes"),
+            cards,
+            more: 0,
+        });
+    }
+    let mut kinds: Vec<UnsupportedKind> = p.ours.unsupported.iter().map(|u| u.kind).collect();
+    kinds.sort();
+    kinds.dedup();
+    wv.untracked = kinds
+        .into_iter()
+        .map(|k| format!("{}: {UNTRACKED}", k.label()))
+        .collect();
+    out.workbook = Some(Box::new(wv));
+    out
+}
+
+/// Removed and added text, for a card's line.
+fn segments(card: &Card) -> Vec<crate::diff::Segment> {
+    use crate::diff::{Segment, SegmentKind};
+    let text = |s: &CellSide| s.formula.clone().unwrap_or_else(|| s.shown.clone());
+    let mut out = Vec::new();
+    if let Some(b) = card.before.as_ref().map(text).filter(|t| !t.is_empty()) {
+        out.push(Segment {
+            kind: SegmentKind::Removed,
+            text: b,
+        });
+    }
+    if let Some(a) = card.after.as_ref().map(text).filter(|t| !t.is_empty()) {
+        out.push(Segment {
+            kind: SegmentKind::Added,
+            text: a,
+        });
+    }
+    out
+}
+
+/// The workbook view as the common "what changed" lists every panel and My
+/// documents read, with the five-category view inside it for the Excel
+/// pane. Formatting-only cards go in `formatting`, everything else in
+/// `changes`; knock-on and refreshed groups are one summary card each.
+#[must_use]
+pub fn what_changed(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> crate::view::WhatChanged {
+    use crate::view::{ChangeCard, WhatChanged};
+    let v = view(d, a, b);
+    let mut out = WhatChanged {
+        headline: if v.groups.is_empty() && v.unmatched.is_empty() {
+            "No changes".to_owned()
+        } else {
+            v.headline.clone()
+        },
+        ..WhatChanged::default()
+    };
+    for g in &v.groups {
+        let summarised = matches!(g.category, Category::KnockOn | Category::Refreshed);
+        if summarised {
+            out.changes.push(ChangeCard {
+                id: format!(
+                    "{}-{}",
+                    spec_category(g.category),
+                    g.cards.first().map_or("", |c| c.id.as_str())
+                ),
+                summary: g.summary.clone(),
+                place: None,
+                text: Vec::new(),
+                choices: Vec::new(),
+                by_hand: None,
+            });
+            continue;
+        }
+        for card in &g.cards {
+            let formatting = g.category == Category::Structure
+                && card.before.is_some()
+                && card.summary.starts_with("Its format");
+            let c = ChangeCard {
+                id: card.id.clone(),
+                summary: card.summary.clone(),
+                place: card.place.clone(),
+                text: segments(card),
+                choices: Vec::new(),
+                by_hand: None,
+            };
+            if formatting {
+                out.formatting.push(c);
+            } else {
+                out.changes.push(c);
+            }
+        }
+    }
+    for u in &v.unmatched {
+        out.changes.push(ChangeCard {
+            id: format!("unmatched-{}", u.sheet),
+            summary: u.summary.clone(),
+            place: Some(u.sheet.clone()),
+            text: Vec::new(),
+            choices: Vec::new(),
+            by_hand: None,
+        });
+    }
+    out.workbook = Some(Box::new(v));
+    out
+}
+
+/// The text a person reads, one line per row (cells joined by tabs), and a
+/// key of the structure (sheet names and widths), for recognising a file
+/// that came back. Large sheets give their first rows only.
+#[must_use]
+pub fn text_and_structure(wb: &Workbook) -> (Vec<String>, u64) {
+    const ROWS: usize = 5000;
+    let mut h = crate::hash::Fnv::new();
+    let mut lines = Vec::new();
+    for (i, sheet) in wb.sheets.iter().enumerate() {
+        h.str(&sheet.name);
+        let text = wb.sheet_text(i);
+        for row in sheet.rows.iter().take(ROWS) {
+            let line: Vec<String> = row
+                .cells
+                .iter()
+                .map(|c| value::either(wb, text, c).text())
+                .filter(|t| !t.is_empty())
+                .collect();
+            if !line.is_empty() {
+                lines.push(line.join("\t"));
+            }
+        }
+        h.u64(u64::from(
+            sheet.rows.last().map_or(0, |r| r.cells.len() as u32),
+        ));
+    }
+    (lines, h.finish())
 }
 
 fn spec_category(c: Category) -> &'static str {
