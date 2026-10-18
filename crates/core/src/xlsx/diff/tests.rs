@@ -344,3 +344,17 @@ fn excels_edits_show_exactly_what_was_done() {
         assert!(d.cells.is_empty(), "{name}: {:?}", d.cells.first());
     }
 }
+
+#[test]
+fn sorting_rows_under_a_range_changes_no_formula() {
+    // The summary's SUMIF ranges keep their text when the rows are sorted
+    // (found in the Phase 5 measurements).
+    let (a, b) = (
+        open(&workbooks::large(2000)),
+        open(&workbooks::large_sorted(2000)),
+    );
+    let d = diff(&a, &b, &[]);
+    assert!(d.cells.is_empty(), "{:?}", d.cells.first());
+    assert!(d.calculated.is_empty(), "the totals by region are the same");
+    assert_eq!(d.structure.len(), 1, "the rows moved");
+}

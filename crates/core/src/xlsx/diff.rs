@@ -20,10 +20,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::Workbook;
 use super::align::{Matching, SheetAlignment, SheetPairs, align, pair_sheets};
-use super::deps::{Deps, each_formula};
+use super::deps::Deps;
 use super::display::display;
-use super::formula::{Formula, RefKind, Reference, SheetPrefix, Token, render_prefix};
-use super::model::{Area, Cell, SheetKind, SheetState, UnsupportedKind};
+use super::formula::{Formula, RefKind, Reference, SheetPrefix, Token, render_prefix, tokenize};
+use super::model::{Area, Cell, Content, FormulaKind, SheetKind, SheetState, UnsupportedKind};
 use super::refs::{a1, col_name};
 use super::value::{self, Value};
 use crate::hash::Fnv;
@@ -471,30 +471,107 @@ fn relative(formula: &Formula, col: u32, row: u32) -> String {
     })
 }
 
-/// Per sheet: (row, col) → (canonical key, text, relative form).
-type Formulas = HashMap<(u32, u32), (u64, String, String)>;
-
-fn formulas(wb: &Workbook, sheet: usize, version: Version, space: &Space<'_>) -> Formulas {
-    let mut out = HashMap::new();
-    each_formula(wb, sheet, |row, col, f, _| {
-        out.insert(
-            (row, col),
-            (
-                space.canonical(version, &f, sheet),
-                f.render(),
-                relative(&f, col, row),
-            ),
-        );
-    });
-    out
+/// Where a formula cell's text comes from.
+#[derive(Clone, Copy)]
+enum Slot<'a> {
+    /// Its own text.
+    Text(&'a str),
+    /// A shared formula's other cell: the master's, moved by an offset.
+    Child { si: u32, rows: i64, cols: i64 },
 }
 
-fn side_of(
-    wb: &Workbook,
-    text: &str,
-    cell: Option<&Cell>,
-    formula: Option<&(u64, String, String)>,
-) -> CellSide {
+/// A sheet's formulas, read lazily. Every formula cell gets a cheap key at
+/// once; its text, meaning and relative form are worked out only for cells
+/// whose keys differ, because a large model's formulas are nearly all the
+/// same in both versions (decision 0025, the stop 1 measurements).
+struct Formulas<'a> {
+    /// Shared formula masters: si → (row, column, text, tokens).
+    masters: HashMap<u32, (u32, u32, &'a str, Formula)>,
+    slots: HashMap<(u32, u32), Slot<'a>>,
+}
+
+impl<'a> Formulas<'a> {
+    fn new(wb: &'a Workbook, sheet: usize) -> Self {
+        let text = wb.sheet_text(sheet);
+        let mut masters = HashMap::new();
+        let mut slots = HashMap::new();
+        let Some(s) = wb.sheets.get(sheet) else {
+            return Self { masters, slots };
+        };
+        for row in &s.rows {
+            for cell in &row.cells {
+                if let Content::Formula(f) = &cell.content
+                    && let FormulaKind::Shared { si, .. } = f.kind
+                    && let Some(t) = &f.text
+                {
+                    masters.entry(si).or_insert_with(|| {
+                        let t = t.get(text);
+                        (row.r, cell.col, t, tokenize(t))
+                    });
+                }
+            }
+        }
+        for row in &s.rows {
+            for cell in &row.cells {
+                let Content::Formula(f) = &cell.content else {
+                    continue;
+                };
+                let slot = match (&f.text, &f.kind) {
+                    (Some(t), _) => Slot::Text(t.get(text)),
+                    (None, FormulaKind::Shared { si, .. }) => match masters.get(si) {
+                        Some((r0, c0, _, _)) => Slot::Child {
+                            si: *si,
+                            rows: i64::from(row.r) - i64::from(*r0),
+                            cols: i64::from(cell.col) - i64::from(*c0),
+                        },
+                        None => continue,
+                    },
+                    (None, _) => continue,
+                };
+                slots.insert((row.r, cell.col), slot);
+            }
+        }
+        Self { masters, slots }
+    }
+
+    fn has(&self, row: u32, col: u32) -> bool {
+        self.slots.contains_key(&(row, col))
+    }
+
+    /// Equal for equal text, without rendering anything.
+    fn fast(&self, row: u32, col: u32) -> u64 {
+        let mut h = Fnv::new();
+        match self.slots.get(&(row, col)) {
+            Some(Slot::Text(t)) => {
+                h.str("t").str(t);
+            }
+            Some(Slot::Child { si, rows, cols }) => {
+                let master = self.masters.get(si).map_or("", |m| m.2);
+                h.str("c").str(master).u64(*rows as u64).u64(*cols as u64);
+            }
+            None => {}
+        }
+        h.finish()
+    }
+
+    fn formula(&self, row: u32, col: u32) -> Option<Formula> {
+        match self.slots.get(&(row, col))? {
+            Slot::Text(t) => Some(tokenize(t)),
+            Slot::Child { si, rows, cols } => {
+                self.masters.get(si).map(|m| m.3.shifted(*rows, *cols))
+            }
+        }
+    }
+
+    fn text(&self, row: u32, col: u32) -> Option<String> {
+        match self.slots.get(&(row, col))? {
+            Slot::Text(t) => Some((*t).to_owned()),
+            Slot::Child { .. } => self.formula(row, col).map(|f| f.render()),
+        }
+    }
+}
+
+fn side_of(wb: &Workbook, text: &str, cell: Option<&Cell>, formula: Option<String>) -> CellSide {
     let Some(cell) = cell else {
         return CellSide::default();
     };
@@ -502,7 +579,7 @@ fn side_of(
     let v = value::either(wb, text, cell);
     CellSide {
         shown: display(&v, code, wb.date1904),
-        formula: formula.map(|f| format!("={}", f.1)),
+        formula: formula.map(|f| format!("={f}")),
     }
 }
 
@@ -625,8 +702,8 @@ impl Builder<'_> {
         i: usize,
         j: usize,
         space: &Space<'_>,
-        fa: &Formulas,
-        fb: &Formulas,
+        fa: &Formulas<'_>,
+        fb: &Formulas<'_>,
         hints: &[Hint],
     ) {
         let (a, b) = (self.a, self.b);
@@ -671,15 +748,15 @@ impl Builder<'_> {
             }
             for (cb, (x, y)) in cells {
                 let ca = al.cols.b_to_a[&cb];
-                let fx = fa.get(&(ra, ca));
-                let fy = fb.get(&(rb, cb));
+                let fx = fa.has(ra, ca);
+                let fy = fb.has(rb, cb);
                 let vx = x.map_or(Value::Blank, |c| value::either(a, ta, c));
                 let vy = y.map_or(Value::Blank, |c| value::either(b, tb, c));
                 let style_x = x.map_or(a.styles.key(0), |c| a.styles.key(c.style));
                 let style_y = y.map_or(b.styles.key(0), |c| b.styles.key(c.style));
                 let format_changed = style_x != style_y;
                 let category = match (fx, fy) {
-                    (None, None) => {
+                    (false, false) => {
                         if vx.key() != vy.key() {
                             Some(if in_query(cb, rb) {
                                 Category::Refreshed
@@ -692,8 +769,22 @@ impl Builder<'_> {
                             None
                         }
                     }
-                    (Some(p), Some(q)) => {
-                        if p.0 != q.0 {
+                    (true, true) => {
+                        // The same text, or the same meaning. Excel rewrites
+                        // references when rows are inserted (the meaning
+                        // stays), but not when rows are sorted (the text
+                        // stays).
+                        let same = fa.fast(ra, ca) == fb.fast(rb, cb) || {
+                            match (fa.formula(ra, ca), fb.formula(rb, cb)) {
+                                (Some(p), Some(q)) => {
+                                    p.render() == q.render()
+                                        || space.canonical(Version::A, &p, i)
+                                            == space.canonical(Version::B, &q, j)
+                                }
+                                _ => false,
+                            }
+                        };
+                        if !same {
                             Some(Category::Formula)
                         } else if vx.shown_key() != vy.shown_key() {
                             self.recalculated.push((j, rb, cb));
@@ -724,19 +815,21 @@ impl Builder<'_> {
                     _ if hinted(hints, &name, cb, rb) => Provenance::DirectEdit,
                     _ => Provenance::Unknown,
                 };
-                let before = side_of(a, ta, x, fx);
-                let after = side_of(b, tb, y, fy);
-                let group = match (category, fx, fy) {
-                    (Category::Formula, p, q) => {
-                        let mut h = Fnv::new();
-                        h.u64(j as u64)
-                            .u64(u64::from(cb))
-                            .str(p.map_or("", |f| f.2.as_str()))
-                            .str("→")
-                            .str(q.map_or("", |f| f.2.as_str()));
-                        h.finish()
-                    }
-                    _ => 0,
+                let before = side_of(a, ta, x, fa.text(ra, ca));
+                let after = side_of(b, tb, y, fb.text(rb, cb));
+                let group = if category == Category::Formula {
+                    let rel = |f: Option<Formula>, c: u32, r: u32| {
+                        f.map(|f| relative(&f, c, r)).unwrap_or_default()
+                    };
+                    let mut h = Fnv::new();
+                    h.u64(j as u64)
+                        .u64(u64::from(cb))
+                        .str(&rel(fa.formula(ra, ca), ca, ra))
+                        .str("→")
+                        .str(&rel(fb.formula(rb, cb), cb, rb));
+                    h.finish()
+                } else {
+                    0
                 };
                 let id = id_of(&[
                     &name,
@@ -775,6 +868,15 @@ impl Builder<'_> {
             self.structure(&name, StructureKind::RowFormat { rows: row_format });
         }
 
+        // Rows moved: a formula reading a moved row's address now reads
+        // another record.
+        for &rb in &al.rows.moved_b {
+            if let Some(row) = sb.row(rb) {
+                for c in &row.cells {
+                    self.seeds.push((j, c.col, rb));
+                }
+            }
+        }
         // Rows added and removed: their cells feed calculated results.
         for &rb in &al.rows.only_b {
             if let Some(row) = sb.row(rb) {
@@ -785,8 +887,13 @@ impl Builder<'_> {
         }
         for &ra in &al.rows.only_a {
             // A removed row changes what ranges around it hold.
-            let below = al.rows.pairs.iter().find(|p| p.0 > ra).map(|p| p.1);
-            let above = al.rows.pairs.iter().rev().find(|p| p.0 < ra).map(|p| p.1);
+            // Pairs are in a's row order.
+            let at = al.rows.pairs.partition_point(|p| p.0 < ra);
+            let below = al.rows.pairs.get(at).map(|p| p.1);
+            let above = at
+                .checked_sub(1)
+                .and_then(|i| al.rows.pairs.get(i))
+                .map(|p| p.1);
             for rb in [below, above].into_iter().flatten() {
                 for &(_, cb) in &al.cols.pairs {
                     self.seeds.push((j, cb, rb));
@@ -1062,6 +1169,9 @@ impl Builder<'_> {
 
     /// Sorts every changed calculated result into knock-on or refreshed.
     fn calculated(&mut self) {
+        if self.recalculated.is_empty() {
+            return;
+        }
         let b = self.b;
         let deps = Deps::build(b);
         let direct = deps.downstream(self.seeds.iter().copied());
@@ -1202,8 +1312,8 @@ pub fn diff(a: &Workbook, b: &Workbook, hints: &[Hint]) -> WorkbookDiff {
     let mut pairs: Vec<(usize, usize)> = builder.out.alignments.keys().copied().collect();
     pairs.sort_unstable();
     for (i, j) in pairs {
-        let fa = formulas(a, i, Version::A, &space);
-        let fb = formulas(b, j, Version::B, &space);
+        let fa = Formulas::new(a, i);
+        let fb = Formulas::new(b, j);
         builder.sheet(i, j, &space, &fa, &fb, hints);
     }
     builder.workbook(&space);

@@ -389,7 +389,21 @@ fn read_cells(pull: &mut Pull<'_>, r: u32, cells: &mut usize) -> Result<Vec<Cell
                     }
                     continue;
                 }
-                let col = match attr(e, "r") {
+                // One pass over the attributes, borrowing: this runs for
+                // every cell of a sheet.
+                let (mut at_r, mut s_attr, mut t) = (None, None, None);
+                let (mut dynamic, mut value_meta) = (false, false);
+                for a in e.attributes().flatten() {
+                    match a.key.0 {
+                        "r" => at_r = Some(a.value),
+                        "s" => s_attr = Some(a.value),
+                        "t" => t = Some(a.value.into_owned()),
+                        "cm" => dynamic = true,
+                        "vm" => value_meta = true,
+                        _ => {}
+                    }
+                }
+                let col = match at_r {
                     Some(at) => {
                         let (col, row) = parse_cell(&at).ok_or_else(|| {
                             Error::Damaged("a cell reference is wrong".to_owned())
@@ -409,12 +423,7 @@ fn read_cells(pull: &mut Pull<'_>, r: u32, cells: &mut usize) -> Result<Vec<Cell
                 if *cells > MAX_CELLS {
                     return Err(Error::TooLarge("too many cells".to_owned()));
                 }
-                let style = attr(e, "s")
-                    .and_then(|v| v.parse::<u32>().ok())
-                    .unwrap_or(0);
-                let t = attr(e, "t");
-                let dynamic = attr(e, "cm").is_some();
-                let value_meta = attr(e, "vm").is_some();
+                let style = s_attr.and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
                 let raw = if empty {
                     RawCell::default()
                 } else {
@@ -442,8 +451,9 @@ fn read_cell_body(pull: &mut Pull<'_>) -> Result<RawCell> {
         match ev.event {
             Event::Start(ref e) | Event::Empty(ref e) => {
                 let empty = matches!(ev.event, Event::Empty(_));
-                let local = e.local_name().as_ref().to_owned();
-                match (ev.main, local.as_str()) {
+                let name = e.local_name();
+                let local: &str = name.as_ref();
+                match (ev.main, local) {
                     (true, "v") => {
                         raw.value = Some(if empty {
                             Str::At(span(ev.end, ev.end)?)

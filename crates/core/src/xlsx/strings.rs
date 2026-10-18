@@ -80,8 +80,9 @@ fn read_si(pull: &mut Pull<'_>) -> Result<SharedString> {
         match ev.event {
             Event::Start(ref e) | Event::Empty(ref e) => {
                 let empty = matches!(ev.event, Event::Empty(_));
-                let local = e.local_name().as_ref().to_owned();
-                match (ev.main, local.as_str(), empty) {
+                let name = e.local_name();
+                let local: &str = name.as_ref();
+                match (ev.main, local, empty) {
                     (true, "t", false) => {
                         let s = pull.text_until_end(ev.end)?;
                         text.push_str(s.get(pull.text));
@@ -116,8 +117,9 @@ fn read_run(pull: &mut Pull<'_>, rich: &mut Fnv) -> Result<String> {
         match ev.event {
             Event::Start(ref e) | Event::Empty(ref e) => {
                 let empty = matches!(ev.event, Event::Empty(_));
-                let local = e.local_name().as_ref().to_owned();
-                match (ev.main, local.as_str(), empty) {
+                let name = e.local_name();
+                let local: &str = name.as_ref();
+                match (ev.main, local, empty) {
                     (true, "t", false) => {
                         let s = pull.text_until_end(ev.end)?;
                         text.push_str(s.get(pull.text));

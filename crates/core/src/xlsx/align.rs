@@ -34,13 +34,56 @@ pub struct SheetPairs {
     pub only_b: Vec<usize>,
 }
 
+/// A map from row (or column) numbers to row numbers, as a vector indexed
+/// by number: rows are at most 1,048,576, and a lookup is one index. Hash
+/// maps were most of the time of aligning a 200,000-row sheet in the task
+/// pane (decision 0025).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RowMap(Vec<u32>);
+
+impl RowMap {
+    #[must_use]
+    pub fn get(&self, n: &u32) -> Option<&u32> {
+        self.0.get(*n as usize).filter(|v| **v != 0)
+    }
+
+    #[must_use]
+    pub fn contains_key(&self, n: &u32) -> bool {
+        self.get(n).is_some()
+    }
+
+    pub fn insert(&mut self, n: u32, to: u32) {
+        let i = n as usize;
+        if self.0.len() <= i {
+            self.0.resize(i + 1, 0);
+        }
+        self.0[i] = to;
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.0
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| **v != 0)
+            .map(|(k, v)| (u32::try_from(k).unwrap_or(0), *v))
+    }
+}
+
+impl std::ops::Index<&u32> for RowMap {
+    type Output = u32;
+
+    fn index(&self, n: &u32) -> &u32 {
+        self.get(n).unwrap_or(&0)
+    }
+}
+
 /// One axis (rows or columns) of two sheets, lined up.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Matching {
     /// Matched (a, b), in a's order.
     pub pairs: Vec<(u32, u32)>,
-    pub a_to_b: HashMap<u32, u32>,
-    pub b_to_a: HashMap<u32, u32>,
+    pub a_to_b: RowMap,
+    pub b_to_a: RowMap,
     /// In a only: deleted.
     pub only_a: Vec<u32>,
     /// In b only: inserted.
@@ -114,8 +157,42 @@ pub struct SheetAlignment {
     pub sorted_by: Option<(u32, bool)>,
 }
 
+/// Positions kept, as a flag per position.
+struct Keep(Vec<bool>);
+
+impl Keep {
+    fn contains(&self, i: &usize) -> bool {
+        self.0.get(*i).copied().unwrap_or(false)
+    }
+}
+
+/// Each row's cells over the matched columns, indexed by row number.
+struct RowCells(Vec<Vec<u64>>);
+
+impl RowCells {
+    fn new(rows: impl Iterator<Item = (u32, Vec<u64>)>) -> Self {
+        let mut out: Vec<Vec<u64>> = Vec::new();
+        for (r, cells) in rows {
+            let i = r as usize;
+            if out.len() <= i {
+                out.resize(i + 1, Vec::new());
+            }
+            out[i] = cells;
+        }
+        Self(out)
+    }
+}
+
+impl std::ops::Index<&u32> for RowCells {
+    type Output = Vec<u64>;
+
+    fn index(&self, r: &u32) -> &Vec<u64> {
+        &self.0[*r as usize]
+    }
+}
+
 /// The longest increasing subsequence's positions in `seq`.
-fn longest_increasing(seq: &[u32]) -> HashSet<usize> {
+fn longest_increasing(seq: &[u32]) -> Keep {
     let mut tails: Vec<usize> = Vec::new();
     let mut prev: Vec<Option<usize>> = vec![None; seq.len()];
     for (i, &x) in seq.iter().enumerate() {
@@ -129,13 +206,13 @@ fn longest_increasing(seq: &[u32]) -> HashSet<usize> {
             tails[pos] = i;
         }
     }
-    let mut out = HashSet::new();
+    let mut out = vec![false; seq.len()];
     let mut at = tails.last().copied();
     while let Some(i) = at {
-        out.insert(i);
+        out[i] = true;
         at = prev[i];
     }
-    out
+    Keep(out)
 }
 
 /// The longest common subsequence of two key sequences, as index pairs.
@@ -669,14 +746,8 @@ fn align_rows(a: &Side<'_>, b: &Side<'_>, cols: &Matching) -> (Matching, RowKey)
     }
 
     // 3: whole content, for rows the keys didn't place.
-    let cells_a: HashMap<u32, Vec<u64>> = data_a
-        .iter()
-        .map(|r| (r.r, row_cells(a, r, &cols_a)))
-        .collect();
-    let cells_b: HashMap<u32, Vec<u64>> = data_b
-        .iter()
-        .map(|r| (r.r, row_cells(b, r, &cols_b)))
-        .collect();
+    let cells_a = RowCells::new(data_a.iter().map(|r| (r.r, row_cells(a, r, &cols_a))));
+    let cells_b = RowCells::new(data_b.iter().map(|r| (r.r, row_cells(b, r, &cols_b))));
     let has_input = |cells: &Vec<u64>| cells.iter().any(|c| *c > 2);
     let keyed = !matches!(key, RowKey::None);
     let mut groups_b: HashMap<u64, Vec<u32>> = HashMap::new();
@@ -791,8 +862,8 @@ fn similar(
     m: &mut Matching,
     left_a: &[u32],
     left_b: &[u32],
-    cells_a: &HashMap<u32, Vec<u64>>,
-    cells_b: &HashMap<u32, Vec<u64>>,
+    cells_a: &RowCells,
+    cells_b: &RowCells,
 ) {
     // (column, value) → rows of b, for values at most 4 rows share.
     let mut index: HashMap<(usize, u64), Vec<u32>> = HashMap::new();
@@ -877,28 +948,41 @@ fn gaps_between(m: &Matching, data_a: &[&Row], data_b: &[&Row]) -> Vec<(Vec<u32>
         .filter(|(i, _)| keep.contains(i))
         .map(|(_, p)| p)
         .collect();
+    // One walk over each side: both are in row order, and so are the
+    // anchors on both sides.
     let mut out = Vec::new();
-    let mut prev = (0u32, 0u32);
-    let bounds: Vec<(u32, u32)> = anchors
+    let (mut ia, mut ib) = (0usize, 0usize);
+    let bounds = anchors
         .iter()
         .copied()
-        .chain(std::iter::once((u32::MAX, u32::MAX)))
-        .collect();
+        .chain(std::iter::once((u32::MAX, u32::MAX)));
     for (na, nb) in bounds {
-        let ga: Vec<u32> = data_a
-            .iter()
-            .map(|r| r.r)
-            .filter(|r| *r > prev.0 && *r < na && !m.a_to_b.contains_key(r))
-            .collect();
-        let gb: Vec<u32> = data_b
-            .iter()
-            .map(|r| r.r)
-            .filter(|r| *r > prev.1 && *r < nb && !m.b_to_a.contains_key(r))
-            .collect();
+        let mut ga = Vec::new();
+        while ia < data_a.len() && data_a[ia].r < na {
+            let r = data_a[ia].r;
+            if !m.a_to_b.contains_key(&r) {
+                ga.push(r);
+            }
+            ia += 1;
+        }
+        let mut gb = Vec::new();
+        while ib < data_b.len() && data_b[ib].r < nb {
+            let r = data_b[ib].r;
+            if !m.b_to_a.contains_key(&r) {
+                gb.push(r);
+            }
+            ib += 1;
+        }
+        // Step past the anchor itself.
+        if ia < data_a.len() && data_a[ia].r == na {
+            ia += 1;
+        }
+        if ib < data_b.len() && data_b[ib].r == nb {
+            ib += 1;
+        }
         if !ga.is_empty() || !gb.is_empty() {
             out.push((ga, gb));
         }
-        prev = (na, nb);
     }
     out
 }
