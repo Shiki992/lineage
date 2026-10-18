@@ -155,6 +155,127 @@ export const OverlapCard = v.strictObject({
 });
 export type OverlapCard = v.InferOutput<typeof OverlapCard>;
 
+// --- Workbooks (decisions 0022, 0023) ----------------------------------------
+
+/** "B4", "AA10": one cell, no sheet. */
+const CellAddress = v.pipe(Text, v.regex(/^[A-Z]{1,3}[1-9][0-9]{0,6}$/, "a cell address"));
+const SheetName = v.pipe(Text, v.minLength(1), v.maxLength(255));
+
+export const CellSide = v.strictObject({ shown: Text, formula: v.nullable(Text) });
+export type CellSide = v.InferOutput<typeof CellSide>;
+
+export const WorkbookCard = v.strictObject({
+  id: v.pipe(Text, v.minLength(1)),
+  summary: Text,
+  place: v.nullable(Text),
+  sheet: Text,
+  address: v.nullable(Text),
+  before: v.nullable(CellSide),
+  after: v.nullable(CellSide),
+  cells: Count,
+  why: v.nullable(Text),
+  ids: v.array(v.pipe(Text, v.minLength(1))),
+  choices: v.array(Choice),
+  byHand: v.nullable(Text),
+  mine: v.nullable(CellSide),
+  conflict: v.nullable(Text),
+});
+export type WorkbookCard = v.InferOutput<typeof WorkbookCard>;
+
+export const Category = v.picklist(["input", "formula", "knockOn", "refreshed", "structure"]);
+export type Category = v.InferOutput<typeof Category>;
+
+export const WorkbookView = v.strictObject({
+  headline: Text,
+  groups: v.array(
+    v.strictObject({
+      category: Category,
+      title: Text,
+      summary: Text,
+      cards: v.array(WorkbookCard),
+      more: Count,
+    }),
+  ),
+  unmatched: v.array(v.strictObject({ sheet: Text, summary: Text })),
+  untracked: v.array(Text),
+  notes: v.array(Text),
+});
+export type WorkbookView = v.InferOutput<typeof WorkbookView>;
+
+/** What one step writes into a cell. Numbers by their lexeme, text exactly. */
+export const CellWrite = v.variant("kind", [
+  v.strictObject({ kind: v.literal("clear") }),
+  v.strictObject({ kind: v.literal("number"), text: v.pipe(Text, v.minLength(1)) }),
+  v.strictObject({ kind: v.literal("text"), text: Text }),
+  v.strictObject({ kind: v.literal("bool"), value: v.boolean() }),
+  v.strictObject({ kind: v.literal("error"), text: v.pipe(Text, v.startsWith("#")) }),
+  v.strictObject({ kind: v.literal("formula"), text: v.pipe(Text, v.startsWith("=")) }),
+]);
+export type CellWrite = v.InferOutput<typeof CellWrite>;
+
+const Row = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1_048_576));
+const Rows = v.pipe(Text, v.regex(/^[1-9][0-9]{0,6}:[1-9][0-9]{0,6}$/, "a row range"));
+
+/** One step of an apply plan, at the addresses the workbook has when it runs. */
+export const CellStep = v.variant("kind", [
+  v.strictObject({
+    kind: v.literal("insertRows"),
+    sheet: SheetName,
+    at: Row,
+    count: Row,
+    rows: Rows,
+  }),
+  v.strictObject({
+    kind: v.literal("deleteRows"),
+    sheet: SheetName,
+    at: Row,
+    count: Row,
+    rows: Rows,
+  }),
+  v.strictObject({
+    kind: v.literal("set"),
+    sheet: SheetName,
+    address: CellAddress,
+    value: CellWrite,
+  }),
+]);
+export type CellStep = v.InferOutput<typeof CellStep>;
+
+export const WorkbookPlan = v.strictObject({
+  steps: v.array(CellStep),
+  undo: v.array(CellStep),
+  expect: v.array(v.strictObject({ sheet: SheetName, address: CellAddress, value: CellWrite })),
+  skipped: v.array(v.strictObject({ id: Text, reason: Text })),
+  brought: Count,
+  deferred: Count,
+  text: Text,
+});
+export type WorkbookPlan = v.InferOutput<typeof WorkbookPlan>;
+
+export const CellDetail = v.strictObject({
+  address: CellAddress,
+  shown: Text,
+  formula: v.nullable(Text),
+  value: Text,
+  kind: v.picklist(["number", "text", "true or false", "error", "date", "empty"]),
+  format: v.nullable(Text),
+});
+export type CellDetail = v.InferOutput<typeof CellDetail>;
+
+export const SideBySide = v.strictObject({
+  sheet: Text,
+  before: v.nullable(CellDetail),
+  after: v.nullable(CellDetail),
+});
+export type SideBySide = v.InferOutput<typeof SideBySide>;
+
+/** A range Excel reported as edited in this session, not by Lineage. */
+export const Hint = v.strictObject({
+  sheet: SheetName,
+  address: v.pipe(Text, v.regex(/^[A-Z]{1,3}[1-9][0-9]{0,6}(:[A-Z]{1,3}[1-9][0-9]{0,6})?$/)),
+});
+export type Hint = v.InferOutput<typeof Hint>;
+
 export const WhatChanged = v.strictObject({
   headline: Text,
   changes: v.array(ChangeCard),
@@ -162,6 +283,8 @@ export const WhatChanged = v.strictObject({
   overlaps: v.array(OverlapCard),
   byHand: v.array(ChangeCard),
   alreadyThere: v.array(ChangeCard),
+  /** A workbook's changes in the five categories; absent for documents and decks. */
+  workbook: v.optional(WorkbookView),
 });
 export type WhatChanged = v.InferOutput<typeof WhatChanged>;
 
@@ -554,4 +677,16 @@ export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "deck-slide-ops": SlideOps,
   "finish-open-deck": Outcome,
   "updates-deck": Updates,
+  "goes-with-copy": v.array(Text),
+  "send-copy-workbook": Outcome,
+  "workbook-what-changed": WhatChanged,
+  "cell-side-by-side": SideBySide,
+  "updates-workbook": Updates,
+  "prepare-workbook-offer": WorkbookPlan,
+  "finish-workbook-offer": Outcome,
+  "returned-review-workbook": ReturnReview,
+  "prepare-workbook-keep": WorkbookPlan,
+  "finish-workbook-keep": Outcome,
+  "workbook-way-back": v.array(CellStep),
+  "workbook-put-back": v.null(),
 };

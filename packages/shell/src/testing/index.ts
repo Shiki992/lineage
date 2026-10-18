@@ -3,5 +3,5 @@
 
 // Test helpers for packages that build on the shell. Not for production code.
 
-export { FakeHost, FakePowerPoint } from "./fake-host.js";
+export { FakeExcel, FakeHost, FakePowerPoint } from "./fake-host.js";
 export { storageConformance } from "./storage-conformance.js";

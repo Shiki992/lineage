@@ -1,11 +1,11 @@
 // Copyright 2026 Hrishikesh Vedantam
 // SPDX-License-Identifier: Apache-2.0
 
-// The open document, as the platform exposes it: Office.js in Word
-// (apps/office-addin/src/office/word-host.ts), a fake in tests, and later the
-// Google Docs API. Bytes only: the host never looks inside them.
+// The open document, as the platform exposes it: Office.js in Word, PowerPoint
+// and Excel (apps/office-addin/src/office/), a fake in tests, and later the
+// Google APIs. Bytes only: the host never looks inside them.
 
-import type { Ids, SlideOp } from "./schemas.js";
+import type { CellStep, Hint, Ids, SlideOp } from "./schemas.js";
 import type { FileLocation } from "./storage.js";
 
 /**
@@ -30,6 +30,57 @@ export function changesSlides(host: DocumentHost): host is DocumentHost & SlideH
     typeof slides.canChangeSlides === "function" &&
     slides.canChangeSlides()
   );
+}
+
+/**
+ * Thrown by `applyCellPlan` when Excel stopped partway: the first `done` steps
+ * were carried out, the rest weren't.
+ */
+export class PlanStopped extends Error {
+  constructor(
+    readonly done: number,
+    readonly reason: string,
+  ) {
+    super(`stopped after ${String(done)} steps: ${reason}`);
+    this.name = "PlanStopped";
+  }
+}
+
+/**
+ * A host that can change the cells and rows of the open workbook (Excel),
+ * which can't replace the open file (decision 0023).
+ */
+export interface CellHost {
+  /** True when this Excel can carry out every kind of cell step. */
+  canApplyPlan(): boolean;
+  /**
+   * Carries out the steps in order. Stops at the first step that fails with
+   * a `PlanStopped` saying how many were done; those stay done.
+   */
+  applyCellPlan(steps: readonly CellStep[]): Promise<void>;
+  /**
+   * The ranges the person edited in this session, from Excel's change events
+   * (never Lineage's own writes). Hints only: "What changed" works without them.
+   */
+  editHints(): readonly Hint[];
+}
+
+/** True when `host` can change the open workbook's cells. */
+export function changesCells(host: DocumentHost): host is DocumentHost & CellHost {
+  const cells = host as Partial<CellHost>;
+  return (
+    typeof cells.applyCellPlan === "function" &&
+    typeof cells.canApplyPlan === "function" &&
+    typeof cells.editHints === "function" &&
+    cells.canApplyPlan()
+  );
+}
+
+/** True when `host` reports edits in the open workbook, whether or not it can apply plans. */
+export function reportsEdits(
+  host: DocumentHost,
+): host is DocumentHost & Pick<CellHost, "editHints"> {
+  return typeof (host as Partial<CellHost>).editHints === "function";
 }
 
 export interface DocumentHost {
