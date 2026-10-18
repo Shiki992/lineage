@@ -15,6 +15,7 @@ import { App } from "./app/App";
 import { signIn } from "./auth/sign-in";
 import { pageStart, timing } from "./metrics";
 import { myDocumentsOpener } from "./office/my-documents";
+import { ExcelHost, NEEDED as EXCEL_NEEDED } from "./office/excel-host";
 import { NEEDED, PowerPointHost } from "./office/powerpoint-host";
 import { WordHost } from "./office/word-host";
 import { chooseStorage } from "./storage/choose";
@@ -32,10 +33,12 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
   const view = root();
   const inWord = info.host === Office.HostType.Word;
   const inPowerPoint = info.host === Office.HostType.PowerPoint;
-  if (!inWord && !inPowerPoint) {
+  const inExcel = info.host === Office.HostType.Excel;
+  if (!inWord && !inPowerPoint && !inExcel) {
     view.render(
       <p className="panel">
-        Lineage works in Word and PowerPoint. Open a document or a deck to use it.
+        Lineage works in Word, PowerPoint and Excel. Open a document, a deck or a workbook to use
+        it.
       </p>,
     );
     return;
@@ -52,6 +55,14 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
     view.render(
       <p className="alert" role="alert">
         Lineage needs a newer PowerPoint. Update PowerPoint, then open the panel again.
+      </p>,
+    );
+    return;
+  }
+  if (inExcel && !Office.context.requirements.isSetSupported("ExcelApi", EXCEL_NEEDED)) {
+    view.render(
+      <p className="alert" role="alert">
+        Lineage needs a newer Excel. Update Excel, then open the panel again.
       </p>,
     );
     return;
@@ -75,11 +86,12 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
       engine.setAuthor(signedIn.name);
       return signedIn.storage;
     };
+    const host = inExcel ? await excelHost() : inPowerPoint ? new PowerPointHost() : new WordHost();
     view.render(
       <StrictMode>
         <App
           engine={engine}
-          host={inPowerPoint ? new PowerPointHost() : new WordHost()}
+          host={host}
           storage={storage}
           signIn={interactive}
           openMyDocuments={myDocumentsOpener()}
@@ -94,6 +106,18 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
       </p>,
     );
   }
+}
+
+/** The Excel host, keeping the person's edits as hints from the start (decision 0022). */
+async function excelHost(): Promise<ExcelHost> {
+  const host = new ExcelHost();
+  try {
+    await host.watchEdits();
+  } catch (error) {
+    // Hints only: "What changed" works without them.
+    console.error(error);
+  }
+  return host;
 }
 
 void Office.onReady((info) => boot(info));

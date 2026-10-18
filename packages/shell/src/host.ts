@@ -76,6 +76,17 @@ export function changesCells(host: DocumentHost): host is DocumentHost & CellHos
   );
 }
 
+/** A host that can show a cell of the open workbook ("Go to cell"). */
+export interface CellNavigator {
+  /** Activates `sheet` and selects `address` ("B4" or "B4:C9"). */
+  goToCell(sheet: string, address: string): Promise<void>;
+}
+
+/** True when `host` can show a cell. */
+export function goesToCells(host: DocumentHost): host is DocumentHost & CellNavigator {
+  return typeof (host as Partial<CellNavigator>).goToCell === "function";
+}
+
 /** True when `host` reports edits in the open workbook, whether or not it can apply plans. */
 export function reportsEdits(
   host: DocumentHost,

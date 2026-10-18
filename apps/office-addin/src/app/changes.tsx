@@ -18,6 +18,8 @@ import type {
 } from "@lineage/shell";
 import { useState } from "react";
 import { Back, Button, Segments } from "./parts";
+import type { CellActions } from "./workbook";
+import { WorkbookWhatChanged } from "./workbook";
 
 function Place({ place }: { place: string | null }) {
   return place ? <p className="secondary small">{place}</p> : null;
@@ -102,7 +104,17 @@ export function OverlapView({
 }
 
 /** A read-only "what changed", for saving a checkpoint. */
-export function WhatChangedView({ view }: { view: WhatChanged }) {
+export function WhatChangedView({
+  view,
+  cells,
+}: {
+  view: WhatChanged;
+  cells?: CellActions | undefined;
+}) {
+  const workbook = view.workbook;
+  if (workbook) {
+    return <WorkbookWhatChanged view={{ ...view, workbook }} cells={cells} />;
+  }
   return (
     <div className="stack">
       <p role="status">{view.headline}</p>

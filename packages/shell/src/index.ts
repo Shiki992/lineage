@@ -10,8 +10,8 @@ export type {
   OpenDeckResult,
   UpdateResult,
 } from "./engine.js";
-export type { CellHost, DocumentHost, SlideHost } from "./host.js";
-export { PlanStopped, changesCells, changesSlides, reportsEdits } from "./host.js";
+export type { CellHost, CellNavigator, DocumentHost, SlideHost } from "./host.js";
+export { PlanStopped, changesCells, changesSlides, goesToCells, reportsEdits } from "./host.js";
 export { History } from "./history.js";
 export { Library } from "./library.js";
 export type { LibraryOptions, MissingFile, OpenedDocument } from "./library.js";

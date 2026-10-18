@@ -24,6 +24,7 @@
 
 import type {
   CellHost,
+  CellNavigator,
   CellStep,
   CellWrite,
   DocumentHost,
@@ -49,7 +50,7 @@ const CELLS_PER_SYNC = 1000;
 /** Most edit hints kept for a session; past this "What changed" goes without. */
 const MAX_HINTS = 10_000;
 
-export class ExcelHost implements DocumentHost, CellHost {
+export class ExcelHost implements DocumentHost, CellHost, CellNavigator {
   private readonly hints = new Map<string, Hint>();
   private watching = false;
 
@@ -152,6 +153,19 @@ export class ExcelHost implements DocumentHost, CellHost {
     } catch (error) {
       throw new PlanStopped(done, error instanceof Error ? error.message : String(error));
     }
+  }
+
+  /**
+   * "Go to cell": shows the sheet and selects the cell or range.
+   * https://learn.microsoft.com/javascript/api/excel/excel.range#excel-excel-range-select-member(1)
+   */
+  async goToCell(sheet: string, address: string): Promise<void> {
+    await Excel.run(async (context) => {
+      const target = context.workbook.worksheets.getItem(sheet);
+      target.activate();
+      target.getRange(address).select();
+      await context.sync();
+    });
   }
 
   readBytes(): Promise<Uint8Array> {
