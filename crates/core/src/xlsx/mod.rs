@@ -7,6 +7,7 @@
 //! The saved file is the source of truth (decision 0020). Office.js reads in
 //! the task pane are hints only; every comparison here works from bytes.
 
+pub mod align;
 pub mod deps;
 pub mod formula;
 pub mod model;
@@ -16,6 +17,7 @@ mod sheet;
 mod stream;
 mod strings;
 pub mod styles;
+pub mod value;
 
 pub use model::*;
 pub use read::{CT_TEMPLATE, CT_TEMPLATE_MACRO, CT_WORKBOOK, CT_WORKBOOK_MACRO};
