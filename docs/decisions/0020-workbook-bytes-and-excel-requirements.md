@@ -1,6 +1,6 @@
 # 0020: Where workbook bytes come from, and which Excel Lineage needs
 
-Date: 2026-10-18. Status: accepted for Excel for Windows and Mac. Excel on the web is the maintainer's run (below).
+Date: 2026-10-18. Status: accepted for Excel for Windows and Mac. Excel on the web is open: it needs the maintainer's choice on a wider permission (below).
 
 ## Context
 
@@ -23,7 +23,7 @@ The ExcelApi sets Lineage uses, from [Excel requirement sets](https://learn.micr
 ### Where the bytes come from
 
 - **Excel for Windows and Mac:** `getFileAsync(Compressed)`, as in Word and PowerPoint. The stop 2 spike (decision 0023) showed it includes unsaved edits, so the pane never saves before comparing or planning. Each read of the invented model took 125 to 150 ms.
-- **Excel on the web:** there is no way to read the open file. The pane reads the file as last saved, from OneDrive through Graph (the stored file the dev folder or OneDrive storage already reads), and says "Showing the last saved version". Excel on the web saves continuously, so this is seconds behind at most. Bringing changes in reads the saved file the same way, after `Workbook.save`. This path is the maintainer's to check, since it needs a signed-in OneDrive.
+- **Excel on the web: not supported yet.** There is no way to read the open file there. The way round is to read the file as last saved, from OneDrive through Graph. But the file is the person's own, outside Lineage's app folder, so that needs `Files.Read`, a wider permission than the app folder Lineage asks for (CLAUDE.md, least privilege). That choice is the maintainer's. Until then, the pane in Excel on the web says it can't read workbooks there yet, and to open the workbook in Excel for Windows or Mac.
 - **Too large:** the engine refuses a workbook of more than 1.5 million filled cells before reading it fully, and the panel says it is too large for Lineage yet (decision 0025).
 
 ### Which Excel
@@ -53,4 +53,4 @@ The engine runs in a Web Worker in the Excel pane (decision 0025), so a long com
 ## Consequences
 
 - Office 2021 users can see what changed but must update Excel to bring changes in.
-- On the web, what the panel compares can be a few seconds behind the screen, and it says so.
+- Excel on the web is not supported until the maintainer chooses whether Lineage may ask for `Files.Read`.

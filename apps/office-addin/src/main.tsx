@@ -60,6 +60,18 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
     );
     return;
   }
+  // Excel on the web gives an add-in only a PDF of the open workbook, and
+  // reading the saved file instead needs a wider OneDrive permission than
+  // Lineage asks for: not built yet (decision 0020).
+  if (inExcel && Office.context.platform === Office.PlatformType.OfficeOnline) {
+    view.render(
+      <p className="panel">
+        Lineage can't read workbooks in Excel on the web yet. Open this workbook in Excel for
+        Windows or Mac to use Lineage with it.
+      </p>,
+    );
+    return;
+  }
   if (inExcel && !Office.context.requirements.isSetSupported("ExcelApi", EXCEL_NEEDED)) {
     view.render(
       <p className="alert" role="alert">
