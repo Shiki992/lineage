@@ -209,9 +209,14 @@ fn kids<'a, 'i>(n: Node<'a, 'i>, name: &'static str) -> impl Iterator<Item = Nod
 /// order, leaving out the attributes and children named.
 fn key_of(h: &mut Fnv, n: Node<'_, '_>, skip_attrs: &[&str], skip_children: &[&str]) {
     h.str(n.tag_name().name());
+    // Attributes in another namespace (markup compatibility, Excel's
+    // revision ids, relationship ids) say nothing about the pivot, and
+    // Excel adds and renews them on every save; so is `multipleFieldNames`,
+    // which Excel drops when it is the default (seen at stop 1).
     let mut attrs: Vec<(&str, &str)> = n
         .attributes()
-        .filter(|a| !skip_attrs.contains(&a.name()))
+        .filter(|a| a.namespace().is_none())
+        .filter(|a| !skip_attrs.contains(&a.name()) && a.name() != "multipleFieldNames")
         .map(|a| (a.name(), a.value()))
         .collect();
     attrs.sort_unstable();

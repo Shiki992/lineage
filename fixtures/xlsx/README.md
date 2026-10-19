@@ -76,6 +76,18 @@ Made by `scripts/excel-resave.ps1` from the synthetic workbooks above, in its ow
 | `awkward-saved.xlsx`      | `awkward-cells.xlsx` | Opened and saved                                                                                     | Apache-2.0 |
 | `rates-saved.xlsx`        | `rates.xlsx`         | Opened and saved (the connection is never refreshed)                                                 | Apache-2.0 |
 
+Made by `scripts/excel-resave-5b.ps1` (Phase 5B, stop 1, 2026-10-19), the same way, with macros force-disabled for its Excel instance; no query is ever refreshed, and `refreshedBy` in pivot caches is set to "Lineage fixture generator". Excel wrote no repair log for any of them.
+
+| File                               | Made from                   | What Excel did                                                                      | Licence    |
+| ---------------------------------- | --------------------------- | ----------------------------------------------------------------------------------- | ---------- |
+| `model-macros-saved.xlsm`          | `model-macros-only.xlsm`    | Opened and saved. It kept the VBA project byte for byte (it never loaded it)        | Apache-2.0 |
+| `model-pivots-saved.xlsx`          | `model-pivots-only.xlsx`    | Opened and saved                                                                    | Apache-2.0 |
+| `model-queries-saved.xlsx`         | `model-queries-only.xlsx`   | Opened and saved                                                                    | Apache-2.0 |
+| `model-full-saved.xlsm`            | `model-full-for-excel.xlsm` | Opened and saved                                                                    | Apache-2.0 |
+| `model-full-pivot-rows-excel.xlsm` | `model-full-for-excel.xlsm` | SeatsByPlan: Plan taken off the rows, Month put on                                  | Apache-2.0 |
+| `model-full-refreshed-excel.xlsm`  | `model-full-for-excel.xlsm` | Sales!E13 typed as 420, then the pivot cache refreshed from its range               | Apache-2.0 |
+| `model-full-slicer-excel.xlsm`     | `model-full-for-excel.xlsm` | South unselected in the Region slicer                                               | Apache-2.0 |
+
 What these showed (recorded in decisions 0020 and 0022):
 
 - Excel writes numbers with up to 17 significant digits: a typed 151.3 is saved as `151.30000000000001`. Numbers are compared by the double they stand for, never by their text.
