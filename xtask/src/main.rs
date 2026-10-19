@@ -109,7 +109,8 @@ fn write_returned_inputs(dir: &Path) -> std::io::Result<()> {
 }
 
 /// Writes the "My documents" test accounts (invented content only) into
-/// `<dir>/three-families`, `<dir>/damaged` and `<dir>/large`, in the dev
+/// `<dir>/three-families`, `<dir>/damaged`, `<dir>/large` and
+/// `<dir>/workbooks`, in the dev
 /// folder's layout, for the family app's Playwright runs and by-hand checks.
 fn write_accounts(dir: &Path) -> Result<(), String> {
     use lineage_harness::accounts::{self, START};
@@ -128,7 +129,9 @@ fn write_accounts(dir: &Path) -> Result<(), String> {
     accounts::damaged(&mut panel).map_err(|e| e.to_string())?;
     let mut panel = fresh("large")?;
     accounts::large(&mut panel, 300, 50).map_err(|e| e.to_string())?;
-    for name in ["three-families", "damaged", "large"] {
+    let mut panel = fresh("workbooks")?;
+    accounts::workbooks(&mut panel).map_err(|e| e.to_string())?;
+    for name in ["three-families", "damaged", "large", "workbooks"] {
         println!("wrote {}", dir.join(name).display());
     }
     Ok(())

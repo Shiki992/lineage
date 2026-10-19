@@ -6,13 +6,15 @@
 
 const OFFICE = /\.(docx|pptx|xlsx|xlsm)$/i;
 
-/** ".docx", ".pptx" or ".xlsx", for a family format ("docx", "pptx", "xlsx"). */
+/** ".docx", ".pptx", ".xlsx" or ".xlsm", for a format ("docx", "pptx", "xlsx", "xlsm"). */
 export function extensionFor(format: string): string {
   switch (format) {
     case "pptx":
       return ".pptx";
     case "xlsx":
       return ".xlsx";
+    case "xlsm":
+      return ".xlsm";
     default:
       return ".docx";
   }

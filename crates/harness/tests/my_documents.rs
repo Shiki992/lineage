@@ -248,3 +248,76 @@ fn scratch(name: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
+
+/// The workbook account: two workbook families in My documents, a comparison
+/// in the five categories, a sent workbook opened exactly as sent, a restore,
+/// and a family with macros kept as `.xlsm`.
+fn workbook_account<S: Storage + Tamper>(mut panel: Panel<S>) {
+    let made = accounts::workbooks(&mut panel).expect("account");
+    let library = panel.my_documents().expect("library");
+    let mut names: Vec<&str> = library
+        .entries
+        .iter()
+        .map(|e| e.facts.name.as_str())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, ["Model with macros", "Startup model"]);
+
+    let (page, _) = panel.document(&made.model).expect("page");
+    assert_eq!(page.format, "xlsx");
+    assert_eq!(page.files.len(), 3, "the master and two versions");
+    let master = &page.files[0];
+    let (v1, v2) = (
+        master.entries.last().expect("v1").id.clone(),
+        master.entries.first().expect("latest").id.clone(),
+    );
+    let view = panel.compare(&made.model, &v1, &v2).expect("compares");
+    let wv = view.workbook.expect("a workbook view");
+    assert_eq!(wv.headline, "1 input, 83 knock-on changes");
+    assert_eq!(wv.groups[0].title, "Inputs");
+
+    let row = &page.sent.groups[0].rows[0];
+    assert_eq!(row.recipient, "Harbor Lane Capital");
+    assert_eq!(row.format, "Excel");
+    let bytes = panel.open_as_sent(&made.model, &row.id).expect("opens");
+    let on_disk = panel
+        .storage
+        .read_file("Startup model – Harbor Lane (Harbor Lane Capital).xlsx")
+        .expect("the copy that left");
+    assert_eq!(bytes, on_disk, "exactly as sent");
+
+    let restored = "Tailored versions/Startup model – first price.xlsx";
+    panel
+        .restore_as_new_version(&made.model, &v1, restored)
+        .expect("restores");
+    let wb = lineage_core::xlsx::Workbook::open(&panel.storage.read_file(restored).expect("file"))
+        .expect("opens");
+    assert!(!wb.macro_enabled);
+
+    let file = panel
+        .storage
+        .read_file(accounts::MACROS_VERSION)
+        .expect("the version with macros");
+    let wb = lineage_core::xlsx::Workbook::open(&file).expect("opens");
+    assert!(
+        wb.macro_enabled,
+        "a version of a workbook with macros keeps them"
+    );
+    let _ = made.macros;
+}
+
+#[test]
+fn the_workbook_account_in_memory() {
+    workbook_account(Panel::new(MemoryStorage::default(), START));
+}
+
+#[test]
+fn the_workbook_account_on_disk() {
+    let dir = std::env::temp_dir().join(format!("lineage-workbook-account-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    workbook_account(Panel::new(
+        LocalFolderStorage::new(&dir).expect("folder"),
+        START,
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+}

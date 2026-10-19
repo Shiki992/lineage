@@ -4,7 +4,7 @@
 // Small pieces every screen uses: real buttons with 44 px targets, chips, and
 // removed and added text marked by more than colour (the same as the Word pane).
 
-import type { Segment, WhatChanged } from "@lineage/shell";
+import type { Segment, WhatChanged, WorkbookView } from "@lineage/shell";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 export function Button({
@@ -27,7 +27,7 @@ export function FormatIcon({ format }: { format: string }) {
   const [letter, name, kind] =
     format === "pptx" || format === "gslides"
       ? ["P", "PowerPoint", "pptx"]
-      : format === "xlsx" || format === "gsheet"
+      : format === "xlsx" || format === "xlsm" || format === "gsheet"
         ? ["X", "Excel", "xlsx"]
         : ["W", "Word", "docx"];
   return (
@@ -73,7 +73,57 @@ export function Segments({ segments }: { segments: readonly Segment[] }) {
 }
 
 /** "What changed" between two checkpoints: content first, formatting apart. */
+/** A workbook's changes in the five categories (decision 0022), read-only. */
+function WorkbookChanges({ headline, view }: { headline: string; view: WorkbookView }) {
+  return (
+    <div className="stack">
+      <h3>{headline}</h3>
+      {view.groups.map((g) => (
+        <section key={g.category} className="stack" style={{ gap: 6 }} aria-label={g.title}>
+          <h4>{g.title}</h4>
+          <p className="secondary small">{g.summary}</p>
+          <ol className="list">
+            {g.cards.map((c) => (
+              <li key={c.id} className="card stack" style={{ gap: 4 }}>
+                <p>
+                  <strong>{c.summary}</strong>
+                  {c.place ? <span className="secondary"> · {c.place}</span> : null}
+                </p>
+                {c.why && <p className="secondary small">{c.why}</p>}
+              </li>
+            ))}
+          </ol>
+          {g.more > 0 && <p className="secondary small">And {String(g.more)} more.</p>}
+        </section>
+      ))}
+      {view.unmatched.map((u) => (
+        <p key={`${u.sheet}:${u.summary}`} className="warning small">
+          {u.summary}
+        </p>
+      ))}
+      {view.untracked.length > 0 && (
+        <section className="stack" style={{ gap: 4 }} aria-label="Kept as they are">
+          <h4>Kept as they are</h4>
+          <ul className="small secondary">
+            {view.untracked.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {view.notes.map((note) => (
+        <p key={note} className="secondary small">
+          {note}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export function Changes({ view }: { view: WhatChanged }) {
+  if (view.workbook) {
+    return <WorkbookChanges headline={view.headline} view={view.workbook} />;
+  }
   return (
     <div className="stack">
       <h3>{view.headline}</h3>
