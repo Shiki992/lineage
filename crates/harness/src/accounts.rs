@@ -412,3 +412,119 @@ pub fn large<S: Storage>(panel: &mut Panel<S>, checkpoints: usize, sent: usize) 
     append(&mut panel.storage, &family, events)?;
     Ok(family)
 }
+
+pub const MODEL: &str = "Startup model.xlsx";
+pub const MODEL_NORTHWIND: &str = "Tailored versions/Startup model – Northwind.xlsx";
+pub const MODEL_HARBOR: &str = "Tailored versions/Startup model – Harbor Lane.xlsx";
+pub const MODEL_CAME_BACK: &str = "Startup model – Harbor Lane comments.xlsx";
+pub const MACROS: &str = "Model with macros.xlsm";
+pub const MACROS_VERSION: &str = "Tailored versions/Model with macros – Seed.xlsm";
+
+/// Someone edits a workbook in Excel: it becomes `built`, and keeps its ids.
+///
+/// # Errors
+/// When the file isn't a tracked workbook.
+pub fn edit_workbook<S: Storage>(
+    storage: &mut S,
+    file: &str,
+    built: &lineage_testkit::xlsx::Workbook,
+) -> Result<()> {
+    let bytes = storage.read_file(file)?;
+    let next = with_ids_of(&bytes, built)?;
+    storage.write_file(file, &next)?;
+    Ok(())
+}
+
+fn with_ids_of(file: &[u8], built: &lineage_testkit::xlsx::Workbook) -> Result<Vec<u8>> {
+    let ids =
+        lineage_core::docx::props::read_ids(&Package::read(file).map_err(lineage::Error::from)?)
+            .map_err(lineage::Error::from)?
+            .ok_or_else(|| HarnessError::Panel("the workbook isn't tracked".to_owned()))?;
+    let mut package = Package::read(&built.to_bytes()).map_err(lineage::Error::from)?;
+    lineage_core::docx::props::write_ids(&mut package, &ids).map_err(lineage::Error::from)?;
+    Ok(package.to_bytes().map_err(lineage::Error::from)?)
+}
+
+/// What [`workbooks`] made.
+pub struct Workbooks {
+    pub model: Id,
+    pub macros: Id,
+}
+
+/// The workbook account: the founder's financial model with versions for
+/// Northwind Angels and Harbor Lane Capital, the master's new price brought
+/// into Northwind's, a copy sent to Harbor Lane that came back with a new
+/// churn rate (kept in their version); and a model with macros and one
+/// version, kept as `.xlsm`.
+///
+/// # Errors
+/// When a button fails; never for these inputs.
+pub fn workbooks<S: Storage>(panel: &mut Panel<S>) -> Result<Workbooks> {
+    use lineage_testkit::workbooks::{self as wb, Assumptions};
+
+    panel
+        .storage
+        .write_file(MODEL, &wb::model_master().to_bytes())?;
+    panel.start_tracking(MODEL)?;
+    let model = panel.state()?.family_id;
+    panel.make_tailored_version(MODEL_NORTHWIND)?;
+    panel.make_tailored_version(MODEL_HARBOR)?;
+    edit_workbook(&mut panel.storage, MODEL_NORTHWIND, &wb::model_northwind())?;
+    panel.save_checkpoint(MODEL_NORTHWIND, "Northwind's seat plan")?;
+    let copy = panel.send_a_copy(MODEL_HARBOR, "Harbor Lane Capital", Some("Series A"), true)?;
+    edit_workbook(&mut panel.storage, MODEL, &wb::model_price_update())?;
+    panel.save_checkpoint(MODEL, "New price")?;
+    panel.offer_to_versions()?;
+    let ids: Vec<String> = panel
+        .updates(MODEL_NORTHWIND)?
+        .groups
+        .iter()
+        .flat_map(|g| g.view.changes.iter().map(|c| c.id.clone()))
+        .collect();
+    let cards: Vec<(&str, Decision)> = ids
+        .iter()
+        .map(|id| (id.as_str(), Decision::BringIn))
+        .collect();
+    panel.bring_into_workbook(MODEL_NORTHWIND, &cards, crate::fake_excel)?;
+
+    // Harbor Lane's copy comes back with a different churn rate.
+    let sent = panel.storage.read_file(&copy)?;
+    let theirs = wb::financial_model(&Assumptions {
+        churn: "0.03".to_owned(),
+        ..Assumptions::default()
+    });
+    panel
+        .storage
+        .write_file(MODEL_CAME_BACK, &with_ids_of(&sent, &theirs)?)?;
+    let (found, _) = panel.a_file_came_back(MODEL_CAME_BACK)?;
+    let candidate = found
+        .candidates
+        .first()
+        .cloned()
+        .ok_or_else(|| HarnessError::Panel("the copy wasn't recognised".to_owned()))?;
+    let returned = panel.record_returned(MODEL_CAME_BACK, &candidate, MatchedBy::Ids)?;
+    let review = panel.returned_review(MODEL_HARBOR, &returned)?;
+    let kept: Vec<String> = review
+        .view
+        .workbook
+        .iter()
+        .flat_map(|w| {
+            w.groups
+                .iter()
+                .flat_map(|g| g.cards.iter().flat_map(|c| c.ids.clone()))
+        })
+        .collect();
+    let keep: Vec<(&str, Decision)> = kept
+        .iter()
+        .map(|id| (id.as_str(), Decision::BringIn))
+        .collect();
+    panel.keep_into_workbook(MODEL_HARBOR, &returned, &keep, crate::fake_excel)?;
+
+    panel
+        .storage
+        .write_file(MACROS, &wb::model_xlsm().to_bytes())?;
+    panel.start_tracking(MACROS)?;
+    let macros = panel.state()?.family_id;
+    panel.make_tailored_version(MACROS_VERSION)?;
+    Ok(Workbooks { model, macros })
+}

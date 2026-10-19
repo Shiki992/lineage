@@ -3,25 +3,28 @@
 
 //! Repository tasks. Run with `cargo xtask <task>`:
 //!
-//! - `fixtures`: write the synthetic fixtures to `fixtures/docx/synthetic/` and
-//!   `fixtures/pptx/synthetic/`.
+//! - `fixtures`: write the synthetic fixtures to `fixtures/docx/synthetic/`,
+//!   `fixtures/pptx/synthetic/` and `fixtures/xlsx/synthetic/`.
 //! - `check-fixtures`: fail if the committed fixtures differ from what the generator
 //!   produces now, or if the folder holds files the generator doesn't make.
 //! - `check-headers`: fail if any source file lacks the licence header.
+//! - `bench-xlsx [prepare | case]`: time each stage of comparing large
+//!   workbooks (build with `--release`).
 //! - `returned-inputs <folder>`: write the files `scripts/libreoffice-resave.ps1`
 //!   re-saves with LibreOffice into `fixtures/docx/returned/libreoffice/`.
 
 #![forbid(unsafe_code)]
 
+mod bench;
 mod headers;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use lineage_testkit::{decks, fixtures, returned};
+use lineage_testkit::{decks, fixtures, returned, workbooks};
 
-fn repo_root() -> PathBuf {
+pub(crate) fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("xtask lives one level below the repository root")
@@ -46,6 +49,13 @@ fn generated() -> Vec<(&'static str, Files)> {
             decks::all()
                 .into_iter()
                 .map(|(name, deck)| (name, deck.to_bytes()))
+                .collect(),
+        ),
+        (
+            workbooks::OUT_DIR,
+            workbooks::all()
+                .into_iter()
+                .map(|(name, workbook)| (name, workbook.to_bytes()))
                 .collect(),
         ),
     ]
@@ -99,7 +109,8 @@ fn write_returned_inputs(dir: &Path) -> std::io::Result<()> {
 }
 
 /// Writes the "My documents" test accounts (invented content only) into
-/// `<dir>/three-families`, `<dir>/damaged` and `<dir>/large`, in the dev
+/// `<dir>/three-families`, `<dir>/damaged`, `<dir>/large` and
+/// `<dir>/workbooks`, in the dev
 /// folder's layout, for the family app's Playwright runs and by-hand checks.
 fn write_accounts(dir: &Path) -> Result<(), String> {
     use lineage_harness::accounts::{self, START};
@@ -118,7 +129,9 @@ fn write_accounts(dir: &Path) -> Result<(), String> {
     accounts::damaged(&mut panel).map_err(|e| e.to_string())?;
     let mut panel = fresh("large")?;
     accounts::large(&mut panel, 300, 50).map_err(|e| e.to_string())?;
-    for name in ["three-families", "damaged", "large"] {
+    let mut panel = fresh("workbooks")?;
+    accounts::workbooks(&mut panel).map_err(|e| e.to_string())?;
+    for name in ["three-families", "damaged", "large", "workbooks"] {
         println!("wrote {}", dir.join(name).display());
     }
     Ok(())
@@ -164,6 +177,13 @@ fn main() -> ExitCode {
                 Ok(ExitCode::FAILURE)
             }
         },
+        Some("bench-xlsx") => Ok(match bench::bench(std::env::args().nth(2).as_deref()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        }),
         Some("accounts") => match std::env::args().nth(2) {
             Some(dir) => Ok(match write_accounts(Path::new(&dir)) {
                 Ok(()) => ExitCode::SUCCESS,
@@ -179,7 +199,7 @@ fn main() -> ExitCode {
         },
         _ => {
             eprintln!(
-                "usage: cargo xtask <fixtures | check-fixtures | check-headers | returned-inputs <folder> | accounts <folder>>"
+                "usage: cargo xtask <fixtures | check-fixtures | check-headers | returned-inputs <folder> | accounts <folder> | bench-xlsx [prepare | case]>"
             );
             Ok(ExitCode::FAILURE)
         }

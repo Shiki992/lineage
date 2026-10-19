@@ -1,18 +1,19 @@
 // Copyright 2026 Hrishikesh Vedantam
 // SPDX-License-Identifier: Apache-2.0
 
-//! Audits what the Word or PowerPoint task pane wrote to its development folder
+//! Audits what the Word, PowerPoint or Excel task pane wrote to its development folder
 //! (`apps/office-addin/.dev-storage`, same layout as LocalFolderStorage), with
 //! the Rust engine and none of the TypeScript: every ledger folds, every blob
 //! matches its hash, every snapshot restores to a readable file (a deck's parts
 //! and relationships holding together), every tailored version on disk is a
 //! checkpoint of its node, every sent copy on disk is byte for byte one that
-//! was recorded (a deck's without hidden slides), every file that came back is
+//! was recorded (a deck's without hidden slides, a workbook's without notes or
+//! comments), every file that came back is
 //! kept exactly, and every review's checkpoint is of the file it went into
 //! (and, with `LINEAGE_SMOKE_DIR`, Word files are written out for
 //! `word-smoke.ps1 -Compare`).
 //!
-//! Run after trying the panel in Word or PowerPoint (ignored otherwise):
+//! Run after trying the panel in Word, PowerPoint or Excel (ignored otherwise):
 //!   cargo test -p lineage-harness --test dev_folder -- --ignored --nocapture
 //! `LINEAGE_DEV_STORAGE` points at another folder. Prints counts only.
 
@@ -71,7 +72,7 @@ fn smoke(name: &str, bytes: &[u8]) {
 }
 
 #[test]
-#[ignore = "reads the task pane's development folder; run by hand after a Word or PowerPoint session"]
+#[ignore = "reads the task pane's development folder; run by hand after an Office session"]
 fn the_task_pane_wrote_a_sound_history() {
     let root = std::env::var_os("LINEAGE_DEV_STORAGE").map_or_else(
         || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../apps/office-addin/.dev-storage"),
@@ -81,13 +82,13 @@ fn the_task_pane_wrote_a_sound_history() {
     let families = storage.families().expect("families");
     assert!(!families.is_empty(), "no families in {}", root.display());
     let (mut checkpoints, mut blobs, mut versions, mut sent_files) = (0, 0, 0, 0);
-    let (mut returned, mut reviews, mut decks) = (0, 0, 0);
+    let (mut returned, mut reviews, mut decks, mut workbooks) = (0, 0, 0, 0);
     for family in &families {
         let (ledger, _) = storage.read_ledger(family).expect("ledger");
         let state = FamilyState::from_records(&event::decode(&ledger).expect("decodes"))
             .expect("the ledger folds");
         if !lineage::library::readable_format(&state.format) {
-            // A workbook: this version of Lineage only shows its history.
+            // A format this version of Lineage only shows the history of.
             println!("skipped a {} family", state.format);
             continue;
         }
@@ -96,8 +97,10 @@ fn the_task_pane_wrote_a_sound_history() {
             family,
         };
         let format = state.format.as_str();
-        if format == "pptx" {
-            decks += 1;
+        match format {
+            "pptx" => decks += 1,
+            "xlsx" => workbooks += 1,
+            _ => {}
         }
         for hash in referenced(&state) {
             let bytes = source.blob(&hash).expect("referenced blob is stored");
@@ -118,6 +121,16 @@ fn the_task_pane_wrote_a_sound_history() {
                 assert!(
                     deck.slides.iter().all(|s| !s.hidden),
                     "a sent deck has no hidden slides"
+                );
+            }
+            if format == "xlsx" {
+                let package = Package::read(&bytes).expect("reads");
+                assert!(
+                    package.part_names().all(|n| {
+                        let n = n.to_ascii_lowercase();
+                        !n.contains("comments") && !n.starts_with("xl/persons/")
+                    }),
+                    "a sent workbook has no notes or comments"
                 );
             }
         }
@@ -178,7 +191,7 @@ fn the_task_pane_wrote_a_sound_history() {
         }
     }
     println!(
-        "{} families ({decks} decks), {checkpoints} checkpoints restored, {blobs} blobs checked, \
+        "{} families ({decks} decks, {workbooks} workbooks), {checkpoints} checkpoints restored, {blobs} blobs checked, \
          {versions} tailored versions on disk, {sent_files} sent copies on disk match the record, \
          {returned} files came back, {reviews} reviews",
         families.len()

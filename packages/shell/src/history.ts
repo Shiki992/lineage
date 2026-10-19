@@ -7,6 +7,8 @@
 
 import type { Engine } from "./engine.js";
 import { EngineError } from "./engine.js";
+import type { AsyncEngine } from "./worker.js";
+import { asyncEngine } from "./worker.js";
 import { LineageError } from "./errors.js";
 import type { LedgerVersion, Storage } from "./storage.js";
 import { StorageConflict } from "./storage.js";
@@ -25,10 +27,14 @@ export class History {
    */
   private readonly inStorage = new Map<string, Set<string>>();
 
+  readonly engine: AsyncEngine;
+
   constructor(
-    readonly engine: Engine,
+    engine: Engine | AsyncEngine,
     readonly storage: Storage,
-  ) {}
+  ) {
+    this.engine = asyncEngine(engine);
+  }
 
   private seen(family: string): Set<string> {
     let set = this.inStorage.get(family);
@@ -40,12 +46,13 @@ export class History {
   }
 
   async fetchBlobs(family: string, hashes: readonly string[]): Promise<void> {
-    const wanted = hashes.filter((h) => !this.engine.hasBlob(h));
+    const have = await Promise.all(hashes.map((h) => this.engine.hasBlob(h)));
+    const wanted = hashes.filter((_, i) => !have[i]);
     const seen = this.seen(family);
     for (let i = 0; i < wanted.length; i += AT_ONCE) {
       const batch = wanted.slice(i, i + AT_ONCE);
       const fetched = await Promise.all(batch.map((h) => this.storage.getBlob(family, h)));
-      batch.forEach((hash, j) => {
+      for (const [j, hash] of batch.entries()) {
         const bytes = fetched[j];
         if (!bytes) {
           throw new LineageError(
@@ -53,9 +60,9 @@ export class History {
             `blob ${hash} is not in storage`,
           );
         }
-        this.engine.addBlob(hash, bytes);
+        await this.engine.addBlob(hash, bytes);
         seen.add(hash);
-      });
+      }
     }
   }
 
@@ -63,10 +70,10 @@ export class History {
    * Runs an engine call, fetching whatever blobs it reports missing: from the
    * family the engine names, else from `family`.
    */
-  async withBlobs<T>(family: string, run: () => T, rounds = FETCH_ROUNDS): Promise<T> {
+  async withBlobs<T>(family: string, run: () => T | Promise<T>, rounds = FETCH_ROUNDS): Promise<T> {
     for (let round = 0; ; round++) {
       try {
-        return run();
+        return await run();
       } catch (error) {
         if (error instanceof EngineError && error.kind === "missingBlobs" && round < rounds) {
           await this.fetchBlobs(error.family ?? family, error.hashes);
@@ -100,7 +107,7 @@ export class History {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const current = await this.storage.readIndex();
-        const next = this.engine.updateIndex(current?.bytes, family, version, ledger);
+        const next = await this.engine.updateIndex(current?.bytes, family, version, ledger);
         await this.storage.writeIndex(next, current?.version);
         return true;
       } catch (error) {

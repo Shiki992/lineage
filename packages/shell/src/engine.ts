@@ -143,6 +143,85 @@ export interface Engine {
   ): CommandResult;
   /** The slide steps from one deck to another, for putting the open deck back. */
   deckSlideOps(from: Uint8Array, to: Uint8Array): s.SlideOps;
+
+  // Workbooks (decisions 0022, 0023).
+  /**
+   * "What changed" in the open workbook since its latest checkpoint, with the
+   * ranges Excel reported as edited in this session (never Lineage's own writes).
+   */
+  workbookWhatChanged(
+    ledger: Uint8Array,
+    node: string,
+    file: Uint8Array,
+    hints: readonly s.Hint[],
+  ): s.WhatChanged;
+  /** One cell of the open workbook beside the same cell at the latest checkpoint. */
+  cellSideBySide(
+    ledger: Uint8Array,
+    node: string,
+    file: Uint8Array,
+    sheet: string,
+    address: string,
+  ): s.SideBySide;
+  /**
+   * Bring in on a tailored workbook open in Excel, first half: the apply plan
+   * for `cards` on `file`, the workbook as Excel holds it. Records nothing.
+   */
+  prepareWorkbookOffer(
+    ledger: Uint8Array,
+    node: string,
+    file: Uint8Array,
+    cards: readonly s.CardDecision[],
+  ): s.WorkbookPlan;
+  /**
+   * The second half: `original` is the workbook the first half had, `held`
+   * what Excel holds after the plan. Fails (engine) when the plan didn't land.
+   */
+  finishWorkbookOffer(
+    ledger: Uint8Array,
+    node: string,
+    original: Uint8Array,
+    held: Uint8Array,
+    cards: readonly s.CardDecision[],
+    nowMs: number,
+  ): CommandResult;
+  /** "Keep" on a returned workbook, first half: the plan for the open workbook of `node`. */
+  prepareWorkbookKeep(
+    ledger: Uint8Array,
+    node: string,
+    file: Uint8Array,
+    returned: string,
+    cards: readonly s.CardDecision[],
+  ): s.WorkbookPlan;
+  finishWorkbookKeep(
+    ledger: Uint8Array,
+    node: string,
+    original: Uint8Array,
+    held: Uint8Array,
+    returned: string,
+    cards: readonly s.CardDecision[],
+    nowMs: number,
+  ): CommandResult;
+  /**
+   * The way back after Excel carried out only the first `done` steps of the
+   * plan for `original` and `cards` (with `returned`, the plan for keeping
+   * that returned file's changes).
+   */
+  workbookWayBack(
+    ledger: Uint8Array,
+    node: string,
+    original: Uint8Array,
+    cards: readonly s.CardDecision[],
+    done: number,
+    returned?: string,
+  ): s.CellStep[];
+  /**
+   * Fails (engine) unless `actual` holds `original`'s inputs and formulas
+   * again, apart from the cells the person edited (`hints`), which stay.
+   */
+  workbookPutBack(original: Uint8Array, actual: Uint8Array, hints: readonly s.Hint[]): s.PutBack;
+  /** What goes with a copy that Send a copy says before saving (decision 0026). */
+  goesWithCopy(file: Uint8Array): string[];
   decide(
     ledger: Uint8Array,
     node: string,
@@ -513,6 +592,81 @@ function wrap(seed: Uint8Array): Engine {
         ),
       ),
     deckSlideOps: (from, to) => view("deckSlideOps", s.SlideOps, (e) => e.deckSlideOps(from, to)),
+    workbookWhatChanged: (ledger, node, file, hints) =>
+      view("workbookWhatChanged", s.WhatChanged, (e) =>
+        e.workbookWhatChanged(
+          ledger,
+          node,
+          file,
+          json(checked(v.array(s.Hint), hints, "workbookWhatChanged")),
+        ),
+      ),
+    cellSideBySide: (ledger, node, file, sheet, address) =>
+      view("cellSideBySide", s.SideBySide, (e) =>
+        e.cellSideBySide(ledger, node, file, json({ sheet, address })),
+      ),
+    prepareWorkbookOffer: (ledger, node, file, cards) =>
+      view("prepareWorkbookOffer", s.WorkbookPlan, (e) =>
+        e.prepareWorkbookOffer(
+          ledger,
+          node,
+          file,
+          json(checked(v.array(s.CardDecision), cards, "prepareWorkbookOffer")),
+        ),
+      ),
+    finishWorkbookOffer: (ledger, node, original, held, cards, nowMs) =>
+      command("finishWorkbookOffer", (e) =>
+        e.finishWorkbookOffer(
+          ledger,
+          node,
+          original,
+          held,
+          json(checked(v.array(s.CardDecision), cards, "finishWorkbookOffer")),
+          nowMs,
+        ),
+      ),
+    prepareWorkbookKeep: (ledger, node, file, returned, cards) =>
+      view("prepareWorkbookKeep", s.WorkbookPlan, (e) =>
+        e.prepareWorkbookKeep(
+          ledger,
+          node,
+          file,
+          returned,
+          json(checked(v.array(s.CardDecision), cards, "prepareWorkbookKeep")),
+        ),
+      ),
+    finishWorkbookKeep: (ledger, node, original, held, returned, cards, nowMs) =>
+      command("finishWorkbookKeep", (e) =>
+        e.finishWorkbookKeep(
+          ledger,
+          node,
+          original,
+          held,
+          returned,
+          json(checked(v.array(s.CardDecision), cards, "finishWorkbookKeep")),
+          nowMs,
+        ),
+      ),
+    workbookWayBack: (ledger, node, original, cards, done, returned) =>
+      view("workbookWayBack", v.array(s.CellStep), (e) =>
+        e.workbookWayBack(
+          ledger,
+          node,
+          original,
+          json(checked(v.array(s.CardDecision), cards, "workbookWayBack")),
+          checked(v.pipe(v.number(), v.integer(), v.minValue(0)), done, "workbookWayBack"),
+          returned ?? null,
+        ),
+      ),
+    workbookPutBack: (original, actual, hints) =>
+      view("workbookPutBack", s.PutBack, (e) =>
+        e.workbookPutBack(
+          original,
+          actual,
+          json(checked(v.array(s.Hint), hints, "workbookPutBack")),
+        ),
+      ),
+    goesWithCopy: (file) => view("goesWithCopy", v.array(v.string()), (e) => e.goesWithCopy(file)),
     decide: (ledger, node, file, cards, nowMs) =>
       command("decide", (e) =>
         e.decide(

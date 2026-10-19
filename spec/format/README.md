@@ -4,22 +4,23 @@ A JSON format for "what changed" between two states of one document. The Lineage
 
 ## Versions
 
-| Version | Schema                                                                                 | Status                                     |
-| ------- | -------------------------------------------------------------------------------------- | ------------------------------------------ |
-| v0      | [`v0/change-list.schema.json`](v0/change-list.schema.json) (JSON Schema draft 2020-12) | Draft. Word (.docx) and PowerPoint (.pptx) |
+| Version | Schema                                                                                 | Status                                                           |
+| ------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| v0      | [`v0/change-list.schema.json`](v0/change-list.schema.json) (JSON Schema draft 2020-12) | Draft. Word (.docx), PowerPoint (.pptx) and Excel (.xlsx, .xlsm) |
 
 ## v0 in brief
 
-A change list is `{ specVersion: "0", format: "docx" | "pptx", changes: [...] }`. Each change has:
+A change list is `{ specVersion: "0", format: "docx" | "pptx" | "xlsx", changes: [...] }`. Each change has:
 
 - `id`: stable within the list.
 - `kind`: one of `insert`, `delete`, `modify`, `move`, `format`.
-- `location`: depends on the format. For docx: `part`, `blockIndex`, plus optional `blockAnchor`, `charRange` and `cell`. `cell` points inside the table at `blockIndex`: a `row`, then optionally a `column` and the `blockIndex` inside that cell (a nested table nests another `cell`). A `cell` with only a `row` means the whole row. For pptx: `part` (the slide), `slideIndex` (its position in show order), plus optional `slideId` (which survives reordering), `shapeId` (for a change to one shape) or `target` (`slide`, `notes`, `settings`, `animations` or `design` for changes that are not to one shape).
+- `location`: depends on the format. For docx: `part`, `blockIndex`, plus optional `blockAnchor`, `charRange` and `cell`. `cell` points inside the table at `blockIndex`: a `row`, then optionally a `column` and the `blockIndex` inside that cell (a nested table nests another `cell`). A `cell` with only a `row` means the whole row. For pptx: `part` (the slide), `slideIndex` (its position in show order), plus optional `slideId` (which survives reordering), `shapeId` (for a change to one shape) or `target` (`slide`, `notes`, `settings`, `animations` or `design` for changes that are not to one shape). For xlsx: `part` (the worksheet, or `xl/workbook.xml`), `sheet` (its name) and `sheetIndex`, plus optional `address` (A1 style, in the version the change is in: `B4`, `D2:D25`, rows `4:6`, columns `B:C`), `addressBefore` (where a moved cell was) and `target` (`cell`, `rows`, `columns`, `sheet`, `name`, `table`, `connection`, `workbook` or `untracked`).
 - `fromLocation`: only on `move`, and required there. A moved block that was also edited has different `before` and `after` text.
 - `before` and `after`: text, with `null` for the side that doesn't exist (`before` on an insert, `after` on a delete).
 - `formattingOnly`: `true` when only formatting changed. It is always `true` for `format`.
 - `confidence`: a **whole** percentage from 0 to 100. Integers on purpose: the format never carries floats.
 - `summary`: optional plain-English text for people.
+- `category` and `provenance`: required for xlsx, not allowed for other formats. `category` is one of `input` (a typed value), `formula`, `knockOn` (a calculated result that moved while its formula didn't), `refreshed` (a data refresh, another workbook or a volatile function, never an edit) or `structure` (sheets, rows, columns, names, tables, formats, settings). `provenance` is one of `directEdit`, `downstream`, `refresh`, `likelyDownstream` or `unknown`: how far the evidence goes, never a guess about who did it.
 
 Unknown fields are rejected everywhere (`additionalProperties: false`).
 

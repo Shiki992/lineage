@@ -1,5 +1,85 @@
 # Status
 
+## Phase 5: Excel (2026-10-18). Built, and the three pilots clicked through in the Excel pane in Excel for Windows with a scratch dev folder. Excel on the web is not supported yet (decision 0020).
+
+Branch `claude/amazing-lamport-081931`, from `main` at `bd8dd04`. Not pushed.
+
+Decisions:
+
+- [0020 Where workbook bytes come from, and which Excel Lineage needs](decisions/0020-workbook-bytes-and-excel-requirements.md);
+- [0021 Row and column alignment](decisions/0021-row-and-column-alignment.md);
+- [0022 Change categories and provenance](decisions/0022-workbook-change-categories-and-provenance.md);
+- [0023 How the master's changes land in a workbook](decisions/0023-how-workbook-changes-land.md), with what Excel showed at stop 2;
+- [0024 Storing big workbooks](decisions/0024-storing-big-workbooks.md);
+- [0025 Phase 5 dependencies and budgets](decisions/0025-phase-5-dependencies-and-budgets.md): `quick-xml`, and the budgets agreed at stop 1;
+- [0026 What a sent workbook leaves out, and parts Lineage keeps untracked](decisions/0026-sent-workbooks-and-untracked-parts.md);
+- [0010](decisions/0010-wasm-boundary-and-budgets.md) updated with the Excel measurements and the engine Web Worker.
+
+Manual test script: [docs/testing/excel-pilots.md](testing/excel-pilots.md).
+
+The maintainer chose (2026-10-17 and 18):
+
+- one phase with two stops;
+- offers are reviewed in the open tailored workbook, and an apply plan is carried out through Office.js;
+- a sent copy keeps hidden sheets, rows and columns, and says so;
+- no command line: past 1.5 million filled cells, the panel says the workbook is too large;
+- at stop 1, the budgets as measured, and the engine in a Web Worker in the Excel pane;
+- at stop 2, the person's typing stays when Lineage takes its changes back out, the workbook is saved after a bring-in, ExcelApi 1.16 to bring changes in, and new rows take Excel's formatting from the row above, which the card says.
+
+**Done**
+
+- **Fixtures** (`crates/testkit/src/xlsx.rs`, `workbooks.rs`): invented workbooks built in Rust: the founder's financial model and investor versions, a household budget, a job tracker, 50,000 and 200,000-row sheets, 60 linked sheets, a data connection with a query table, a workbook with macros, and awkward cells. Twelve were re-saved and edited by real Excel (`scripts/excel-resave.ps1`, its own Excel instance, author and label data scrubbed) into `fixtures/xlsx/excel/`.
+- **Reading** (`crates/core/src/xlsx/`): worksheets and shared strings streamed with `quick-xml`, each row keeping where it is in the part; numbers kept as their lexemes; shared formulas, tables, names, filters, hidden rows, styles, connections; parts Lineage keeps but doesn't track (macros, pivots, Power Query, charts, links to other workbooks, slicers) listed as "Preserved; semantic tracking not yet supported." Every fixture writes back byte for byte. A fuzz target runs in CI.
+- **Formulas:** a tokenizer for references (cells, ranges, whole rows and columns, sheets, 3D, names, structured references, external links), canonical by row and column identity, so an inserted row doesn't change a formula; a dependency index; volatile functions flagged.
+- **Alignment** (decision 0021): sheets by name, then id; columns by header or content; rows by a key column, a pair of columns, exact content, then similarity, with unsure rows marked and never guessed; moves found; a sort found and said once.
+- **What changed** (decision 0022): five categories (inputs, formulas, knock-on changes, refreshed data, structure and formatting) with a provenance for each. Knock-on changes are summarised, not listed. Excel's change events, from the person and not from Lineage, mark direct edits. The open change format has workbook locations, categories and provenance, with examples and schema tests.
+- **Merge and apply plan** (decision 0023): cell by cell over identities; overlaps for both sides changing a cell, a formula and its inputs, rows added at one place, and rows deleted or unmatched; formats, sorted or removed rows, columns, sheets and names come in by hand. Accepted changes become steps for Excel (rows inserted bottom-up, cells set at their final addresses), with what each target holds first, the way back for any number of steps carried out, and a check of what landed. A Rust writer carries the same steps out on bytes, for closed files and tests; its inserted row matches Excel's own.
+- **Clean copies** (decision 0026): notes, comments, people and metadata left out; hidden sheets, rows, columns and macros kept, and named before saving.
+- **Family logic** (`crates/lineage/src/workbooks.rs`): workbook families, offers brought into the open workbook in two calls (plan, then check and record), returned workbooks kept the same way, several master updates in order, the cell side by side, and the size limit.
+- **Storage** (decision 0024): XML parts of 1 MB or more stored as deflated, content-cut chunks, so a changed cell stores one chunk. Manifests without large parts are unchanged.
+- **Boundary and shell:** wasm calls for workbook what-changed (with hints), the side by side, prepare and finish for offers and kept changes, the way back, the put-back check and what goes with a copy, with schemas and golden replies. The shell's `CellHost`, `Lineage.bringInWorkbook` and `keepIntoWorkbook` (plan, carry out, check, append once, retry once, otherwise take the changes back out and say so), and `FakeExcel`. `Lineage` drives the engine through promises, so in Excel it runs in a Web Worker.
+- **Excel pane:** the manifest's Workbook host; `ExcelHost` (whole file with unsaved edits, ids in custom properties, edit hints, cell plans written as the spike showed, Go to cell, save). Screens: what changed in five categories with Go to cell and the side by side; a tailored workbook's updates by category with Bring in, Decline, Keep mine and Use the master's; a returned workbook's changes with Keep and Skip; Send a copy saying what goes with the copy; Excel too old to bring changes in still shows them.
+- **My documents:** workbook families compared in five categories, sent workbooks opened exactly as sent, restored as `.xlsx` or `.xlsm`.
+- **Harness:** the three pilots in memory and on disk, a workbook test account, and the dev-folder audit reading workbooks.
+
+**Checked in Excel for Windows** (16.0.20430, Current Channel, ExcelApi 1.21), the pane driven through the DevTools port, history in a scratch folder holding only the invented workbooks (not `.dev-storage`):
+
+- **Stop 2 spike** (decision 0023): `getFileAsync` includes unsaved edits; `formulas` and `values` read strings as if typed, so numbers go in as numbers and text through `valuesAsJson`; a row inserted inside a table grows it; a plan stopped after its first step and a mismatch were both taken back out exactly.
+- **The three pilots, through the real pane** (pane timings from its own log):
+  1. the model: start tracking (0.5 s), two versions (0.1 s each), a copy sent to Harbor Lane Capital (0.45 s); 12 typed in Northwind's B3: "'15' changed to '12'", "Edited in this session", knock-on changes summarised, **Go to cell** selected B3 and **Side by side** showed 15 and 12; the master's typed price offered and brought into the open Northwind: B4 $55, B3 still 12, the workbook saved, checkpoint v3 (0.97 s); the copy came back with churn 3% (made by changing the sent copy's XML), recognised by its Lineage ID, and kept in Harbor Lane's open version (1.8 s);
+  2. the budget: the broker's version sorted by Excel ("Sorted the rows on Transactions by Amount, largest first", one line); the master's row inserted mid-table and February's rent changed; both brought into the sorted version (0.84 s): the rent on the version's own row, the new row after the row it follows in the master, the table grown, the summary recalculated;
+  3. the tracker: the coach's version filtered (two hidden rows and the filter listed); the master's status change and two new applications brought in (1.65 s): rows matched by ID, the Rejected rows still hidden, the filter extended by Excel.
+- **The audit** of that folder: 3 families, 17 checkpoints restore, 20 blobs check, 4 versions on disk are their nodes' checkpoints, the sent copy matches its record, the returned file is kept exactly.
+- Every workbook was saved after its checkpoints and bring-ins.
+
+**Bugs found in the Excel runs, and fixed** (each with a test)
+
+- **"A file came back" took only .docx**, so a returned workbook was refused in Excel.
+- **A sent workbook was named "… .xlsx (recipient).docx"** (found by the harness pilots).
+- **The not-landed message named PowerPoint** for every app.
+
+**Tests**
+
+- **Rust:** 495 pass, 4 ignored (was 363): the reader and fidelity on every fixture, formulas, alignment, the diff and its categories, merge, the apply plan and the way back, the writer, clean copies, chunked storage, the family logic, 7 property tests, the harness pilots and workbook account, golden replies. cargo-deny, licence headers and fixtures pass.
+- **TypeScript:** 295 pass (was 257): shell 170 (the open-workbook path with a fake Excel, the engine behind a port), add-in 44, My documents 28, design 15, OneDrive 29, storage-local 9. Plus 19 Playwright runs (5 new, on the workbook account).
+- **All checks pass:** fmt, clippy, lint, typecheck, Prettier, budgets (wasm 1,982,567 bytes raw and 657,409 gzipped, under 4 MB; task pane JavaScript 179,648 gzipped).
+
+**Not done**
+
+- **Excel on the web:** an add-in gets only a PDF of the open workbook there. Reading the saved file needs `Files.Read`, wider than the app folder. The maintainer's choice; until then the pane says to use Excel for Windows or Mac.
+- **Typing while a plan runs, in real Excel:** the kept-typing path is tested with `FakeExcel`, and the strict path was seen in the spike, but a person typing during the second the plan runs wasn't clicked in Excel.
+- **By hand in v0:** formats, rows the master removed or sorted, columns (including a column that was empty before and now has values), sheets, names, tables, merged cells, conditional formats and data validation.
+- **From the prompt, left for later:** VBA, pivots and Power Query semantics (Phase 5B); the optional "Lineage review" sheet; user-marked key columns.
+- **The workbook budgets** (open and compare times, decision 0025) are measured with `cargo xtask bench-xlsx`, not checked in CI. The panel's size limit wasn't exercised in Excel.
+
+**Known issues**
+
+- **A new row in a sorted version** arrives after the row it follows in the master, not at its place in the version's sort.
+- **Two slow runs right after Office.js writes:** one checkpoint save took 6.8 s and one bring-in 5.6 s, against 0.5 to 1.8 s for every other. Neither repeated.
+- **The panel refreshes when it comes back into view.** In the automated run, Excel's panes reported themselves hidden (the screen-capture tool hides WebView2 windows), so they were reloaded instead. Not seen by hand.
+- **Phase 4's PowerPoint fixtures on `main`** carry the maintainer's name and a sensitivity-label tenant id that PowerPoint stamped. The Excel fixtures are scrubbed (`scripts/excel-resave.ps1`); the PowerPoint ones should be too.
+- **The uncommitted CLAUDE.md draft** in the main checkout brings back `crates/cli`, which decision 0001 rules out. This phase followed the committed decisions.
+
 ## Phase 4 follow-up: bringing changes into an open deck (2026-10-18). Built, and checked in PowerPoint for Windows with a scratch dev folder.
 
 Branch `claude/laughing-payne-b62016`, from `phase-4-deck-variants` at `06a8d55` (not pushed, so it may need a rebase when that is). Not pushed.

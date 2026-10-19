@@ -1,0 +1,103 @@
+{
+  "ok": true,
+  "value": {
+    "formatting": {
+      "formattingNote": null,
+      "note": null,
+      "wordsOnly": false
+    },
+    "from": "You sent this to Harbor Lane Capital on 15 Oct, from Startup model v1.",
+    "fromName": "Startup model",
+    "fromNode": "9ed0ebca27713fb63bbfbf50c784f979",
+    "headline": "1 change from Harbor Lane Capital",
+    "notes": [
+      "Your file has changed since this copy left (it's now v2). Only their changes are shown."
+    ],
+    "returned": "2a717268424948aac1bff6056ad47c46",
+    "theirs": "Harbor Lane Capital",
+    "view": {
+      "alreadyThere": [],
+      "byHand": [],
+      "changes": [
+        {
+          "byHand": null,
+          "choices": [
+            {
+              "decision": "bringIn",
+              "label": "Keep"
+            },
+            {
+              "decision": "decline",
+              "label": "Skip"
+            }
+          ],
+          "id": "xe3979b9a543c3d3e",
+          "place": "Assumptions!B5 · Monthly churn, Value",
+          "summary": "'2.00%' changed to '3.00%'",
+          "text": [
+            {
+              "kind": "removed",
+              "text": "2.00%"
+            },
+            {
+              "kind": "added",
+              "text": "3.00%"
+            }
+          ]
+        }
+      ],
+      "formatting": [],
+      "headline": "1 change from Harbor Lane Capital",
+      "overlaps": [],
+      "workbook": {
+        "groups": [
+          {
+            "cards": [
+              {
+                "address": "B5",
+                "after": {
+                  "formula": null,
+                  "shown": "3.00%"
+                },
+                "before": {
+                  "formula": null,
+                  "shown": "2.00%"
+                },
+                "byHand": null,
+                "cells": 1,
+                "choices": [
+                  {
+                    "decision": "bringIn",
+                    "label": "Keep"
+                  },
+                  {
+                    "decision": "decline",
+                    "label": "Skip"
+                  }
+                ],
+                "conflict": null,
+                "id": "xe3979b9a543c3d3e",
+                "ids": [
+                  "xe3979b9a543c3d3e"
+                ],
+                "mine": null,
+                "place": "Assumptions!B5 · Monthly churn, Value",
+                "sheet": "Assumptions",
+                "summary": "'2.00%' changed to '3.00%'",
+                "why": null
+              }
+            ],
+            "category": "input",
+            "more": 0,
+            "summary": "1 change",
+            "title": "Inputs"
+          }
+        ],
+        "headline": "1 update",
+        "notes": [],
+        "unmatched": [],
+        "untracked": []
+      }
+    }
+  }
+}

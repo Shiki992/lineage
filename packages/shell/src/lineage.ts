@@ -10,8 +10,10 @@
 // copies) are written after the append.
 
 import type { CommandResult, Engine, FamilyLedger, UpdateResult } from "./engine.js";
-import type { DocumentHost, SlideHost } from "./host.js";
-import { changesSlides } from "./host.js";
+import type { AsyncEngine } from "./worker.js";
+import { asyncEngine } from "./worker.js";
+import type { CellHost, DocumentHost, SlideHost } from "./host.js";
+import { PlanStopped, changesCells, changesSlides, reportsEdits } from "./host.js";
 import type * as s from "./schemas.js";
 import type { Storage } from "./storage.js";
 import type { FileLocation } from "./storage.js";
@@ -45,7 +47,8 @@ export type Opened =
   | { readonly kind: "cameBack"; readonly file: s.OpenFile; readonly returning: Returning };
 
 export interface LineageOptions {
-  readonly engine: Engine;
+  /** In this thread, or behind a Web Worker (the Excel pane, decision 0025). */
+  readonly engine: Engine | AsyncEngine;
   readonly storage: Storage;
   readonly host: DocumentHost;
   /** Milliseconds since 1970. */
@@ -59,6 +62,9 @@ const utf8 = new TextEncoder();
 /** Why an open deck's Bring in was put back (decision 0019). */
 const TOOK_CHANGES = "PowerPoint didn't take the changes exactly as Lineage made them";
 const NOT_RECORDED = "Lineage couldn't record the change in this deck's history";
+/** Why an open workbook's Bring in or Keep was put back (decision 0023). */
+const TOOK_CELLS = "Excel didn't take the changes exactly as Lineage made them";
+const NOT_RECORDED_CELLS = "Lineage couldn't record the change in this workbook's history";
 
 /** "d.docs.live.net" for a web address, "path" for a file on this computer. */
 function addressKind(ref: string): string {
@@ -73,7 +79,7 @@ function addressKind(ref: string): string {
 }
 
 export class Lineage {
-  private readonly engine: Engine;
+  private readonly engine: AsyncEngine;
   private readonly storage: Storage;
   private readonly host: DocumentHost;
   private readonly now: () => number;
@@ -85,7 +91,7 @@ export class Lineage {
   private indexing: Promise<unknown> = Promise.resolve();
 
   constructor(options: LineageOptions) {
-    this.engine = options.engine;
+    this.engine = asyncEngine(options.engine);
     this.storage = options.storage;
     this.host = options.host;
     this.now = options.now ?? Date.now;
@@ -147,7 +153,7 @@ export class Lineage {
    * Runs an engine call, fetching whatever blobs it reports missing: from the
    * family the engine names, else from `family`.
    */
-  private withBlobs<T>(family: string, run: () => T, rounds?: number): Promise<T> {
+  private withBlobs<T>(family: string, run: () => T | Promise<T>, rounds?: number): Promise<T> {
     return this.history.withBlobs(family, run, rounds);
   }
 
@@ -165,7 +171,7 @@ export class Lineage {
    */
   private async press(
     family: string,
-    run: (ledger: Uint8Array) => CommandResult,
+    run: (ledger: Uint8Array) => CommandResult | Promise<CommandResult>,
     change: (result: CommandResult) => Promise<(() => Promise<void>) | undefined> = () =>
       Promise.resolve(undefined),
   ): Promise<CommandResult> {
@@ -207,11 +213,11 @@ export class Lineage {
         this.openFile = undefined;
         return { kind: "elsewhere", ids };
       }
-      await this.fetchBlobs(ids.family, this.engine.referencedBlobs(ledger));
-      let file = this.engine.openFile(ledger, ids.checkpoint);
+      await this.fetchBlobs(ids.family, await this.engine.referencedBlobs(ledger));
+      let file = await this.engine.openFile(ledger, ids.checkpoint);
       if (file.copyOf === null && file.isLatest && (await this.followMove(file))) {
         ledger = await this.ledger(ids.family);
-        file = this.engine.openFile(ledger, ids.checkpoint);
+        file = await this.engine.openFile(ledger, ids.checkpoint);
       }
       if (file.copyOf !== null || !file.isLatest) {
         this.openFile = undefined;
@@ -268,7 +274,7 @@ export class Lineage {
       const ledger = await this.ledger(file.familyId);
       // The open file may have a new checkpoint now; find it again by its ids.
       const ids = await this.host.readIds();
-      const current = ids ? this.engine.openFile(ledger, ids.checkpoint) : file;
+      const current = ids ? await this.engine.openFile(ledger, ids.checkpoint) : file;
       this.openFile = current;
       return this.panelFor(current, ledger);
     });
@@ -285,7 +291,7 @@ export class Lineage {
         );
       }
       const bytes = await this.host.readBytes();
-      const result = this.engine.startTracking(bytes, name, url, this.now());
+      const result = await this.engine.startTracking(bytes, name, url, this.now());
       const { familyId, ids } = result.outcome;
       if (!familyId || !ids) {
         throw new LineageError(
@@ -310,7 +316,7 @@ export class Lineage {
         throw error;
       }
       const ledger = await this.ledger(familyId);
-      const file = this.engine.openFile(ledger, ids.checkpoint);
+      const file = await this.engine.openFile(ledger, ids.checkpoint);
       this.openFile = file;
       return this.panelFor(file, ledger);
     });
@@ -322,6 +328,14 @@ export class Lineage {
       const file = this.requireFile();
       const bytes = await this.host.readBytes();
       const ledger = await this.ledger(file.familyId);
+      const host = this.host;
+      if (file.format === "xlsx" && reportsEdits(host)) {
+        // What the person edited in Excel this session marks direct edits (decision 0022).
+        const hints = host.editHints();
+        return this.withBlobs(file.familyId, () =>
+          this.engine.workbookWhatChanged(ledger, file.nodeId, bytes, hints),
+        );
+      }
       return this.withBlobs(file.familyId, () =>
         this.engine.whatChanged(ledger, file.nodeId, bytes),
       );
@@ -356,7 +370,7 @@ export class Lineage {
   makeTailoredVersion(name: string): Promise<{ name: string; ref: string; nodeId: string }> {
     return this.serial("makeTailoredVersion", async () => {
       const file = this.requireFile();
-      const clean = checkFileName(withExtension(name, file.format));
+      const clean = checkFileName(withExtension(name, file.format, file.displayName));
       if (
         (await this.storage.fileNames("version")).some(
           (n) => n.toLowerCase() === clean.toLowerCase(),
@@ -569,7 +583,9 @@ export class Lineage {
   /** Opens a file of a family: a tailored version from storage, or the master where Word has it. */
   openNode(family: string, node: string): Promise<void> {
     return this.serial("openNode", async () => {
-      const found = this.engine.family(await this.ledger(family)).nodes.find((n) => n.id === node);
+      const found = (await this.engine.family(await this.ledger(family))).nodes.find(
+        (n) => n.id === node,
+      );
       if (!found) {
         throw new LineageError("Lineage couldn't find that file.", `node ${node} is unknown`);
       }
@@ -586,13 +602,13 @@ export class Lineage {
   /** Puts `bytes` into the open document and checks it landed; else puts `previous` back. */
   private async write(bytes: Uint8Array, previous: Uint8Array): Promise<void> {
     await this.host.replaceContents(bytes);
-    const landed = this.engine.checkWritten(bytes, await this.host.readBytes());
+    const landed = await this.engine.checkWritten(bytes, await this.host.readBytes());
     if (landed.ok) {
       return;
     }
     const detail = `written: ${JSON.stringify(landed)}`;
     await this.host.replaceContents(previous);
-    const back = this.engine.checkWritten(previous, await this.host.readBytes());
+    const back = await this.engine.checkWritten(previous, await this.host.readBytes());
     if (!back.ok) {
       throw new LineageError(
         "Word didn't take the changes exactly as Lineage wrote them, and putting your file back didn't work either. Use Undo in Word, then check the file.",
@@ -626,9 +642,9 @@ export class Lineage {
       if (isOpen) {
         bytes = await this.host.readBytes();
       } else {
-        stored = this.engine
-          .family(await this.ledger(file.familyId))
-          .nodes.find((n) => n.id === node);
+        stored = (await this.engine.family(await this.ledger(file.familyId))).nodes.find(
+          (n) => n.id === node,
+        );
         if (stored?.role !== "variant") {
           throw new LineageError(
             "Open that file to send a copy of it.",
@@ -755,8 +771,8 @@ export class Lineage {
         const { bytes: ledger, version } = await this.storage.readLedger(file.familyId);
         // Every checkpoint's manifest, including the one just saved, so that a
         // missing part brings its whole snapshot in one round.
-        await this.fetchBlobs(file.familyId, this.engine.referencedBlobs(ledger));
-        const nodes = this.engine.family(ledger).nodes;
+        await this.fetchBlobs(file.familyId, await this.engine.referencedBlobs(ledger));
+        const nodes = (await this.engine.family(ledger)).nodes;
         const inputs: { node: string; file: Uint8Array; ref: string; version: string }[] = [];
         for (const node of versions) {
           const stored = nodes.find((n) => n.id === node && n.role === "variant");
@@ -910,12 +926,12 @@ export class Lineage {
     detail: string,
   ): Promise<never> {
     try {
-      const back = this.engine.deckSlideOps(await host.readBytes(), original);
+      const back = await this.engine.deckSlideOps(await host.readBytes(), original);
       if (back.ops.length > 0) {
         await host.applySlideOps(back.ops, original);
       }
       await host.writeIds(ids);
-      const left = this.engine.deckSlideOps(await host.readBytes(), original);
+      const left = await this.engine.deckSlideOps(await host.readBytes(), original);
       if (left.ops.length > 0) {
         throw new Error(`${String(left.ops.length)} steps still to go`);
       }
@@ -927,6 +943,208 @@ export class Lineage {
     }
     throw new LineageError(
       `${lead}, so this deck was put back as it was. Nothing was changed.`,
+      detail,
+    );
+  }
+
+  /** True when Excel can carry out the plans that bring changes into the open workbook. */
+  get bringsIntoOpenWorkbook(): boolean {
+    return this.openFile?.format === "xlsx" && changesCells(this.host);
+  }
+
+  /** One cell of the open workbook beside the same cell at its latest checkpoint. */
+  cellSideBySide(sheet: string, address: string): Promise<s.SideBySide> {
+    return this.serial("cellSideBySide", async () => {
+      const file = this.requireFile();
+      const bytes = await this.host.readBytes();
+      const ledger = await this.ledger(file.familyId);
+      return this.withBlobs(file.familyId, () =>
+        this.engine.cellSideBySide(ledger, file.nodeId, bytes, sheet, address),
+      );
+    });
+  }
+
+  /** What goes with a copy of the open file, for Send a copy to say before saving. */
+  goesWithCopy(): Promise<string[]> {
+    return this.serial("goesWithCopy", async () => {
+      this.requireFile();
+      return this.engine.goesWithCopy(await this.host.readBytes());
+    });
+  }
+
+  /**
+   * Bring in, on a tailored workbook open in Excel (decision 0023): the
+   * engine plans cell and row steps from the person's `cards`, Excel carries
+   * them out, and the engine checks what Excel then holds before recording
+   * the choices and a checkpoint. The history is appended once. If a step
+   * fails, the workbook isn't what was meant, or the history can't be
+   * written, the steps that ran are undone, the engine checks the workbook is
+   * as it was, and nothing is recorded.
+   */
+  bringInWorkbook(cards: readonly s.CardDecision[]): Promise<s.WorkbookPlan> {
+    return this.landInWorkbook("bringInWorkbook", "variant", cards, {
+      prepare: (ledger, node, original) =>
+        this.engine.prepareWorkbookOffer(ledger, node, original, cards),
+      finish: (ledger, node, original, held) =>
+        this.engine.finishWorkbookOffer(ledger, node, original, held, cards, this.now()),
+      wayBack: (ledger, node, original, done) =>
+        this.engine.workbookWayBack(ledger, node, original, cards, done),
+    });
+  }
+
+  /** "Keep" on a returned workbook's review, into the open workbook, as `bringInWorkbook`. */
+  keepIntoWorkbook(returned: string, cards: readonly s.CardDecision[]): Promise<s.WorkbookPlan> {
+    return this.landInWorkbook("keepIntoWorkbook", undefined, cards, {
+      prepare: (ledger, node, original) =>
+        this.engine.prepareWorkbookKeep(ledger, node, original, returned, cards),
+      finish: (ledger, node, original, held) =>
+        this.engine.finishWorkbookKeep(ledger, node, original, held, returned, cards, this.now()),
+      wayBack: (ledger, node, original, done) =>
+        this.engine.workbookWayBack(ledger, node, original, cards, done, returned),
+    });
+  }
+
+  private landInWorkbook(
+    name: string,
+    role: s.Role | undefined,
+    cards: readonly s.CardDecision[],
+    engine: {
+      prepare(ledger: Uint8Array, node: string, original: Uint8Array): Promise<s.WorkbookPlan>;
+      finish(
+        ledger: Uint8Array,
+        node: string,
+        original: Uint8Array,
+        held: Uint8Array,
+      ): Promise<CommandResult>;
+      wayBack(
+        ledger: Uint8Array,
+        node: string,
+        original: Uint8Array,
+        done: number,
+      ): Promise<s.CellStep[]>;
+    },
+  ): Promise<s.WorkbookPlan> {
+    return this.serial(name, async () => {
+      const file = this.requireFile();
+      const host = this.host;
+      if (file.format !== "xlsx" || (role !== undefined && file.role !== role)) {
+        throw new LineageError(
+          "Bring the changes in from this workbook's own panel.",
+          `${name} on the wrong file`,
+        );
+      }
+      if (!changesCells(host)) {
+        throw new LineageError(
+          "This version of Excel can't take the changes. Update Excel, then try again.",
+          `${name} without a host that applies cell plans`,
+        );
+      }
+      const original = await host.readBytes();
+      const previousIds = await host.readIds();
+      const start = await this.ledger(file.familyId);
+      const plan = await this.withBlobs(file.familyId, () =>
+        engine.prepare(start, file.nodeId, original),
+      );
+      if (cards.length === 0 && plan.brought === 0) {
+        return plan;
+      }
+      // The steps to undo the first `done` of the plan; none when unknown.
+      const back = (done: number | undefined): Promise<s.CellStep[]> =>
+        done === undefined || done === 0
+          ? Promise.resolve([])
+          : this.withBlobs(file.familyId, () => engine.wayBack(start, file.nodeId, original, done));
+      let held = original;
+      if (plan.steps.length > 0) {
+        try {
+          await host.applyCellPlan(plan.steps);
+          held = await host.readBytes();
+        } catch (error) {
+          const done = error instanceof PlanStopped ? error.done : undefined;
+          return this.putWorkbookBack(
+            host,
+            original,
+            previousIds,
+            await back(done),
+            TOOK_CELLS,
+            String(error),
+          );
+        }
+      }
+      for (let attempt = 0; ; attempt++) {
+        const { bytes: ledger, version } = await this.storage.readLedger(file.familyId);
+        let recorded = false;
+        try {
+          const result = await this.withBlobs(file.familyId, () =>
+            engine.finish(ledger, file.nodeId, original, held),
+          );
+          recorded = true;
+          await this.storeBlobs(file.familyId, result);
+          if (result.outcome.ids) {
+            await host.writeIds(result.outcome.ids);
+          }
+          await this.append(file.familyId, version, ledger, result.outcome.ledgerLines);
+          // So the file matches its new checkpoint (the maintainer's choice at stop 2).
+          await this.saveQuietly(host);
+          return plan;
+        } catch (error) {
+          if (error instanceof StorageConflict && attempt === 0) {
+            continue;
+          }
+          return this.putWorkbookBack(
+            host,
+            original,
+            previousIds,
+            await back(plan.steps.length),
+            recorded ? NOT_RECORDED_CELLS : TOOK_CELLS,
+            String(error),
+          );
+        }
+      }
+    });
+  }
+
+  /** Saves the workbook; a failure leaves it unsaved, with the history already written. */
+  private async saveQuietly(host: DocumentHost): Promise<void> {
+    try {
+      await host.save();
+    } catch {
+      // The person can still save it; the checkpoint is recorded either way.
+    }
+  }
+
+  /**
+   * Runs the way back on the open workbook, puts its ids back, and has the
+   * engine check that it holds `original`'s inputs and formulas again, apart
+   * from cells the person typed in meanwhile, which stay; then throws what to
+   * tell the person.
+   */
+  private async putWorkbookBack(
+    host: CellHost & DocumentHost,
+    original: Uint8Array,
+    ids: s.Ids | null,
+    steps: readonly s.CellStep[],
+    lead: string,
+    detail: string,
+  ): Promise<never> {
+    let theirsKept: boolean;
+    try {
+      if (steps.length > 0) {
+        await host.applyCellPlan(steps);
+      }
+      await host.writeIds(ids);
+      theirsKept = (
+        await this.engine.workbookPutBack(original, await host.readBytes(), host.editHints())
+      ).theirsKept;
+    } catch (error) {
+      throw new LineageError(
+        `${lead}, and putting this workbook back didn't work either. Close it without saving to keep it as it was.`,
+        `${detail}; putting back: ${String(error)}`,
+      );
+    }
+    throw new LineageError(
+      theirsKept
+        ? `${lead}, so Lineage took its changes back out. What you typed meanwhile stays. Nothing was recorded.`
+        : `${lead}, so this workbook was put back as it was. Nothing was changed.`,
       detail,
     );
   }

@@ -137,11 +137,13 @@ jobs:
         with:
           tool: cargo-fuzz@0.13.2
       - name: Seed the corpus with the fixtures
-        run: mkdir -p fuzz/corpus/docx_reader fuzz/corpus/pptx_reader fuzz/corpus/zip_reader && cp fixtures/docx/synthetic/*.docx fuzz/corpus/docx_reader/ && cp fixtures/pptx/synthetic/*.pptx fuzz/corpus/pptx_reader/ && cp fixtures/docx/synthetic/*.docx fixtures/pptx/synthetic/*.pptx fuzz/corpus/zip_reader/
+        run: mkdir -p fuzz/corpus/docx_reader fuzz/corpus/pptx_reader fuzz/corpus/xlsx_reader fuzz/corpus/zip_reader && cp fixtures/docx/synthetic/*.docx fuzz/corpus/docx_reader/ && cp fixtures/pptx/synthetic/*.pptx fuzz/corpus/pptx_reader/ && cp fixtures/xlsx/synthetic/*.xlsx fixtures/xlsx/synthetic/*.xlsm fuzz/corpus/xlsx_reader/ && cp fixtures/docx/synthetic/*.docx fixtures/pptx/synthetic/*.pptx fuzz/corpus/zip_reader/
       - name: docx_reader for 60 seconds
         run: cargo +nightly-2026-10-01 fuzz run docx_reader --target "$FUZZ_TARGET" -- -max_total_time=60
       - name: pptx_reader for 60 seconds
         run: cargo +nightly-2026-10-01 fuzz run pptx_reader --target "$FUZZ_TARGET" -- -max_total_time=60
+      - name: xlsx_reader for 60 seconds
+        run: cargo +nightly-2026-10-01 fuzz run xlsx_reader --target "$FUZZ_TARGET" -- -max_total_time=60
       - name: zip_reader for 30 seconds
         run: cargo +nightly-2026-10-01 fuzz run zip_reader --target "$FUZZ_TARGET" -- -max_total_time=30
 

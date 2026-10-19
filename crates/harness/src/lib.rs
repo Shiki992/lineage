@@ -30,6 +30,7 @@ use lineage::{Id, SequentialIds, Timestamp};
 use lineage_core::merge::Decision;
 use lineage_core::view::WhatChanged;
 pub use lineage_core::write::Bring;
+pub use lineage_core::xlsx::apply::Step;
 
 pub use storage::{LocalFolderStorage, MemoryStorage, Storage, StorageError, Tamper};
 
@@ -652,6 +653,122 @@ impl<S: Storage> Panel<S> {
         Ok(outcome)
     }
 
+    // -------------------------------------------------------------- Workbooks
+
+    /// "Bring in" on a tailored workbook's updates, the way the Excel pane does
+    /// it (decision 0023): the engine plans, `excel` carries the steps out on
+    /// the open workbook, and the engine checks what Excel then holds before
+    /// anything is recorded. If the check fails, the workbook is put back as it
+    /// was, and the error says so.
+    ///
+    /// # Errors
+    /// When a card isn't on the panel, the changes didn't land, or the history
+    /// can't be written.
+    pub fn bring_into_workbook<E>(
+        &mut self,
+        file: &str,
+        decisions: &[(&str, Decision)],
+        excel: E,
+    ) -> Result<lineage::workbooks::WorkbookPlan>
+    where
+        E: FnOnce(&[u8], &[Step]) -> std::result::Result<Vec<u8>, String>,
+    {
+        let decisions = owned(decisions);
+        let original = self.storage.read_file(file)?;
+        let state = self.state()?;
+        let node = Self::node_of(&state, file)?;
+        let plan = {
+            let family = self.family()?;
+            let blobs = StoredBlobs {
+                storage: &self.storage,
+                family,
+            };
+            lineage::workbooks::prepare(&state, &node, &original, &decisions, &blobs)?
+        };
+        let held = self.carry_out(file, &original, &plan, excel)?;
+        let outcome = self.press(|ctx, state, blobs| {
+            lineage::workbooks::finish(ctx, state, &node, &original, &held, &decisions, blobs)
+        });
+        self.landed(file, &original, outcome)?;
+        Ok(plan)
+    }
+
+    /// "Keep" on a returned workbook's review, into the open workbook `into`:
+    /// as [`Panel::bring_into_workbook`].
+    ///
+    /// # Errors
+    /// As [`Panel::bring_into_workbook`].
+    pub fn keep_into_workbook<E>(
+        &mut self,
+        into: &str,
+        returned: &Id,
+        decisions: &[(&str, Decision)],
+        excel: E,
+    ) -> Result<lineage::workbooks::WorkbookPlan>
+    where
+        E: FnOnce(&[u8], &[Step]) -> std::result::Result<Vec<u8>, String>,
+    {
+        let cards = owned(decisions);
+        let original = self.storage.read_file(into)?;
+        let state = self.state()?;
+        let node = Self::node_of(&state, into)?;
+        let plan = {
+            let family = self.family()?;
+            let blobs = StoredBlobs {
+                storage: &self.storage,
+                family,
+            };
+            lineage::workbooks::prepare_keep(&state, returned, &node, &original, &cards, &blobs)?
+        };
+        let held = self.carry_out(into, &original, &plan, excel)?;
+        let outcome = self.press(|ctx, state, blobs| {
+            lineage::workbooks::finish_keep(
+                ctx, state, returned, &node, &original, &held, &cards, blobs,
+            )
+        });
+        self.landed(into, &original, outcome)?;
+        Ok(plan)
+    }
+
+    /// Excel carries out `plan` on the open workbook `file`.
+    fn carry_out<E>(
+        &mut self,
+        file: &str,
+        original: &[u8],
+        plan: &lineage::workbooks::WorkbookPlan,
+        excel: E,
+    ) -> Result<Vec<u8>>
+    where
+        E: FnOnce(&[u8], &[Step]) -> std::result::Result<Vec<u8>, String>,
+    {
+        if plan.steps.is_empty() {
+            return Ok(original.to_vec());
+        }
+        match excel(original, &plan.steps) {
+            Ok(held) => {
+                self.storage.write_file(file, &held)?;
+                Ok(held)
+            }
+            Err(why) => {
+                // The pane runs the plan's undo; here, the file as it was.
+                self.storage.write_file(file, original)?;
+                Err(HarnessError::Panel(format!("Excel stopped: {why}")))
+            }
+        }
+    }
+
+    /// After `finish`: the checkpoint's file (with its ids) is written, or on
+    /// any failure the workbook is put back as it was.
+    fn landed(&mut self, file: &str, original: &[u8], outcome: Result<Outcome>) -> Result<()> {
+        match outcome {
+            Ok(outcome) => self.write_outcome(file, &outcome),
+            Err(e) => {
+                self.storage.write_file(file, original)?;
+                Err(e)
+            }
+        }
+    }
+
     /// "Open what came back": the exact bytes of a returned file.
     ///
     /// # Errors
@@ -823,6 +940,22 @@ impl<S: Storage> Panel<S> {
         self.press(|ctx, state, _| commands::relink(ctx, state, node, file, &bytes))?;
         Ok(())
     }
+}
+
+fn owned(decisions: &[(&str, Decision)]) -> Vec<(String, Decision)> {
+    decisions
+        .iter()
+        .map(|(card, decision)| ((*card).to_owned(), *decision))
+        .collect()
+}
+
+/// Excel, as the harness has it: the Rust writer carries out the plan's steps
+/// the way Excel's own row insert and cell writes do (decision 0023).
+///
+/// # Errors
+/// When the writer refuses a step.
+pub fn fake_excel(bytes: &[u8], steps: &[Step]) -> std::result::Result<Vec<u8>, String> {
+    lineage_core::xlsx::write::apply_steps(bytes, steps).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "value": {
+    "after": {
+      "address": "B4",
+      "format": "\"$\"#,##0",
+      "formula": null,
+      "kind": "number",
+      "shown": "$55",
+      "value": "55"
+    },
+    "before": {
+      "address": "B4",
+      "format": "\"$\"#,##0",
+      "formula": null,
+      "kind": "number",
+      "shown": "$49",
+      "value": "49"
+    },
+    "sheet": "Assumptions"
+  }
+}

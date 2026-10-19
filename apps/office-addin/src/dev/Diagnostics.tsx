@@ -8,7 +8,8 @@
 // getFileAsync and asks the engine whether every revision survived as Lineage's.
 // Use a scratch document: each file replaces its contents.
 
-import type { DocumentHost, Engine, Storage, Written } from "@lineage/shell";
+import type { AsyncEngine, DocumentHost, Engine, Storage, Written } from "@lineage/shell";
+import { asyncEngine } from "@lineage/shell";
 import { useState } from "react";
 import { devLog } from "@lineage/storage-local";
 
@@ -28,10 +29,11 @@ export function Diagnostics({
   host,
   storage,
 }: {
-  engine: Engine;
+  engine: Engine | AsyncEngine;
   host: DocumentHost;
   storage: Storage | null;
 }) {
+  const engineAsync = asyncEngine(engine);
   const oneDrive =
     storage && "checkConditionalWrites" in storage
       ? (storage as Storage & ConditionalWrites)
@@ -47,7 +49,7 @@ export function Diagnostics({
       const before = await host.readIds();
       const ids = { family: "a".repeat(32), checkpoint: "b".repeat(32) };
       await host.writeIds(ids);
-      const read = engine.readIds(await host.readBytes());
+      const read = await engineAsync.readIds(await host.readBytes());
       await host.writeIds(before);
       const ok = read?.family === ids.family && read.checkpoint === ids.checkpoint;
       setStatus(
@@ -93,7 +95,7 @@ export function Diagnostics({
           );
           await host.replaceContents(bytes);
           const actual = await host.readBytes();
-          const written = engine.checkWritten(bytes, actual);
+          const written = await engineAsync.checkWritten(bytes, actual);
           if (!written.ok) {
             // Keep what Word holds, so the engine's tests can say what differs.
             await fetch(`/__lineage-dev/spike-actual/${encodeURIComponent(name)}`, {

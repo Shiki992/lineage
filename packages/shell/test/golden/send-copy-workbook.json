@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "value": {
+    "blobs": [
+      "6be0d0cb64c91fdc8ee97998de9a9c5c7737b04e0176c4d7e2e9cffddaf1fa30"
+    ],
+    "created": "e5beb5604070b985f3e5e267779cfb8d",
+    "familyId": null,
+    "hasFile": false,
+    "ids": null,
+    "ledgerLines": "{\"v\":1,\"seq\":7,\"at\":1792056780000,\"event\":{\"type\":\"CopySent\",\"sent_copy_id\":\"e5beb5604070b985f3e5e267779cfb8d\",\"from_checkpoint_id\":\"656f2293f39848047d0320f21f5134e4\",\"recipient\":\"Harbor Lane Capital\",\"purpose\":\"Series A\",\"format\":\"xlsx\",\"file\":\"6be0d0cb64c91fdc8ee97998de9a9c5c7737b04e0176c4d7e2e9cffddaf1fa30\",\"id_embedded\":true,\"cleaned\":{\"revisions\":0,\"comments\":1,\"hidden_runs\":0}}}\n",
+    "newFileName": "Startup model (Harbor Lane Capital).xlsx",
+    "nothingChanged": false,
+    "records": 1
+  }
+}

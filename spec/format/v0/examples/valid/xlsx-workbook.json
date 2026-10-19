@@ -1,0 +1,98 @@
+{
+  "specVersion": "0",
+  "format": "xlsx",
+  "changes": [
+    {
+      "id": "price",
+      "kind": "modify",
+      "location": {
+        "format": "xlsx",
+        "part": "xl/worksheets/sheet1.xml",
+        "sheet": "Assumptions",
+        "sheetIndex": 0,
+        "address": "B4",
+        "target": "cell"
+      },
+      "before": "49",
+      "after": "55",
+      "formattingOnly": false,
+      "confidence": 100,
+      "category": "input",
+      "provenance": "directEdit",
+      "summary": "Assumptions!B4 (Price per seat) changed from '$49' to '$55'"
+    },
+    {
+      "id": "mrr",
+      "kind": "modify",
+      "location": {
+        "format": "xlsx",
+        "part": "xl/worksheets/sheet2.xml",
+        "sheet": "Revenue",
+        "sheetIndex": 1,
+        "address": "C2",
+        "target": "cell"
+      },
+      "before": "5762.4",
+      "after": "6468",
+      "formattingOnly": false,
+      "confidence": 100,
+      "category": "knockOn",
+      "provenance": "downstream"
+    },
+    {
+      "id": "cogs",
+      "kind": "modify",
+      "location": {
+        "format": "xlsx",
+        "part": "xl/worksheets/sheet2.xml",
+        "sheet": "Revenue",
+        "sheetIndex": 1,
+        "address": "D7",
+        "addressBefore": "D6",
+        "target": "cell"
+      },
+      "before": "=C6*CogsShare",
+      "after": "=C7*CogsShare+250",
+      "formattingOnly": false,
+      "confidence": 100,
+      "category": "formula",
+      "provenance": "unknown"
+    },
+    {
+      "id": "rows-added",
+      "kind": "insert",
+      "location": {
+        "format": "xlsx",
+        "part": "xl/worksheets/sheet1.xml",
+        "sheet": "Assumptions",
+        "sheetIndex": 0,
+        "address": "4:4",
+        "target": "rows"
+      },
+      "before": null,
+      "after": "Annual discount\t0.05",
+      "formattingOnly": false,
+      "confidence": 100,
+      "category": "structure",
+      "provenance": "unknown"
+    },
+    {
+      "id": "rates",
+      "kind": "modify",
+      "location": {
+        "format": "xlsx",
+        "part": "xl/worksheets/sheet3.xml",
+        "sheet": "Rates",
+        "sheetIndex": 2,
+        "address": "B2",
+        "target": "cell"
+      },
+      "before": "0.92",
+      "after": "0.94",
+      "formattingOnly": false,
+      "confidence": 100,
+      "category": "refreshed",
+      "provenance": "refresh"
+    }
+  ]
+}

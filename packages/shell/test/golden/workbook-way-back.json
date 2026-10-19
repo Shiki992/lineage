@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "value": [
+    {
+      "address": "B4",
+      "kind": "set",
+      "sheet": "Assumptions",
+      "value": {
+        "kind": "number",
+        "text": "49"
+      }
+    }
+  ]
+}

@@ -32,9 +32,15 @@ pub struct SpecChange {
     pub confidence: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// xlsx: input, formula, knockOn, refreshed or structure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// xlsx: directEdit, downstream, refresh, likelyDownstream or unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Location {
     pub format: String,
@@ -57,9 +63,22 @@ pub struct Location {
     /// pptx: the shape's `p:cNvPr` id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shape_id: Option<u32>,
-    /// pptx: what changed when it is not one shape.
+    /// pptx and xlsx: what changed when it is not one shape or one cell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// xlsx: the sheet's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<String>,
+    /// xlsx: the sheet's position among the tabs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet_index: Option<usize>,
+    /// xlsx: the cell or range in A1 style, in the version the change is in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// xlsx: where the cell was in the earlier version, when rows or
+    /// columns moved it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address_before: Option<String>,
 }
 
 impl Location {
@@ -74,9 +93,19 @@ impl Location {
             char_range: None,
             cell: None,
             slide_index: Some(slide_index),
-            slide_id: None,
-            shape_id: None,
-            target: None,
+            ..Self::default()
+        }
+    }
+
+    /// A workbook location.
+    #[must_use]
+    pub fn xlsx(part: &str, sheet: &str, sheet_index: usize) -> Self {
+        Self {
+            format: "xlsx".to_owned(),
+            part: part.to_owned(),
+            sheet: Some(sheet.to_owned()),
+            sheet_index: Some(sheet_index),
+            ..Self::default()
         }
     }
 }
@@ -125,10 +154,7 @@ fn location(part: &str, path: &Path, change: &Change, with_range: bool) -> Locat
             None
         },
         cell: cell_location(&path.cells),
-        slide_index: None,
-        slide_id: None,
-        shape_id: None,
-        target: None,
+        ..Location::default()
     }
 }
 
@@ -155,6 +181,8 @@ pub fn change_list(changes: &[Change], summary: impl Fn(&Change) -> Option<Strin
                 formatting_only: change.formatting_only,
                 confidence: change.confidence,
                 summary: summary(change).filter(|s| !s.is_empty()),
+                category: None,
+                provenance: None,
             })
         })
         .collect();

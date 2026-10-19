@@ -8,15 +8,42 @@ import type { Family, SendArgs, WhatChanged } from "@lineage/shell";
 import { useId, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { WhatChangedView } from "./changes";
+import type { CellActions } from "./workbook";
 import { Back, Button } from "./parts";
+
+function formatName(format: string): string {
+  switch (format) {
+    case "pptx":
+      return "PowerPoint (.pptx)";
+    case "xlsx":
+      return "Excel (.xlsx, or .xlsm with macros)";
+    default:
+      return "Word (.docx)";
+  }
+}
+
+/** What a clean copy leaves out (decisions 0007, 0018, 0026). */
+function cleanCopy(format: string): string {
+  switch (format) {
+    case "pptx":
+      return "Always a clean copy: no comments, hidden slides or document properties. Speaker notes stay.";
+    case "xlsx":
+      return "Always a clean copy: no notes, comments or document properties.";
+    default:
+      return "Always a clean copy: no comments, tracked changes, hidden text or document properties.";
+  }
+}
 
 export function SaveCheckpoint({
   changes,
+  cells,
   busy,
   onSave,
   onBack,
 }: {
   changes: WhatChanged | null;
+  /** "Go to cell" and the side by side, for a workbook. */
+  cells?: CellActions | undefined;
   busy: boolean;
   onSave: (note: string) => void;
   onBack: () => void;
@@ -33,7 +60,11 @@ export function SaveCheckpoint({
     <form className="stack" onSubmit={submit}>
       <Back onClick={onBack} />
       <h1>Save checkpoint</h1>
-      {changes ? <WhatChangedView view={changes} /> : <p role="status">Looking at what changed…</p>}
+      {changes ? (
+        <WhatChangedView view={changes} cells={cells} />
+      ) : (
+        <p role="status">Looking at what changed…</p>
+      )}
       <div className="field">
         <label htmlFor={id}>Note (optional)</label>
         <input
@@ -120,12 +151,15 @@ export function MakeVersion({
 
 export function SendCopy({
   family,
+  goesWith = [],
   openNode,
   busy,
   onSend,
   onBack,
 }: {
   family: Family;
+  /** What goes with a workbook's copy: hidden sheets, rows and columns, macros. */
+  goesWith?: readonly string[];
   openNode: string;
   busy: boolean;
   onSend: (node: string, args: SendArgs) => void;
@@ -211,7 +245,7 @@ export function SendCopy({
       </div>
       <div className="field">
         <span style={{ fontWeight: 600 }}>Format</span>
-        <p>{family.format === "pptx" ? "PowerPoint (.pptx)" : "Word (.docx)"}</p>
+        <p>{formatName(family.format)}</p>
         <p className="secondary small">PDF is coming later.</p>
       </div>
       <label className="row" htmlFor={ids.id} style={{ minHeight: "var(--target)" }}>
@@ -227,10 +261,18 @@ export function SendCopy({
       </label>
       <p className="callout small">
         <span aria-hidden="true">🔒 </span>
-        {family.format === "pptx"
-          ? "Always a clean copy: no comments, hidden slides or document properties. Speaker notes stay."
-          : "Always a clean copy: no comments, tracked changes, hidden text or document properties."}
+        {cleanCopy(family.format)}
       </p>
+      {goesWith.length > 0 && (
+        <section className="warning stack" style={{ gap: 4 }} aria-label="What goes with this copy">
+          {goesWith.map((line) => (
+            <p key={line} className="small">
+              {line}.
+            </p>
+          ))}
+          <p className="small">Formulas may read them, so they stay. Check before you send it.</p>
+        </section>
+      )}
       <Button type="submit" primary wide disabled={busy}>
         Save copy and record it
       </Button>

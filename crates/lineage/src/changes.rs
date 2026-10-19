@@ -219,16 +219,43 @@ pub fn detect(
             continue;
         }
         let (before, after) = checkpoint_pair(state, master, blobs)?;
-        let plan = doc::plan(&before, ours, &after)?;
+        // Per change: (in this version already, offered but not there).
+        let statuses: std::collections::HashMap<String, (bool, bool)> = match (
+            &before, ours, &after,
+        ) {
+            (Doc::Workbook(b), Doc::Workbook(o), Doc::Workbook(t)) => {
+                use lineage_core::xlsx::merge::{Status as W, plan};
+                plan(b, o, t)
+                    .items
+                    .iter()
+                    .map(|i| {
+                        (
+                            i.id.clone(),
+                            (i.status == W::AlreadyThere, i.status == W::Clean),
+                        )
+                    })
+                    .collect()
+            }
+            _ => {
+                let plan = doc::plan(&before, ours, &after)?;
+                plan.ids()
+                    .into_iter()
+                    .map(|id| {
+                        let s = plan.status(&id);
+                        let found = s.is_some_and(|s| {
+                            matches!(s, Status::AlreadyThere { confidence } if *confidence >= DETECTED_CONFIDENCE)
+                        });
+                        let gone = s.is_some_and(|s| *s == Status::Clean);
+                        (id, (found, gone))
+                    })
+                    .collect()
+            }
+        };
         let mut all_merged = true;
         let mut detected_any = false;
         for change in &changes {
             let current = decided(state, variant, &master.id, &change.id);
-            let item = plan.status(&change.id);
-            let found = item.is_some_and(|s| {
-                matches!(s, Status::AlreadyThere { confidence } if *confidence >= DETECTED_CONFIDENCE)
-            });
-            let gone = item.is_some_and(|s| *s == Status::Clean);
+            let (found, gone) = statuses.get(&change.id).copied().unwrap_or((false, false));
             match current {
                 None if found => {
                     events.push(Event::ChangeStateRecorded {

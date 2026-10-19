@@ -6,6 +6,7 @@
 // the engine and storage; this file only draws and routes.
 
 import type {
+  AsyncEngine,
   Candidate,
   CardDecision,
   DeckPanel,
@@ -24,7 +25,7 @@ import type {
   VersionChoice,
   WhatChanged,
 } from "@lineage/shell";
-import { EngineError, Lineage, userMessage } from "@lineage/shell";
+import { EngineError, Lineage, goesToCells, userMessage } from "@lineage/shell";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Diagnostics } from "../dev/Diagnostics";
 import { errorKind, pageStart, timing } from "../metrics";
@@ -37,6 +38,8 @@ import { Elsewhere, MasterHome, SignIn, StartTracking, VersionHome } from "./hom
 import { Button, ErrorBanner, LinkButton } from "./parts";
 import { CameBack, ChooseReturned, OpenToReview, ReviewReturned } from "./returned";
 import { WhatIveSent } from "./sent";
+import type { CellActions } from "./workbook";
+import { WorkbookReview } from "./workbook";
 
 type Screen =
   | { kind: "home" }
@@ -45,7 +48,7 @@ type Screen =
   | { kind: "updates"; updates: Updates }
   /** A tailored deck open in PowerPoint brings changes in itself (decision 0019). */
   | { kind: "deckUpdates"; updates: Updates }
-  | { kind: "sendCopy"; family: Family }
+  | { kind: "sendCopy"; family: Family; goesWith: string[] }
   | { kind: "sent"; list: SentList }
   | { kind: "chooseReturned" }
   | { kind: "cameBack"; returning: Returning }
@@ -59,10 +62,15 @@ type Screen =
     }
   | { kind: "returnedReview"; review: ReturnReview }
   | { kind: "updateReport"; run: UpdateRun }
+  /** A tailored workbook open in Excel brings changes in itself (decision 0023). */
+  | { kind: "workbookUpdates"; updates: Updates }
+  /** A workbook that came back, kept into the open workbook. */
+  | { kind: "workbookReturned"; review: ReturnReview }
   | { kind: "diagnostics" };
 
 export interface AppProps {
-  engine: Engine;
+  /** In this thread, or in a Web Worker (Excel, decision 0025). */
+  engine: Engine | AsyncEngine;
   host: DocumentHost;
   storage: StorageChoice;
   /** Signs in and returns the person's storage (OneDrive). */
@@ -182,6 +190,22 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
     setScreen({ kind: "home" });
   }, []);
 
+  // "Go to cell" and the side by side, on workbook screens.
+  const cells = useMemo<CellActions>(
+    () => ({
+      goTo: goesToCells(host)
+        ? (sheet, address) => {
+            host.goToCell(sheet, address).catch((e: unknown) => {
+              console.error(e);
+              setError(userMessage(e));
+            });
+          }
+        : undefined,
+      sideBySide: lineage ? (sheet, address) => lineage.cellSideBySide(sheet, address) : undefined,
+    }),
+    [host, lineage],
+  );
+
   // A master deck shows the pitch deck panel: what just changed, and the
   // versions to update. Read again whenever the panel is read.
   const isMasterDeck = opened?.kind === "master" && opened.file.format === "pptx";
@@ -233,7 +257,12 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
   const reviewReturned = (returned: string) => {
     setNotice(null);
     void run("Getting their changes", async (l) => {
-      setScreen({ kind: "returnedReview", review: await l.returnedReview(returned) });
+      const review = await l.returnedReview(returned);
+      setScreen(
+        review.view.workbook
+          ? { kind: "workbookReturned", review }
+          : { kind: "returnedReview", review },
+      );
     });
   };
 
@@ -243,7 +272,12 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
       const kept = await l.recordReturned(returning, candidate, how);
       if (openFile?.familyId === kept.family && openFile.nodeId === kept.node) {
         setOpened(await l.refresh());
-        setScreen({ kind: "returnedReview", review: await l.returnedReview(kept.returned) });
+        const review = await l.returnedReview(kept.returned);
+        setScreen(
+          review.view.workbook
+            ? { kind: "workbookReturned", review }
+            : { kind: "returnedReview", review },
+        );
         return;
       }
       setScreen({
@@ -274,7 +308,10 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
       });
     } else {
       void run("Getting your versions", async (l) => {
-        setScreen({ kind: "sendCopy", family: await l.family() });
+        const family = await l.family();
+        // What goes with a workbook's copy is said before it's saved (decision 0026).
+        const goesWith = openFile?.format === "xlsx" ? await l.goesWithCopy() : [];
+        setScreen({ kind: "sendCopy", family, goesWith });
       });
     }
   };
@@ -384,6 +421,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
     body = (
       <ChooseReturned
         busy={busy !== null}
+        format={openFile?.format === "xlsx" ? "xlsx" : "docx"}
         onBack={home}
         onFile={(bytes, name) =>
           void run("Looking for the copy it came from", async (l) => {
@@ -437,6 +475,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
     body = (
       <SaveCheckpoint
         changes={screen.changes}
+        cells={cells}
         busy={busy !== null}
         onBack={home}
         onSave={(note) =>
@@ -499,6 +538,60 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         }
       />
     );
+  } else if (screen.kind === "workbookUpdates") {
+    const updates = screen.updates;
+    body = (
+      <WorkbookReview
+        title={updates.headline}
+        groups={updates.groups.flatMap((g) =>
+          g.view.workbook ? [{ key: g.checkpoint, label: g.label, view: g.view.workbook }] : [],
+        )}
+        verb="Bring in"
+        canBringIn={lineage?.bringsIntoOpenWorkbook === true}
+        busy={busy !== null}
+        onBack={home}
+        onApply={(cards) =>
+          void run("Bringing the changes into this workbook", async (l) => {
+            const plan = await l.bringInWorkbook(cards);
+            await refresh(l);
+            setNotice({
+              text:
+                plan.brought > 0
+                  ? `${plan.text.replace(/^Brings in/, "Brought in")}. Lineage saved a checkpoint of this workbook.`
+                  : "Done. Your choices are saved.",
+            });
+          })
+        }
+      />
+    );
+  } else if (screen.kind === "workbookReturned") {
+    const review = screen.review;
+    body = (
+      <WorkbookReview
+        title={review.headline}
+        groups={
+          review.view.workbook
+            ? [{ key: review.returned, label: null, view: review.view.workbook }]
+            : []
+        }
+        verb="Keep"
+        canBringIn={lineage?.bringsIntoOpenWorkbook === true}
+        busy={busy !== null}
+        onBack={home}
+        onApply={(cards) =>
+          void run("Keeping their changes in this workbook", async (l) => {
+            const plan = await l.keepIntoWorkbook(review.returned, cards);
+            await refresh(l);
+            setNotice({
+              text:
+                plan.brought > 0
+                  ? `${plan.text.replace(/^Keeps/, "Kept")}. Lineage saved a checkpoint of this workbook.`
+                  : "Done. Your choices are saved.",
+            });
+          })
+        }
+      />
+    );
   } else if (screen.kind === "deckUpdates") {
     body = (
       <DeckVersionReview
@@ -524,6 +617,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
     body = (
       <SendCopy
         family={screen.family}
+        goesWith={screen.goesWith}
         openNode={opened.file.nodeId}
         busy={busy !== null}
         onBack={home}
@@ -627,7 +721,13 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         onReview={() =>
           void run("Getting the updates", async (l) => {
             const updates = await l.updates();
-            setScreen(deck ? { kind: "deckUpdates", updates } : { kind: "updates", updates });
+            setScreen(
+              deck
+                ? { kind: "deckUpdates", updates }
+                : opened.file.format === "xlsx"
+                  ? { kind: "workbookUpdates", updates }
+                  : { kind: "updates", updates },
+            );
           })
         }
         onSent={() =>

@@ -16,6 +16,7 @@ use crate::package::props::LineageIds;
 use crate::pptx::{self, Deck, Kind, kind_of};
 use crate::view::{Theirs, WhatChanged};
 use crate::write::{Bring, Revision};
+use crate::xlsx::{self, Workbook};
 use crate::{Docx, View};
 
 /// An opened file of a format Lineage reads.
@@ -23,12 +24,13 @@ use crate::{Docx, View};
 pub enum Doc {
     Word(Docx),
     Deck(Deck),
+    Workbook(Workbook),
 }
 
 /// True for the formats this version reads and writes.
 #[must_use]
 pub fn readable(format: &str) -> bool {
-    matches!(format, "docx" | "pptx")
+    matches!(format, "docx" | "pptx" | "xlsx")
 }
 
 impl Doc {
@@ -40,6 +42,7 @@ impl Doc {
         match kind_of(bytes)? {
             Kind::Word => Ok(Self::Word(Docx::open(bytes)?)),
             Kind::PowerPoint => Ok(Self::Deck(Deck::open(bytes)?)),
+            Kind::Workbook => Ok(Self::Workbook(Workbook::open_for_panel(bytes)?)),
         }
     }
 
@@ -52,6 +55,7 @@ impl Doc {
         match format {
             "docx" => Ok(Self::Word(Docx::open(bytes)?)),
             "pptx" => Ok(Self::Deck(Deck::open(bytes)?)),
+            "xlsx" => Ok(Self::Workbook(Workbook::open_for_panel(bytes)?)),
             other => Err(Error::Unsupported(format!("{other} files"))),
         }
     }
@@ -62,6 +66,7 @@ impl Doc {
         match self {
             Self::Word(_) => "docx",
             Self::Deck(_) => "pptx",
+            Self::Workbook(_) => "xlsx",
         }
     }
 
@@ -70,6 +75,7 @@ impl Doc {
         match self {
             Self::Word(d) => &d.package,
             Self::Deck(d) => &d.package,
+            Self::Workbook(w) => &w.package,
         }
     }
 
@@ -119,6 +125,7 @@ impl Doc {
                 }
                 (lines, structure.finish())
             }
+            Self::Workbook(wb) => xlsx::view::text_and_structure(wb),
         }
     }
 }
@@ -128,7 +135,7 @@ fn same_kind<'d>(a: &'d Doc, b: &'d Doc) -> Result<()> {
         Ok(())
     } else {
         Err(Error::CannotEdit(
-            "a document and a deck can't be compared".to_owned(),
+            "files of different kinds can't be compared".to_owned(),
         ))
     }
 }
@@ -142,6 +149,9 @@ pub fn what_changed(before: &Doc, after: &Doc) -> Result<WhatChanged> {
     Ok(match (before, after) {
         (Doc::Word(a), Doc::Word(b)) => crate::view::from_diff(&crate::diff::diff(a, b), b),
         (Doc::Deck(a), Doc::Deck(b)) => pptx::view::from_diff(&pptx::diff::diff(a, b)),
+        (Doc::Workbook(a), Doc::Workbook(b)) => {
+            xlsx::view::what_changed(&xlsx::diff::diff(a, b, &[]), a, b)
+        }
         _ => unreachable!("checked above"),
     })
 }
@@ -160,6 +170,13 @@ pub fn change_list(before: &Doc, after: &Doc) -> Result<ChangeList> {
             })
         }
         (Doc::Deck(a), Doc::Deck(b)) => pptx::view::change_list(&pptx::diff::diff(a, b), a, b),
+        // Stored with each checkpoint, so calculated results are left out:
+        // they are summarised, never offered (decision 0022).
+        (Doc::Workbook(a), Doc::Workbook(b)) => {
+            let mut d = xlsx::diff::diff(a, b, &[]);
+            d.calculated.clear();
+            xlsx::view::change_list(&d, a, b)
+        }
         _ => unreachable!("checked above"),
     })
 }
@@ -184,6 +201,13 @@ pub fn changed(a: &[u8], b: &[u8], format: &str) -> Result<bool> {
         "pptx" => {
             let (da, db) = (Deck::open(a)?, Deck::open(b)?);
             Ok(!pptx::diff::diff(&da, &db).changes.is_empty())
+        }
+        // Calculated results that moved by themselves (TODAY, a refresh)
+        // are no one's change.
+        "xlsx" => {
+            let (wa, wb) = (Workbook::open_for_panel(a)?, Workbook::open_for_panel(b)?);
+            let d = xlsx::diff::diff(&wa, &wb, &[]);
+            Ok(!d.cells.is_empty() || !d.structure.is_empty() || !d.unmatched.is_empty())
         }
         other => Err(Error::Unsupported(format!("{other} files"))),
     }
@@ -227,6 +251,12 @@ pub fn changed_words(a: &Doc, b: &Doc) -> (usize, usize) {
                 tally(&change.segments);
             }
         }
+        (Doc::Workbook(x), Doc::Workbook(y)) => {
+            // A changed cell counts as one word out and one in.
+            let n = xlsx::diff::diff(x, y, &[]).cells.len();
+            removed = n;
+            added = n;
+        }
         _ => {
             let (la, _) = a.text_and_structure();
             let (lb, _) = b.text_and_structure();
@@ -254,6 +284,12 @@ pub fn plan<'d>(base: &'d Doc, ours: &'d Doc, theirs: &'d Doc) -> Result<Plan<'d
     Ok(match (base, ours, theirs) {
         (Doc::Word(b), Doc::Word(o), Doc::Word(t)) => Plan::Word(crate::merge::plan(b, o, t)),
         (Doc::Deck(b), Doc::Deck(o), Doc::Deck(t)) => Plan::Deck(pptx::merge::plan(b, o, t)),
+        // Workbooks land through an apply plan (decision 0023).
+        (Doc::Workbook(_), _, _) => {
+            return Err(Error::Unsupported(
+                "workbook merges go through the apply plan".to_owned(),
+            ));
+        }
         _ => unreachable!("checked above"),
     })
 }
@@ -337,6 +373,7 @@ pub fn clean_copy(bytes: &[u8], ids: Option<&LineageIds>) -> Result<(Vec<u8>, Cl
     match kind_of(bytes)? {
         Kind::Word => crate::clean::clean_copy(bytes, ids),
         Kind::PowerPoint => pptx::clean::clean_copy(bytes, ids),
+        Kind::Workbook => xlsx::clean::clean_copy(bytes, ids),
     }
 }
 

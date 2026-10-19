@@ -6,8 +6,9 @@
 // the properties, and replacing the contents brings the new file's properties in.
 
 import type { Engine } from "../engine.js";
-import type { DocumentHost, SlideHost } from "../host.js";
-import type { Ids, SlideOp } from "../schemas.js";
+import type { CellHost, CellNavigator, DocumentHost, SlideHost } from "../host.js";
+import { PlanStopped } from "../host.js";
+import type { CellStep, Hint, Ids, SlideOp } from "../schemas.js";
 import type { FileLocation } from "../storage.js";
 
 export class FakeHost implements DocumentHost {
@@ -119,6 +120,52 @@ export class FakePowerPoint extends FakeHost implements SlideHost {
     const lands = this.lands;
     this.lands = undefined;
     this.content = lands ? lands(source) : source;
+    return Promise.resolve();
+  }
+}
+
+/**
+ * Excel for the open-workbook path (decision 0023). It can't look inside a
+ * workbook, so tests script what it holds after each plan it carries out
+ * (`holds`, in order; unchanged when empty), a plan that stops partway
+ * (`stopAt`), and the edits it reports (`hints`).
+ */
+export class FakeExcel extends FakeHost implements CellHost, CellNavigator {
+  /** Every call's steps, in order. */
+  readonly applied: CellStep[][] = [];
+  /** Every "Go to cell", as "Sheet!B4". */
+  readonly shown: string[] = [];
+  /** What Excel holds after each call, in order. */
+  readonly holds: Uint8Array[] = [];
+  /** The next call stops after this many steps, holding the next of `holds` if any. */
+  stopAt: number | undefined;
+  hints: Hint[] = [];
+  supported = true;
+
+  canApplyPlan(): boolean {
+    return this.supported;
+  }
+
+  editHints(): readonly Hint[] {
+    return this.hints;
+  }
+
+  goToCell(sheet: string, address: string): Promise<void> {
+    this.shown.push(`${sheet}!${address}`);
+    return Promise.resolve();
+  }
+
+  applyCellPlan(steps: readonly CellStep[]): Promise<void> {
+    this.applied.push([...steps]);
+    const next = this.holds.shift();
+    if (next) {
+      this.content = next;
+    }
+    if (this.stopAt !== undefined && this.stopAt < steps.length) {
+      const done = this.stopAt;
+      this.stopAt = undefined;
+      return Promise.reject(new PlanStopped(done, "InvalidArgument"));
+    }
     return Promise.resolve();
   }
 }

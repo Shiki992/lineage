@@ -86,6 +86,27 @@ Word's own work is extra:
 - reading the document takes about 0.2 to 0.6 s;
 - writing a brought-in change and reading it back takes about a second for a resume (decision 0008).
 
+### Phase 5: workbooks (2026-10-18)
+
+The workbook engine took the wasm to 1,982,567 bytes raw and 657,409 gzipped, inside the 4 MB limits. Task pane JavaScript: 179,648 gzipped. The workbook budgets themselves (open, compare and memory by size, and the 1.5-million-cell limit) are in decision 0025.
+
+In the Excel pane the engine runs in a Web Worker (decision 0025), so a comparison that takes seconds never blocks Office. `Lineage` drives it through promises; Word and PowerPoint keep it in the pane's thread through the same shape. The worker loads in 113 to 254 ms (15 loads; 1.8 and 3.1 s while the dev server was rebuilding).
+
+In Excel for Windows (16.0.20430), with a scratch dev folder, from the pane's log during the three pilots:
+
+| What                              | Measured                                   |
+| --------------------------------- | ------------------------------------------ |
+| Panel ready                       | 308 to 475 ms, outside dev-server rebuilds |
+| Start tracking                    | 496 to 525 ms                              |
+| What changed                      | 257 to 580 ms                              |
+| Cell side by side                 | 179 ms                                     |
+| Save checkpoint (and save)        | 536 ms to 1.0 s; one of 6.8 s              |
+| Updates panel                     | 401 to 609 ms                              |
+| Bring in (plan, Excel, check)     | 842 ms to 1.65 s                           |
+| Keep a returned workbook's change | 1.78 s                                     |
+
+Reading the open workbook (`getFileAsync`) takes 125 to 150 ms for these files, and each bring-in reads it twice. The one 6.8 s checkpoint save came right after a row insert and cell writes through Office.js, as did one 5.6 s bring-in at stop 2; neither repeated.
+
 ## Alternatives
 
 - **A serde derive on the core and lineage view types**: less code, but it ties core's types to a JavaScript format. The DTOs in `crates/wasm/src/dto.rs` are the format and can be versioned on their own.

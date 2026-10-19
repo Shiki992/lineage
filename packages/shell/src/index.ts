@@ -10,9 +10,11 @@ export type {
   OpenDeckResult,
   UpdateResult,
 } from "./engine.js";
-export type { DocumentHost, SlideHost } from "./host.js";
-export { changesSlides } from "./host.js";
+export type { CellHost, CellNavigator, DocumentHost, SlideHost } from "./host.js";
+export { PlanStopped, changesCells, changesSlides, goesToCells, reportsEdits } from "./host.js";
 export { History } from "./history.js";
+export type { AsyncEngine, EnginePort } from "./worker.js";
+export { asyncEngine, connectEngine, serveEngine } from "./worker.js";
 export { Library } from "./library.js";
 export type { LibraryOptions, MissingFile, OpenedDocument } from "./library.js";
 export { Lineage, LineageError, userMessage } from "./lineage.js";
@@ -21,6 +23,11 @@ export * as schemas from "./schemas.js";
 export type {
   Candidate,
   CardDecision,
+  Category,
+  CellDetail,
+  CellSide,
+  CellStep,
+  CellWrite,
   ChangeCard,
   CheckpointCard,
   Choice,
@@ -34,6 +41,7 @@ export type {
   FileHistory,
   GraphEdge,
   GraphNode,
+  Hint,
   Ids,
   KeepFormatting,
   Lane,
@@ -43,6 +51,7 @@ export type {
   Node,
   OpenFile,
   OverlapCard,
+  PutBack,
   Recognition,
   ReturnReview,
   ReturnedRow,
@@ -50,6 +59,7 @@ export type {
   SendArgs,
   SentList,
   SentRow,
+  SideBySide,
   SlideOp,
   SlideOps,
   TimelineEntry,
@@ -61,6 +71,9 @@ export type {
   VersionRow,
   VersionRun,
   WhatChanged,
+  WorkbookCard,
+  WorkbookPlan,
+  WorkbookView,
   Written,
 } from "./schemas.js";
 export {

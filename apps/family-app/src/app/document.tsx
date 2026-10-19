@@ -6,6 +6,7 @@
 // and the Family tree. Nothing on this page changes a file that exists.
 
 import type {
+  DocumentPage,
   DocumentView,
   FileHistory,
   GraphEdge,
@@ -211,17 +212,32 @@ interface Picked {
 }
 
 function stem(name: string): string {
-  return name.replace(/\.(docx|pptx|xlsx)$/i, "");
+  return name.replace(/\.(docx|pptx|xlsx|xlsm)$/i, "");
 }
 
-/** "docx" or "pptx", from a file's name. */
+/** "docx", "pptx", "xlsx" or "xlsm", from a file's name. */
 function formatOf(name: string): string {
-  return /\.(docx|pptx|xlsx)$/i.exec(name)?.[1]?.toLowerCase() ?? "docx";
+  return /\.(docx|pptx|xlsx|xlsm)$/i.exec(name)?.[1]?.toLowerCase() ?? "docx";
+}
+
+/** The extension the family's copies have: a workbook with macros stays .xlsm. */
+function copyFormat(page: DocumentPage): string {
+  const master = page.files[0];
+  return page.format === "xlsx" && master && formatOf(master.name) === "xlsm"
+    ? "xlsm"
+    : page.format;
 }
 
 /** The app a format opens in, for "In Word, …". */
 function appFor(format: string): string {
-  return format === "pptx" ? "PowerPoint" : "Word";
+  switch (format) {
+    case "pptx":
+      return "PowerPoint";
+    case "xlsx":
+      return "Excel";
+    default:
+      return "Word";
+  }
 }
 
 function Versions({
@@ -770,7 +786,7 @@ function Sent({ documents, view }: { documents: Documents; view: DocumentView })
                   documents={documents}
                   familyId={page.familyId}
                   row={row}
-                  format={page.format}
+                  format={copyFormat(page)}
                   canOpen={page.canChange}
                 />
               ))}
@@ -1018,7 +1034,7 @@ function Details({
           familyId={page.familyId}
           checkpoint={entry.id}
           suggested={`${stem(file.name)} (${entry.label})`}
-          format={page.format}
+          format={formatOf(file.name)}
           from={`${stem(file.name)} ${entry.label}`}
           onDone={onChanged}
         />

@@ -1,0 +1,96 @@
+{
+  "ok": true,
+  "value": {
+    "groups": [
+      {
+        "checkpoint": "48bd22a819656172fe5cfe0ec8c53e4d",
+        "label": "From master v2",
+        "view": {
+          "alreadyThere": [],
+          "byHand": [],
+          "changes": [
+            {
+              "byHand": null,
+              "choices": [
+                {
+                  "decision": "bringIn",
+                  "label": "Bring in"
+                },
+                {
+                  "decision": "decline",
+                  "label": "Decline"
+                }
+              ],
+              "id": "xf2c3697854f6942d",
+              "place": "Assumptions!B4 · Price per seat, Value",
+              "summary": "'$49' changed to '$55'",
+              "text": [
+                {
+                  "kind": "removed",
+                  "text": "$49"
+                },
+                {
+                  "kind": "added",
+                  "text": "$55"
+                }
+              ]
+            }
+          ],
+          "formatting": [],
+          "headline": "1 update",
+          "overlaps": [],
+          "workbook": {
+            "groups": [
+              {
+                "cards": [
+                  {
+                    "address": "B4",
+                    "after": {
+                      "formula": null,
+                      "shown": "$55"
+                    },
+                    "before": {
+                      "formula": null,
+                      "shown": "$49"
+                    },
+                    "byHand": null,
+                    "cells": 1,
+                    "choices": [
+                      {
+                        "decision": "bringIn",
+                        "label": "Bring in"
+                      },
+                      {
+                        "decision": "decline",
+                        "label": "Decline"
+                      }
+                    ],
+                    "conflict": null,
+                    "id": "xf2c3697854f6942d",
+                    "ids": [
+                      "xf2c3697854f6942d"
+                    ],
+                    "mine": null,
+                    "place": "Assumptions!B4 · Price per seat, Value",
+                    "sheet": "Assumptions",
+                    "summary": "'$49' changed to '$55'",
+                    "why": null
+                  }
+                ],
+                "category": "input",
+                "more": 0,
+                "summary": "1 change",
+                "title": "Inputs"
+              }
+            ],
+            "headline": "1 update",
+            "notes": [],
+            "unmatched": [],
+            "untracked": []
+          }
+        }
+      }
+    ],
+    "headline": "1 update from the master"
+  }
+}

@@ -33,6 +33,14 @@ pub struct CleanReport {
     pub hidden_runs: usize,
     /// Hidden slides removed (decks).
     pub hidden_slides: usize,
+    /// Hidden sheets, rows and columns kept (workbooks): formulas may read
+    /// them, so they go with the copy, and Send a copy says so (decision
+    /// 0026).
+    pub hidden_sheets: usize,
+    pub hidden_rows: usize,
+    pub hidden_columns: usize,
+    /// The workbook has macros, which go with the copy.
+    pub macros: bool,
     /// Parts removed, such as `word/comments.xml`.
     pub parts_removed: Vec<String>,
 }

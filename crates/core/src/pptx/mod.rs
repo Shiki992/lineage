@@ -267,6 +267,7 @@ fn main_part(package: &Package) -> Result<String> {
 pub enum Kind {
     Word,
     PowerPoint,
+    Workbook,
 }
 
 impl Kind {
@@ -276,11 +277,13 @@ impl Kind {
         match self {
             Self::Word => "docx",
             Self::PowerPoint => "pptx",
+            Self::Workbook => "xlsx",
         }
     }
 }
 
-/// Tells a Word document from a deck, by the main part's content type.
+/// Tells a Word document from a deck or a workbook, by the main part's
+/// content type.
 ///
 /// # Errors
 /// [`Error`] when the bytes are not an Office package, or neither kind.
@@ -301,9 +304,11 @@ pub fn kind_of(bytes: &[u8]) -> Result<Kind> {
         Ok(Kind::PowerPoint)
     } else if content_type.contains("wordprocessingml") || content_type.contains("ms-word") {
         Ok(Kind::Word)
+    } else if content_type.contains("spreadsheetml") || content_type.contains("ms-excel") {
+        Ok(Kind::Workbook)
     } else {
         Err(Error::NotAnOfficeFile(
-            "neither a document nor a deck".to_owned(),
+            "neither a document, a deck nor a workbook".to_owned(),
         ))
     }
 }

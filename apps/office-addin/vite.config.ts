@@ -72,6 +72,8 @@ export default defineConfig(({ command }) => ({
     ...(command === "serve" ? { https: devCertificate() } : {}),
   },
   preview: { port: 3000, strictPort: true },
+  // The Excel pane's engine worker imports modules (main.tsx, decision 0025).
+  worker: { format: "es" },
   build: {
     outDir: "dist",
     emptyOutDir: true,

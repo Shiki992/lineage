@@ -1,6 +1,6 @@
 [package]
 name = "lineage-fuzz"
-description = "cargo-fuzz targets for the .docx, .pptx and zip readers. Returned files are untrusted input."
+description = "cargo-fuzz targets for the .docx, .pptx, .xlsx and zip readers. Returned files are untrusted input."
 version = "0.0.0"
 edition = "2024"
 license = "Apache-2.0"
@@ -16,6 +16,8 @@ members = ["."]
 [dependencies]
 libfuzzer-sys = "0.4.13"
 lineage-core = { path = "../crates/core" }
+# Builds the small workbook the xlsx target puts fuzzed worksheets into.
+lineage-testkit = { path = "../crates/testkit" }
 
 [[bin]]
 name = "docx_reader"
@@ -27,6 +29,13 @@ bench = false
 [[bin]]
 name = "pptx_reader"
 path = "fuzz_targets/pptx_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xlsx_reader"
+path = "fuzz_targets/xlsx_reader.rs"
 test = false
 doc = false
 bench = false

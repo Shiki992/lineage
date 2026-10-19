@@ -38,6 +38,21 @@ describe("a file came back", () => {
     expect([...bytes]).toEqual([1, 2, 3]);
   });
 
+  it("takes a workbook back into a workbook, with or without macros", async () => {
+    const onFile = vi.fn();
+    render(<ChooseReturned busy={false} format="xlsx" onFile={onFile} onBack={vi.fn()} />);
+    const input = screen.getByTestId("returned-file");
+    expect(input.getAttribute("accept")).toMatch(/^\.xlsx,\.xlsm,/);
+    fireEvent.change(input, { target: { files: [new File(["x"], "Model.docx")] } });
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Choose an Excel workbook (.xlsx or .xlsm).",
+    );
+    fireEvent.change(input, { target: { files: [new File(["x"], "Model - back.xlsm")] } });
+    await waitFor(() => {
+      expect(onFile).toHaveBeenCalledWith(expect.any(Uint8Array), "Model - back.xlsm");
+    });
+  });
+
   it("takes a file dropped on the pane", async () => {
     const onFile = vi.fn();
     render(<ChooseReturned busy={false} onFile={onFile} onBack={vi.fn()} />);

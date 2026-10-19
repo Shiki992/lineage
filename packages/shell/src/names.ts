@@ -4,17 +4,34 @@
 // File names for the files Lineage makes: tailored versions, restored versions
 // and sent copies keep the extension of their family's format.
 
-const OFFICE = /\.(docx|pptx)$/i;
+const OFFICE = /\.(docx|pptx|xlsx|xlsm)$/i;
 
-/** ".docx" or ".pptx", for a family format ("docx", "pptx"). */
+/** ".docx", ".pptx", ".xlsx" or ".xlsm", for a format ("docx", "pptx", "xlsx", "xlsm"). */
 export function extensionFor(format: string): string {
-  return format === "pptx" ? ".pptx" : ".docx";
+  switch (format) {
+    case "pptx":
+      return ".pptx";
+    case "xlsx":
+      return ".xlsx";
+    case "xlsm":
+      return ".xlsm";
+    default:
+      return ".docx";
+  }
 }
 
-/** `name` with the format's extension, unless it already ends in one. */
-export function withExtension(name: string, format = "docx"): string {
+/**
+ * `name` with an extension, unless it already ends in one: the extension of
+ * `like` (the file it is made from, so a workbook with macros stays .xlsm),
+ * or else the format's.
+ */
+export function withExtension(name: string, format = "docx", like?: string): string {
   const trimmed = name.trim();
-  return OFFICE.test(trimmed) ? trimmed : `${trimmed}${extensionFor(format)}`;
+  if (OFFICE.test(trimmed)) {
+    return trimmed;
+  }
+  const own = like === undefined ? null : OFFICE.exec(like.trim());
+  return `${trimmed}${own ? own[0].toLowerCase() : extensionFor(format)}`;
 }
 
 /** "Name.pptx" → "Name (2).pptx", for a file name that is taken. */

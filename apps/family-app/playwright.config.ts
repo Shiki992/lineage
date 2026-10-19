@@ -12,7 +12,12 @@ import { defineConfig } from "@playwright/test";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const ACCOUNTS = path.join(here, "e2e", ".accounts");
-export const PORTS = { "three-families": 3101, damaged: 3102, large: 3103 } as const;
+export const PORTS = {
+  "three-families": 3101,
+  damaged: 3102,
+  large: 3103,
+  workbooks: 3104,
+} as const;
 
 export default defineConfig({
   testDir: "e2e",

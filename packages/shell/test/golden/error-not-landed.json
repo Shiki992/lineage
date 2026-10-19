@@ -1,0 +1,8 @@
+{
+  "error": {
+    "detail": "did not land: assumptions!B4: expected Value(8046740564715462041), found Some(Value(8047697139831816386))",
+    "kind": "engine",
+    "userMessage": "The open file didn't take the changes exactly as Lineage wrote them."
+  },
+  "ok": false
+}

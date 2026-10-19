@@ -31,6 +31,9 @@ wasm-bindgen = "=0.2.129"
 rawzip = "0.5.2"
 miniz_oxide = { version = "0.9.1", default-features = false, features = ["with-alloc"] }
 roxmltree = { version = "0.21.1", default-features = false, features = ["std", "positions"] }
+# Streaming XML for worksheets, which can be far too large for a tree. Justified in
+# docs/decisions/0025-phase-5-dependencies-and-budgets.md.
+quick-xml = { version = "0.42.0", default-features = false }
 # Content addressing and change ids. Justified in docs/decisions/0006-phase-1-dependencies.md.
 sha2 = { version = "0.11.1", default-features = false }
 # The change list (spec/format) and the ledger are JSON. Justified in 0006.

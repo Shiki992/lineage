@@ -353,3 +353,20 @@ fieldset.card legend {
   font-weight: 600;
   padding: 0 4px;
 }
+
+/* A cell in the workbook side by side: label, value. */
+.detail {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 0;
+}
+
+.detail dt {
+  color: var(--text-secondary);
+}
+
+.detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

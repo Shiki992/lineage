@@ -4,13 +4,13 @@
   SPDX-License-Identifier: Apache-2.0
 
   The development manifest: the task pane is served by `pnpm dev` at
-  https://localhost:3000. Add-in-only (XML) manifest, valid for production Word
-  and PowerPoint add-ins (decisions 0008 and 0018):
+  https://localhost:3000. Add-in-only (XML) manifest, valid for production Word,
+  PowerPoint and Excel add-ins (decisions 0008, 0018 and 0020):
   https://learn.microsoft.com/office/dev/add-ins/develop/add-in-manifests
-  One add-in for both: a <Requirements> on WordApi here would keep it out of
-  PowerPoint, so the floors are checked when the pane starts (main.tsx):
+  One add-in for all three: a <Requirements> on WordApi here would keep it out
+  of the others, so the floors are checked when the pane starts (main.tsx):
   WordApi 1.5 (Document.insertFileFromBase64) in Word, PowerPointApi 1.7
-  (custom properties) in PowerPoint.
+  (custom properties) in PowerPoint, ExcelApi 1.7 (custom properties) in Excel.
   https://learn.microsoft.com/office/dev/add-ins/develop/specify-office-hosts-and-api-requirements
 -->
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
@@ -33,6 +33,7 @@
   <Hosts>
     <Host Name="Document"/>
     <Host Name="Presentation"/>
+    <Host Name="Workbook"/>
   </Hosts>
   <DefaultSettings>
     <SourceLocation DefaultValue="https://localhost:3000/taskpane.html"/>
@@ -114,6 +115,43 @@
           </ExtensionPoint>
         </DesktopFormFactor>
       </Host>
+      <Host xsi:type="Workbook">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="GetStarted.Title"/>
+            <Description resid="GetStarted.WorkbookDescription"/>
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
+          </GetStarted>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="Lineage.Group.Workbook">
+                <Label resid="Group.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16"/>
+                  <bt:Image size="32" resid="Icon.32"/>
+                  <bt:Image size="80" resid="Icon.80"/>
+                </Icon>
+                <Control xsi:type="Button" id="Lineage.Open.Workbook">
+                  <Label resid="Button.Label"/>
+                  <Supertip>
+                    <Title resid="Button.Label"/>
+                    <Description resid="Button.WorkbookTooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16"/>
+                    <bt:Image size="32" resid="Icon.32"/>
+                    <bt:Image size="80" resid="Icon.80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>Lineage.Taskpane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
     </Hosts>
     <Resources>
       <bt:Images>
@@ -135,6 +173,8 @@
         <bt:String id="Button.Tooltip" DefaultValue="Track this file, make tailored versions and record the copies you send."/>
         <bt:String id="GetStarted.DeckDescription" DefaultValue="Open Lineage from the Home tab to track this deck and the versions you make for each investor or customer."/>
         <bt:String id="Button.DeckTooltip" DefaultValue="Track this deck, update its tailored versions and record the copies you send."/>
+        <bt:String id="GetStarted.WorkbookDescription" DefaultValue="Open Lineage from the Home tab to track this workbook and the versions you make from it."/>
+        <bt:String id="Button.WorkbookTooltip" DefaultValue="Track this workbook, bring the master's changes into its versions and record the copies you send."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

@@ -1,0 +1,41 @@
+{
+  "ok": true,
+  "value": {
+    "brought": 1,
+    "deferred": 0,
+    "expect": [
+      {
+        "address": "B5",
+        "sheet": "Assumptions",
+        "value": {
+          "kind": "number",
+          "text": "0.02"
+        }
+      }
+    ],
+    "skipped": [],
+    "steps": [
+      {
+        "address": "B5",
+        "kind": "set",
+        "sheet": "Assumptions",
+        "value": {
+          "kind": "number",
+          "text": "0.03"
+        }
+      }
+    ],
+    "text": "Keeps 1 change",
+    "undo": [
+      {
+        "address": "B5",
+        "kind": "set",
+        "sheet": "Assumptions",
+        "value": {
+          "kind": "number",
+          "text": "0.02"
+        }
+      }
+    ]
+  }
+}
