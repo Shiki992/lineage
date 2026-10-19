@@ -16,6 +16,8 @@ pub mod display;
 pub mod formula;
 pub mod merge;
 pub mod model;
+pub mod pivot;
+pub mod query;
 mod read;
 pub mod refs;
 mod sheet;
@@ -53,6 +55,19 @@ pub struct Workbook {
     /// Ranges that data connections fill: (sheet position, area).
     pub query_areas: Vec<(usize, Area)>,
     pub connections: Vec<ConnectionDef>,
+    /// Pivot tables, their caches and slicers (decision 0029).
+    pub pivots: pivot::Pivots,
+    /// Where pivot tables put their cells: (sheet position, area). What
+    /// changes there is the pivot's output, never someone's edit.
+    pub pivot_areas: Vec<(usize, Area)>,
+    /// The VBA project, read as text (decision 0028). `None` without
+    /// macros, or when the project can't be read (then it stays in
+    /// `unsupported`).
+    pub vba: Option<crate::vba::VbaProject>,
+    /// The part `vba` was read from.
+    pub vba_part: Option<String>,
+    /// Power Query queries (decision 0030), on the same terms.
+    pub queries: Option<query::Mashup>,
     pub unsupported: Vec<Unsupported>,
     /// Dates count from 1904 (old Mac workbooks).
     pub date1904: bool,
@@ -182,7 +197,36 @@ impl Workbook {
         }
 
         let connections = read::connections(&package, &main_rels, &main_part)?;
-        let unsupported = read::unsupported(&package)?;
+        let sheet_parts: Vec<String> = wb_part
+            .sheets
+            .iter()
+            .map(|e| {
+                if e.kind == SheetKind::Worksheet {
+                    e.part.clone()
+                } else {
+                    String::new()
+                }
+            })
+            .collect();
+        let pivots = pivot::read(&package, &main_part, &main_rels, &sheet_parts);
+        let pivot_areas = pivots.tables.iter().map(|t| (t.sheet, t.area)).collect();
+        let covered = pivot::covered_parts(&package, &sheet_parts, &pivots);
+        let mut unsupported = read::unsupported(&package)?;
+        unsupported.retain(|u| !covered.contains(&u.part));
+        let (vba, vba_part) = read_vba(&package, &main_part, &main_rels);
+        let queries = unsupported
+            .iter()
+            .filter(|u| u.kind == UnsupportedKind::PowerQuery)
+            .find_map(|u| {
+                package
+                    .part(&u.part)
+                    .and_then(|b| query::read(&u.part, b).ok())
+            });
+        unsupported.retain(|u| match u.kind {
+            UnsupportedKind::Macros => vba_part.as_deref() != Some(u.part.as_str()),
+            UnsupportedKind::PowerQuery => queries.as_ref().is_none_or(|q| q.part != u.part),
+            _ => true,
+        });
         Ok(Self {
             package,
             main_part,
@@ -195,6 +239,11 @@ impl Workbook {
             tables,
             query_areas,
             connections,
+            pivots,
+            pivot_areas,
+            vba,
+            vba_part,
+            queries,
             unsupported,
             date1904: wb_part.date1904,
             settings: wb_part.settings,
@@ -237,6 +286,41 @@ impl Workbook {
     #[must_use]
     pub fn cell_count(&self) -> usize {
         self.sheets.iter().map(Sheet::cell_count).sum()
+    }
+}
+
+/// The VBA project the workbook part relates to, read as text with any
+/// signature parts it relates to. `(None, None)` without one; `(None,
+/// Some(part))` is never returned: an unreadable project is left out, so
+/// it stays "Preserved; semantic tracking not yet supported".
+fn read_vba(
+    package: &Package,
+    main_part: &str,
+    main_rels: &Relationships,
+) -> (Option<crate::vba::VbaProject>, Option<String>) {
+    let Some(rel) = main_rels.of_kind("vbaProject").next() else {
+        return (None, None);
+    };
+    let part = resolve_target(main_part, &rel.target);
+    let Some(bin) = package.part(&part) else {
+        return (None, None);
+    };
+    let rels = read::rels(package, &part).unwrap_or_default();
+    let mut signatures: Vec<&[u8]> = Vec::new();
+    for kind in [
+        "vbaProjectSignature",
+        "vbaProjectSignatureAgile",
+        "vbaProjectSignatureV3",
+    ] {
+        for r in rels.of_kind(kind) {
+            if let Some(b) = package.part(&resolve_target(&part, &r.target)) {
+                signatures.push(b);
+            }
+        }
+    }
+    match crate::vba::read(bin, &signatures) {
+        Ok(p) => (Some(p), Some(part)),
+        Err(_) => (None, None),
     }
 }
 

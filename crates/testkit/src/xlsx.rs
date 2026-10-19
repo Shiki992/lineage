@@ -260,6 +260,8 @@ pub struct Connection {
     pub id: u32,
     pub name: String,
     pub source_file: String,
+    /// A Power Query query this connection loads, instead of a text file.
+    pub mashup: Option<String>,
 }
 
 /// A part the builder carries without understanding, such as `vbaProject.bin`.
@@ -291,6 +293,26 @@ pub struct Workbook {
     /// `.xlsm`: the macro-enabled main content type.
     pub macro_enabled: bool,
     pub zip: Zip,
+    /// Pivot caches, pivot tables (with their output rendered into their
+    /// sheets) and slicers.
+    pub pivot_caches: Vec<crate::pivots::PivotCache>,
+    pub pivots: Vec<crate::pivots::Pivot>,
+    pub slicers: Vec<crate::pivots::Slicer>,
+    /// Parts related from another part than the workbook, such as a VBA
+    /// project's signature or Power Query's custom XML item.
+    pub extra: Vec<Extra>,
+}
+
+/// A part with its relationship from `source` (a part name, or
+/// "xl/workbook.xml"), and its own content type override.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Extra {
+    pub name: String,
+    pub content_type: Option<String>,
+    pub bytes: Vec<u8>,
+    /// (source part, full relationship type); `None` for a part nothing
+    /// points at (only its content type).
+    pub related_from: Option<(String, String)>,
 }
 
 /// "A" for 1, "AA" for 27.
@@ -551,6 +573,16 @@ fn rel(id: usize, kind: &str, target: &str) -> RelRow {
     )
 }
 
+/// The target of a relationship from a part in `dir` to `part`.
+fn relative_to(dir: &str, part: &str) -> String {
+    let from: Vec<&str> = dir.split('/').filter(|s| !s.is_empty()).collect();
+    let to: Vec<&str> = part.split('/').collect();
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut out: Vec<&str> = vec![".."; from.len() - common];
+    out.extend(&to[common..]);
+    out.join("/")
+}
+
 fn rels_xml(rels: &[RelRow]) -> String {
     let mut out = format!(
         r#"{DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#
@@ -716,8 +748,20 @@ impl Workbook {
         let mut table_number = 0usize;
         let mut query_number = 0usize;
         let mut comment_number = 0usize;
+        let mut slicer_sheet_number = 0usize;
+        let mut pivot_number = 0usize;
 
-        for (index, sheet) in self.sheets.iter().enumerate() {
+        // Pivots' output cells, rendered into a copy of their sheets.
+        let mut rendered = self.sheets.clone();
+        crate::pivots::render(
+            &mut rendered,
+            &self.pivots,
+            &self.pivot_caches,
+            &self.slicers,
+        );
+        let tab_ids: Vec<u32> = self.sheets.iter().map(|s| s.sheet_id).collect();
+
+        for (index, sheet) in rendered.iter().enumerate() {
             let file = format!("sheet{}.xml", index + 1);
             wb_rels.push(rel(index + 1, "worksheet", &format!("worksheets/{file}")));
             overrides.push((
@@ -725,6 +769,76 @@ impl Workbook {
                 format!("{CT_SML}.worksheet+xml"),
             ));
             let mut sheet_rels: Vec<RelRow> = Vec::new();
+            for (p_index, pivot) in self.pivots.iter().enumerate() {
+                if pivot.sheet != index {
+                    continue;
+                }
+                pivot_number += 1;
+                let rid = sheet_rels.len() + 1;
+                sheet_rels.push(rel(
+                    rid,
+                    "pivotTable",
+                    &format!("../pivotTables/pivotTable{pivot_number}.xml"),
+                ));
+                overrides.push((
+                    format!("/xl/pivotTables/pivotTable{pivot_number}.xml"),
+                    format!("{CT_SML}.pivotTable+xml"),
+                ));
+                sheet_parts.push((
+                    format!("xl/pivotTables/pivotTable{pivot_number}.xml"),
+                    crate::pivots::table_xml(
+                        pivot,
+                        p_index,
+                        pivot.cache + 1,
+                        &self.pivot_caches,
+                        &self.slicers,
+                    )
+                    .into_bytes(),
+                ));
+                sheet_parts.push((
+                    format!("xl/pivotTables/_rels/pivotTable{pivot_number}.xml.rels"),
+                    rels_xml(&[rel(
+                        1,
+                        "pivotCacheDefinition",
+                        &format!("../pivotCache/pivotCacheDefinition{}.xml", pivot.cache + 1),
+                    )])
+                    .into_bytes(),
+                ));
+            }
+            let on_sheet: Vec<&crate::pivots::Slicer> =
+                self.slicers.iter().filter(|s| s.sheet == index).collect();
+            let mut drawing_rid = None;
+            let mut slicer_rid = None;
+            if !on_sheet.is_empty() {
+                slicer_sheet_number += 1;
+                let n = slicer_sheet_number;
+                let rid = sheet_rels.len() + 1;
+                sheet_rels.push(rel(rid, "drawing", &format!("../drawings/drawing{n}.xml")));
+                drawing_rid = Some(format!("rId{rid}"));
+                let rid = sheet_rels.len() + 1;
+                sheet_rels.push((
+                    format!("rId{rid}"),
+                    "http://schemas.microsoft.com/office/2007/relationships/slicer".to_owned(),
+                    format!("../slicers/slicer{n}.xml"),
+                ));
+                slicer_rid = Some(format!("rId{rid}"));
+                overrides.push((
+                    format!("/xl/drawings/drawing{n}.xml"),
+                    "application/vnd.openxmlformats-officedocument.drawing+xml".to_owned(),
+                ));
+                overrides.push((
+                    format!("/xl/slicers/slicer{n}.xml"),
+                    "application/vnd.ms-excel.slicer+xml".to_owned(),
+                ));
+                sheet_parts.push((
+                    format!("xl/drawings/drawing{n}.xml"),
+                    crate::pivots::slicer_drawing_xml(&on_sheet).into_bytes(),
+                ));
+                sheet_parts.push((
+                    format!("xl/slicers/slicer{n}.xml"),
+                    crate::pivots::slicers_xml(&on_sheet).into_bytes(),
+                ));
+            }
             let mut table_rids = Vec::new();
             for table in &sheet.tables {
                 table_number += 1;
@@ -817,7 +931,15 @@ impl Workbook {
                     vml_xml(&sheet.comments, index).into_bytes(),
                 ));
             }
-            let xml = self.sheet_xml(sheet, index, &mut strings, &table_rids, legacy.as_deref());
+            let xml = self.sheet_xml(
+                sheet,
+                index,
+                &mut strings,
+                &table_rids,
+                legacy.as_deref(),
+                drawing_rid.as_deref(),
+                slicer_rid.as_deref(),
+            );
             parts.push((format!("xl/worksheets/{file}"), xml.into_bytes()));
             if !sheet_rels.is_empty() {
                 parts.push((
@@ -852,6 +974,93 @@ impl Workbook {
                 target.to_owned(),
             ));
             overrides.push((format!("/{}", opaque.name), opaque.content_type.clone()));
+        }
+        // Pivot caches and their records.
+        let mut cache_rids = Vec::new();
+        let mut late_parts: Vec<(String, Vec<u8>)> = Vec::new();
+        for (k, cache) in self.pivot_caches.iter().enumerate() {
+            let n = k + 1;
+            next += 1;
+            wb_rels.push(rel(
+                next,
+                "pivotCacheDefinition",
+                &format!("pivotCache/pivotCacheDefinition{n}.xml"),
+            ));
+            cache_rids.push(format!("rId{next}"));
+            overrides.push((
+                format!("/xl/pivotCache/pivotCacheDefinition{n}.xml"),
+                format!("{CT_SML}.pivotCacheDefinition+xml"),
+            ));
+            overrides.push((
+                format!("/xl/pivotCache/pivotCacheRecords{n}.xml"),
+                format!("{CT_SML}.pivotCacheRecords+xml"),
+            ));
+            late_parts.push((
+                format!("xl/pivotCache/pivotCacheDefinition{n}.xml"),
+                crate::pivots::cache_xml(cache, n).into_bytes(),
+            ));
+            late_parts.push((
+                format!("xl/pivotCache/_rels/pivotCacheDefinition{n}.xml.rels"),
+                rels_xml(&[rel(
+                    1,
+                    "pivotCacheRecords",
+                    &format!("pivotCacheRecords{n}.xml"),
+                )])
+                .into_bytes(),
+            ));
+            late_parts.push((
+                format!("xl/pivotCache/pivotCacheRecords{n}.xml"),
+                crate::pivots::records_xml(cache).into_bytes(),
+            ));
+        }
+        let mut slicer_cache_rids = Vec::new();
+        for (k, slicer) in self.slicers.iter().enumerate() {
+            let n = k + 1;
+            next += 1;
+            wb_rels.push((
+                format!("rId{next}"),
+                "http://schemas.microsoft.com/office/2007/relationships/slicerCache".to_owned(),
+                format!("slicerCaches/slicerCache{n}.xml"),
+            ));
+            slicer_cache_rids.push(format!("rId{next}"));
+            overrides.push((
+                format!("/xl/slicerCaches/slicerCache{n}.xml"),
+                "application/vnd.ms-excel.slicerCache+xml".to_owned(),
+            ));
+            late_parts.push((
+                format!("xl/slicerCaches/slicerCache{n}.xml"),
+                crate::pivots::slicer_cache_xml(slicer, &self.pivots, &self.pivot_caches, &tab_ids)
+                    .into_bytes(),
+            ));
+        }
+        // Extra parts and the relationships to them.
+        let mut extra_rels: BTreeMap<String, Vec<RelRow>> = BTreeMap::new();
+        for e in &self.extra {
+            if let Some(ct) = &e.content_type {
+                overrides.push((format!("/{}", e.name), ct.clone()));
+            }
+            if let Some((source, rel_type)) = &e.related_from {
+                let dir = source.rsplit_once('/').map_or("", |(d, _)| d);
+                let target = relative_to(dir, &e.name);
+                if source == "xl/workbook.xml" {
+                    next += 1;
+                    wb_rels.push((format!("rId{next}"), rel_type.clone(), target));
+                } else {
+                    let list = extra_rels.entry(source.clone()).or_default();
+                    let id = list.len() + 1;
+                    list.push((format!("rId{id}"), rel_type.clone(), target));
+                }
+            }
+            late_parts.push((e.name.clone(), e.bytes.clone()));
+        }
+        for (source, list) in &extra_rels {
+            let (dir, file) = source.rsplit_once('/').unwrap_or(("", source));
+            let name = if dir.is_empty() {
+                format!("_rels/{file}.rels")
+            } else {
+                format!("{dir}/_rels/{file}.rels")
+            };
+            late_parts.push((name, rels_xml(list).into_bytes()));
         }
 
         overrides.push((
@@ -912,7 +1121,8 @@ impl Workbook {
         }
         out.push((
             "xl/workbook.xml".to_owned(),
-            self.workbook_xml().into_bytes(),
+            self.workbook_xml(&cache_rids, &slicer_cache_rids)
+                .into_bytes(),
         ));
         out.push((
             "xl/_rels/workbook.xml.rels".to_owned(),
@@ -934,10 +1144,11 @@ impl Workbook {
         for opaque in &self.opaque {
             out.push((opaque.name.clone(), opaque.bytes.clone()));
         }
+        out.extend(late_parts);
         out
     }
 
-    fn workbook_xml(&self) -> String {
+    fn workbook_xml(&self, cache_rids: &[String], slicer_cache_rids: &[String]) -> String {
         let code_name = if self.macro_enabled {
             r#" codeName="ThisWorkbook""#
         } else {
@@ -990,6 +1201,15 @@ impl Workbook {
                 });
             }
         }
+        // Excel names every slicer cache.
+        for s in &self.slicers {
+            names.push(Name {
+                name: s.name.clone(),
+                refers_to: "#N/A".to_owned(),
+                local: None,
+                hidden: false,
+            });
+        }
         if !names.is_empty() {
             // Excel sorts defined names; keep the same order so a re-save
             // doesn't reorder them.
@@ -1015,13 +1235,45 @@ impl Workbook {
             }
             out.push_str("</definedNames>");
         }
-        out.push_str(r#"<calcPr calcId="191029"/></workbook>"#);
+        out.push_str(r#"<calcPr calcId="191029"/>"#);
+        if !cache_rids.is_empty() {
+            out.push_str("<pivotCaches>");
+            for (k, rid) in cache_rids.iter().enumerate() {
+                let _ = write!(out, r#"<pivotCache cacheId="{}" r:id="{rid}"/>"#, k + 1);
+            }
+            out.push_str("</pivotCaches>");
+        }
+        if !slicer_cache_rids.is_empty() {
+            let _ = write!(
+                out,
+                r#"<extLst><ext uri="{{BBE1A952-AA13-448e-AADC-164F8A28A991}}" xmlns:x14="{}"><x14:slicerCaches>"#,
+                crate::pivots::NS_X14
+            );
+            for rid in slicer_cache_rids {
+                let _ = write!(out, r#"<x14:slicerCache r:id="{rid}"/>"#);
+            }
+            out.push_str("</x14:slicerCaches></ext></extLst>");
+        }
+        out.push_str("</workbook>");
         out
     }
 
     fn connections_xml(&self) -> String {
         let mut out = format!(r#"{DECL}<connections xmlns="{NS_MAIN}">"#);
         for c in &self.connections {
+            if let Some(query) = &c.mashup {
+                // As Excel writes a Power Query connection.
+                let _ = write!(
+                    out,
+                    r#"<connection id="{}" keepAlive="1" name="{}" description="Connection to the '{}' query in the workbook." type="5" refreshedVersion="8" background="1" saveData="1"><dbPr connection="Provider=Microsoft.Mashup.OleDb.1;Data Source=$Workbook$;Location={};Extended Properties=&quot;&quot;" command="SELECT * FROM [{}]"/></connection>"#,
+                    c.id,
+                    esc(&c.name),
+                    esc(query),
+                    esc(query),
+                    esc(query)
+                );
+                continue;
+            }
             // As Excel writes a comma-separated text import.
             let _ = write!(
                 out,
@@ -1035,6 +1287,7 @@ impl Workbook {
         out
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn sheet_xml(
         &self,
         sheet: &Sheet,
@@ -1042,6 +1295,8 @@ impl Workbook {
         strings: &mut Strings,
         table_rids: &[String],
         legacy: Option<&str>,
+        drawing: Option<&str>,
+        slicers: Option<&str>,
     ) -> String {
         let selected = if index == 0 {
             r#" tabSelected="1""#
@@ -1102,6 +1357,9 @@ impl Workbook {
             );
         }
         out.push_str(r#"<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>"#);
+        if let Some(rid) = drawing {
+            let _ = write!(out, r#"<drawing r:id="{rid}"/>"#);
+        }
         if let Some(rid) = legacy {
             let _ = write!(out, r#"<legacyDrawing r:id="{rid}"/>"#);
         }
@@ -1111,6 +1369,13 @@ impl Workbook {
                 let _ = write!(out, r#"<tablePart r:id="{rid}"/>"#);
             }
             out.push_str("</tableParts>");
+        }
+        if let Some(rid) = slicers {
+            let _ = write!(
+                out,
+                r#"<extLst><ext uri="{{A8765BA9-456A-4dab-B4F3-ACF838C121DE}}" xmlns:x14="{}"><x14:slicerList><x14:slicer r:id="{rid}"/></x14:slicerList></ext></extLst>"#,
+                crate::pivots::NS_X14
+            );
         }
         out.push_str("</worksheet>");
         let _ = self;
@@ -1167,6 +1432,7 @@ mod tests {
             id: 1,
             name: "stock".to_owned(),
             source_file: r"C:\stock.csv".to_owned(),
+            mashup: None,
         });
         wb.custom.push(("Client".to_owned(), "Example".to_owned()));
         wb

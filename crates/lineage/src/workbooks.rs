@@ -162,7 +162,7 @@ fn pair(
 ) -> Result<(Workbook, Workbook)> {
     let (before, after) = checkpoint_pair(state, checkpoint, blobs)?;
     match (before, after) {
-        (lineage_core::doc::Doc::Workbook(a), lineage_core::doc::Doc::Workbook(b)) => Ok((a, b)),
+        (lineage_core::doc::Doc::Workbook(a), lineage_core::doc::Doc::Workbook(b)) => Ok((*a, *b)),
         _ => Err(Error::NotAllowed("not a workbook family".to_owned())),
     }
 }

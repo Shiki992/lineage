@@ -113,9 +113,9 @@ pub fn prepare(bytes: &[u8]) -> Result<Prepared> {
         lineage_core::pptx::Kind::Word => {
             Doc::Word(Docx::from_package(package, lineage_core::View::Accepted)?)
         }
-        lineage_core::pptx::Kind::Workbook => Doc::Workbook(
+        lineage_core::pptx::Kind::Workbook => Doc::Workbook(Box::new(
             lineage_core::Workbook::from_package_limited(package, lineage_core::xlsx::PANEL_CELLS)?,
-        ),
+        )),
         lineage_core::pptx::Kind::PowerPoint => {
             Doc::Deck(lineage_core::Deck::from_package(package)?)
         }

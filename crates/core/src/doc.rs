@@ -24,7 +24,8 @@ use crate::{Docx, View};
 pub enum Doc {
     Word(Docx),
     Deck(Deck),
-    Workbook(Workbook),
+    /// Boxed: a workbook model is far larger than the others.
+    Workbook(Box<Workbook>),
 }
 
 /// True for the formats this version reads and writes.
@@ -42,7 +43,7 @@ impl Doc {
         match kind_of(bytes)? {
             Kind::Word => Ok(Self::Word(Docx::open(bytes)?)),
             Kind::PowerPoint => Ok(Self::Deck(Deck::open(bytes)?)),
-            Kind::Workbook => Ok(Self::Workbook(Workbook::open_for_panel(bytes)?)),
+            Kind::Workbook => Ok(Self::Workbook(Box::new(Workbook::open_for_panel(bytes)?))),
         }
     }
 
@@ -55,7 +56,7 @@ impl Doc {
         match format {
             "docx" => Ok(Self::Word(Docx::open(bytes)?)),
             "pptx" => Ok(Self::Deck(Deck::open(bytes)?)),
-            "xlsx" => Ok(Self::Workbook(Workbook::open_for_panel(bytes)?)),
+            "xlsx" => Ok(Self::Workbook(Box::new(Workbook::open_for_panel(bytes)?))),
             other => Err(Error::Unsupported(format!("{other} files"))),
         }
     }
