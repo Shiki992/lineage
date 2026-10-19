@@ -358,3 +358,185 @@ fn sorting_rows_under_a_range_changes_no_formula() {
     assert!(d.calculated.is_empty(), "the totals by region are the same");
     assert_eq!(d.structure.len(), 1, "the rows moved");
 }
+
+// --- Phase 5B: macros, queries and pivot tables --------------------------------
+
+mod objects {
+    use lineage_testkit::advanced;
+
+    use super::*;
+    use crate::xlsx::view::{Object, view};
+
+    fn pair(
+        a: &lineage_testkit::xlsx::Workbook,
+        b: &lineage_testkit::xlsx::Workbook,
+    ) -> (Workbook, Workbook) {
+        (open(a), open(b))
+    }
+
+    #[test]
+    fn the_full_model_has_no_changes_from_itself() {
+        for (name, wb) in advanced::all() {
+            let x = open(&wb);
+            let d = diff(&x, &x, &[]);
+            assert!(d.is_empty(), "{name}: {:?}", structure(&d));
+        }
+    }
+
+    #[test]
+    fn a_pivot_refresh_is_refreshed_data_not_input() {
+        let (a, b) = pair(&advanced::model_full(), &advanced::model_full_refreshed());
+        let d = diff(&a, &b, &[]);
+        // The corrected sale is the one input; the pivots' cells refreshed.
+        let inputs: Vec<String> = cells(&d, Category::Input)
+            .iter()
+            .map(|c| c.address())
+            .collect();
+        assert_eq!(inputs, ["Sales!E13"]);
+        let refreshed = cells(&d, Category::Refreshed);
+        assert!(!refreshed.is_empty());
+        assert!(refreshed.iter().all(|c| c.sheet == "Pivots"));
+        assert!(
+            refreshed
+                .iter()
+                .all(|c| c.provenance == Provenance::Refresh)
+        );
+        assert!(structure(&d).is_empty(), "{:?}", structure(&d));
+        assert_eq!(d.pivots.len(), 2);
+        let v = view(&d, &a, &b);
+        let group = v
+            .groups
+            .iter()
+            .find(|g| g.object == Some(Object::Pivots))
+            .unwrap();
+        assert_eq!(group.category, Category::Refreshed);
+        assert_eq!(
+            group.cards[0].summary,
+            "Pivot table RevenueByRegion was refreshed: 2 values changed"
+        );
+    }
+
+    #[test]
+    fn a_pivot_that_grows_adds_no_rows() {
+        // A new region appears after a refresh: the pivot has one more row.
+        let mut rows = advanced::sales();
+        rows.push([
+            "East".to_owned(),
+            "Team".to_owned(),
+            "Feb".to_owned(),
+            "1".to_owned(),
+            "99".to_owned(),
+        ]);
+        let mut b = lineage_testkit::workbooks::model_master();
+        advanced::set_project(&mut b, &advanced::model_project(), None);
+        advanced::add_pivots(&mut b, &rows);
+        advanced::add_queries(&mut b, &advanced::model_queries(), &advanced::RATES_NOW);
+        let (a, b) = pair(&advanced::model_full(), &b);
+        let d = diff(&a, &b, &[]);
+        let s = structure(&d);
+        assert!(
+            s.iter().all(|line| line.starts_with("Sales:")),
+            "only the source row is added: {s:?}"
+        );
+        assert!(
+            cells(&d, Category::Input)
+                .iter()
+                .all(|c| c.sheet == "Sales")
+        );
+    }
+
+    #[test]
+    fn each_kind_shows_in_its_group() {
+        let a = open(&advanced::model_full());
+        for (b, object, summary) in [
+            (
+                advanced::model_full_macro_edited(),
+                Object::Macros,
+                "Macro RefreshForecast: 1 line changed",
+            ),
+            (
+                advanced::model_full_query_edited(),
+                Object::Queries,
+                "Query Rates: 3 lines changed",
+            ),
+            (
+                advanced::model_full_pivot_rows(),
+                Object::Pivots,
+                "Pivot table SeatsByPlan: Rows: Month (was Plan)",
+            ),
+        ] {
+            let b = open(&b);
+            let d = diff(&a, &b, &[]);
+            let v = view(&d, &a, &b);
+            let g = v
+                .groups
+                .iter()
+                .find(|g| g.object == Some(object))
+                .unwrap_or_else(|| panic!("{object:?}: {:?}", v.groups));
+            assert_eq!(g.cards[0].summary, summary);
+            assert!(v.untracked.iter().all(|u| !u.starts_with("Macros")
+                && !u.starts_with("Pivot")
+                && !u.starts_with("Power Query")));
+        }
+    }
+
+    #[test]
+    fn groups_come_after_formulas() {
+        let a = open(&advanced::model_full());
+        let mut b = advanced::model_full_macro_edited();
+        b.sheets[0].set(
+            "B4",
+            lineage_testkit::xlsx::num("33"),
+            lineage_testkit::xlsx::Style::Currency,
+        );
+        let b = open(&b);
+        let v = view(&diff(&a, &b, &[]), &a, &b);
+        let titles: Vec<&str> = v.groups.iter().map(|g| g.title).collect();
+        assert_eq!(titles[0], "Inputs");
+        assert!(titles.contains(&"Macros"));
+        assert!(v.headline.contains("1 macro change"), "{}", v.headline);
+        assert!(v.new_macro_code);
+    }
+
+    #[test]
+    fn the_signature_is_named() {
+        let b = open(&advanced::model_full_signed());
+        let a = open(&advanced::model_full());
+        let d = diff(&a, &b, &[]);
+        let v = view(&d, &a, &b);
+        assert_eq!(
+            v.signature.as_deref(),
+            Some(
+                "Signed by Fabrikam Test Signing. Lineage doesn't check signatures. Changing any macro removes the signature."
+            )
+        );
+        let g = v
+            .groups
+            .iter()
+            .find(|g| g.object == Some(Object::Macros))
+            .unwrap();
+        assert_eq!(
+            g.cards[0].summary,
+            "The macros are now signed by Fabrikam Test Signing"
+        );
+        assert!(!v.new_macro_code, "a signature is not new code");
+    }
+
+    #[test]
+    fn unreadable_macros_stay_preserved() {
+        // The Phase 5 fixture's vbaProject.bin is not a real project.
+        let a = open(&workbooks::model_xlsm());
+        assert!(a.vba.is_none());
+        let mut changed = workbooks::model_xlsm();
+        changed.opaque[0].bytes[100] ^= 0xFF;
+        let b = open(&changed);
+        let d = diff(&a, &b, &[]);
+        assert!(d.macros.is_empty());
+        let v = view(&d, &a, &b);
+        assert!(
+            v.untracked
+                .iter()
+                .any(|u| u == "Macros: changed. Preserved; semantic tracking not yet supported.")
+        );
+    }
+}

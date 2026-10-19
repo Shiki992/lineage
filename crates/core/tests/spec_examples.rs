@@ -127,7 +127,14 @@ fn workbook_change_lists_from_the_engine_are_valid() {
             workbooks::connected_master(),
             workbooks::connected_refreshed(),
         ),
-    ] {
+    ]
+    .into_iter()
+    .chain(
+        lineage_testkit::advanced::all()
+            .into_iter()
+            .skip(1)
+            .map(|(_, b)| (lineage_testkit::advanced::model_full(), b)),
+    ) {
         let (a, b) = (open(a), open(b));
         let list = change_list(&diff(&a, &b, &[]), &a, &b);
         assert!(!list.changes.is_empty());

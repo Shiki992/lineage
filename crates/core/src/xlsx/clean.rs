@@ -58,6 +58,19 @@ fn customxml_props_of_mashup(name: &str, package: &crate::Package) -> bool {
     })
 }
 
+/// The value of the root element's `refreshedBy` attribute, as a byte range,
+/// when it isn't empty.
+fn refreshed_by(text: &str) -> Option<std::ops::Range<usize>> {
+    let start = text.find("<pivotCacheDefinition")?;
+    let end = start + text[start..].find('>')?;
+    let tag = &text[start..end];
+    let at = tag
+        .find(" refreshedBy=\"")
+        .map(|i| i + " refreshedBy=\"".len())?;
+    let close = tag[at..].find('"')?;
+    (close > 0).then(|| start + at..start + at + close)
+}
+
 /// Makes a clean copy of a workbook for sending. With `ids`, the copy
 /// carries the two Lineage ids as its only custom properties; without, none.
 ///
@@ -87,10 +100,12 @@ pub fn clean_copy(bytes: &[u8], ids: Option<&LineageIds>) -> Result<(Vec<u8>, Cl
                     .sum::<usize>()
             })
             .sum(),
-        macros: wb
-            .unsupported
-            .iter()
-            .any(|u| u.kind == UnsupportedKind::Macros),
+        // Read (decision 0028) or kept untracked, macros go with the copy.
+        macros: wb.vba.is_some()
+            || wb
+                .unsupported
+                .iter()
+                .any(|u| u.kind == UnsupportedKind::Macros),
         ..CleanReport::default()
     };
     let mut package = wb.package.clone();
@@ -194,6 +209,18 @@ pub fn clean_copy(bytes: &[u8], ids: Option<&LineageIds>) -> Result<(Vec<u8>, Cl
     prune_relationships(&mut package, &removed_set)?;
     prune_content_types(&mut package, &removed_set)?;
     empty_properties(&mut package);
+    // A pivot cache names who last refreshed it (decision 0029).
+    for cache in &wb.pivots.caches {
+        let Some(bytes) = package.part(&cache.part).map(<[u8]>::to_vec) else {
+            continue;
+        };
+        let text = xml::text(&cache.part, &bytes)?;
+        if let Some(range) = refreshed_by(text) {
+            let mut edits = Edits::new();
+            edits.replace(range, String::new());
+            package.set_part(&cache.part, edits.apply(text)?.into_bytes());
+        }
+    }
 
     report.parts_removed = removed_names;
     let out = package.to_bytes()?;
@@ -267,6 +294,29 @@ mod tests {
         let (_, report) =
             clean_copy(&workbooks::tracker_filtered().to_bytes(), None).expect("cleans");
         assert_eq!(report.hidden_rows, 2);
+    }
+
+    #[test]
+    fn the_full_model_keeps_its_macros_queries_and_pivots() {
+        let kit = lineage_testkit::advanced::model_full();
+        let (out, report) = clean_copy(&kit.to_bytes(), None).expect("cleans");
+        assert!(report.macros, "readable macros are counted too");
+        let clean = Workbook::open(&out).expect("opens");
+        assert!(clean.vba.is_some());
+        assert_eq!(clean.queries.as_ref().map(|q| q.queries.len()), Some(2));
+        assert_eq!(clean.pivots.tables.len(), 2);
+        let cache = String::from_utf8_lossy(
+            clean
+                .package
+                .part("xl/pivotCache/pivotCacheDefinition1.xml")
+                .expect("cache"),
+        )
+        .into_owned();
+        assert!(cache.contains(r#"refreshedBy="""#), "{cache}");
+        // Nothing else about the pivots changed.
+        let original = Workbook::open(&kit.to_bytes()).expect("opens");
+        let d = super::super::diff::diff(&original, &clean, &[]);
+        assert!(d.pivots.is_empty() && d.macros.is_empty() && d.queries.is_empty());
     }
 
     #[test]

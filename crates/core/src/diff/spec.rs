@@ -79,6 +79,10 @@ pub struct Location {
     /// columns moved it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address_before: Option<String>,
+    /// xlsx: the macro module, query, pivot table or slicer, by name, for
+    /// those targets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object: Option<String>,
 }
 
 impl Location {

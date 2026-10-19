@@ -1,0 +1,62 @@
+{
+  "specVersion": "0",
+  "format": "xlsx",
+  "changes": [
+    {
+      "id": "forecast",
+      "kind": "modify",
+      "location": {
+        "format": "xlsx",
+        "part": "xl/vbaProject.bin",
+        "sheet": "",
+        "sheetIndex": 0,
+        "target": "macro",
+        "object": "Forecast"
+      },
+      "before": "",
+      "after": "Macro RefreshForecast: 1 line changed",
+      "formattingOnly": false,
+      "confidence": 100,
+      "summary": "Macro RefreshForecast: 1 line changed",
+      "category": "structure",
+      "provenance": "unknown"
+    },
+    {
+      "id": "targets",
+      "kind": "insert",
+      "location": {
+        "format": "xlsx",
+        "part": "customXml/item1.xml",
+        "sheet": "",
+        "sheetIndex": 0,
+        "target": "query",
+        "object": "Targets"
+      },
+      "before": null,
+      "after": "Added query Targets (4 lines)",
+      "formattingOnly": false,
+      "confidence": 100,
+      "category": "structure",
+      "provenance": "unknown"
+    },
+    {
+      "id": "revenue-pivot",
+      "kind": "modify",
+      "location": {
+        "format": "xlsx",
+        "part": "xl/pivotTables/pivotTable1.xml",
+        "sheet": "Pivots",
+        "sheetIndex": 6,
+        "address": "A1:C7",
+        "target": "pivot",
+        "object": "RevenueByRegion"
+      },
+      "before": "",
+      "after": "Pivot table RevenueByRegion was refreshed: 2 values changed",
+      "formattingOnly": false,
+      "confidence": 100,
+      "category": "refreshed",
+      "provenance": "refresh"
+    }
+  ]
+}
