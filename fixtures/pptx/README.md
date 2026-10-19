@@ -44,6 +44,8 @@ All 25 open in LibreOffice 26.8.1 headless (converted to PDF: the hidden slide i
 
 Made by `scripts/powerpoint-resave.ps1` from `synthetic/pitch-deck.pptx` in Microsoft PowerPoint for Windows (Microsoft 365, October 2026) through COM: invented content only, so they may be redistributed. `crates/core/tests/powerpoint_fixtures.rs` checks that the engine finds each edit as made, and nothing PowerPoint renews on every save. Run the script again after changing the synthetic deck.
 
+PowerPoint stamps the signed-in account into what it saves: the name in `docProps/core.xml` (`cp:lastModifiedBy`), the computer's sensitivity label with the organisation's tenant id (`docMetadata/LabelInfo.xml`), and, for a comment, the account's name, initials and id in `ppt/authors.xml` whatever author the script passes. The script scrubs each deck after saving it: `lastModifiedBy` becomes "Lineage fixture generator", the label part and its references go, and comment authors become the invented "Jordan Vale" with an invented author id. Every other part stays exactly as PowerPoint wrote it. `-ScrubOnly` scrubs the decks already here without opening PowerPoint; the decks committed before the scrub step was added were scrubbed that way.
+
 | File                          | What PowerPoint did                                       | Licence    |
 | ----------------------------- | --------------------------------------------------------- | ---------- |
 | `pitch-deck-saved.pptx`       | Opened and saved, nothing changed                         | Apache-2.0 |

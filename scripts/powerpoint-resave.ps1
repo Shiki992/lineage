@@ -17,6 +17,11 @@
 # it started it.
 #
 # Usage: powershell -NoProfile -File scripts/powerpoint-resave.ps1
+#        powershell -NoProfile -File scripts/powerpoint-resave.ps1 -ScrubOnly
+#        (scrubs the decks already in fixtures/pptx/powerpoint/ without
+#        opening PowerPoint)
+
+param([switch]$ScrubOnly)
 
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -24,6 +29,88 @@ $source = Join-Path $root "fixtures\pptx\synthetic\pitch-deck.pptx"
 $northgate = Join-Path $root "fixtures\pptx\synthetic\pitch-deck-northgate.pptx"
 $out = Join-Path $root "fixtures\pptx\powerpoint"
 New-Item -ItemType Directory -Force $out | Out-Null
+
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+
+# Rewrites one part through $edit, only if that changes it. The part keeps its
+# timestamp and any byte order mark; every other part is left as it was.
+function Edit-Part($zip, $name, [scriptblock]$edit) {
+  $entry = $zip.GetEntry($name)
+  if ($null -eq $entry) { return }
+  $stream = $entry.Open()
+  $buffer = New-Object System.IO.MemoryStream
+  $stream.CopyTo($buffer)
+  $stream.Close()
+  $bytes = $buffer.ToArray()
+  $bom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+  $skip = if ($bom) { 3 } else { 0 }
+  $text = $utf8.GetString($bytes, $skip, $bytes.Length - $skip)
+  $new = & $edit $text
+  if ($new -ceq $text) { return }
+  $stamp = $entry.LastWriteTime
+  $entry.Delete()
+  $entry = $zip.CreateEntry($name)
+  $entry.LastWriteTime = $stamp
+  $stream = $entry.Open()
+  if ($bom) { $stream.Write([byte[]](0xEF, 0xBB, 0xBF), 0, 3) }
+  $body = $utf8.GetBytes($new)
+  $stream.Write($body, 0, $body.Length)
+  $stream.Close()
+}
+
+# PowerPoint stamps who saved the deck, and this computer's sensitivity label
+# (with the organisation's tenant id), into every deck. A comment is signed
+# with the account PowerPoint is signed in to, whatever author the script
+# passes. None of that may be committed, so it is taken out again; the slides
+# stay exactly as PowerPoint wrote them.
+function Scrub($path) {
+  $zip = [System.IO.Compression.ZipFile]::Open($path, "Update")
+  try {
+    $label = $zip.GetEntry("docMetadata/LabelInfo.xml")
+    if ($null -ne $label) { $label.Delete() }
+    Edit-Part $zip "[Content_Types].xml" { param($t) $t -replace '<Override PartName="/docMetadata/LabelInfo.xml"[^>]*/>', "" }
+    Edit-Part $zip "_rels/.rels" { param($t) $t -replace '<Relationship [^>]*Target="docMetadata/LabelInfo.xml"[^>]*/>', "" }
+    Edit-Part $zip "docProps/core.xml" { param($t) $t -replace "<cp:lastModifiedBy>[^<]*</cp:lastModifiedBy>", "<cp:lastModifiedBy>Lineage fixture generator</cp:lastModifiedBy>" }
+    Edit-Part $zip "docProps/custom.xml" { param($t) $t -replace '<property [^>]*name="MSIP_Label_[^"]*"[^>]*>.*?</property>', "" }
+
+    # Comment authors: an invented name, and an invented id in place of the
+    # one PowerPoint derives from the account, in the author list and in
+    # every comment that points to it.
+    $authors = $zip.GetEntry("ppt/authors.xml")
+    if ($null -ne $authors) {
+      $reader = New-Object System.IO.StreamReader($authors.Open(), $utf8)
+      $ids = [regex]::Matches($reader.ReadToEnd(), '<p188:author id="(\{[^"]*\})"') | ForEach-Object { $_.Groups[1].Value }
+      $reader.Close()
+      $n = 0
+      $map = @{}
+      foreach ($id in $ids) { $n++; $map[$id] = "{{00000000-0000-4000-8000-{0:D12}}}" -f $n }
+      $rename = {
+        param($t)
+        foreach ($id in $map.Keys) { $t = $t.Replace($id, $map[$id]) }
+        $t
+      }
+      Edit-Part $zip "ppt/authors.xml" {
+        param($t)
+        $t = $t -replace ' name="[^"]*"', ' name="Jordan Vale"' -replace ' initials="[^"]*"', ' initials="JV"'
+        $t = $t -replace ' userId="[^"]*"', ' userId="Jordan Vale"' -replace ' providerId="[^"]*"', ' providerId="None"'
+        & $rename $t
+      }
+      $comments = @($zip.Entries | Where-Object { $_.FullName -like "ppt/comments/*.xml" } | ForEach-Object { $_.FullName })
+      foreach ($name in $comments) { Edit-Part $zip $name $rename }
+    }
+  } finally {
+    $zip.Dispose()
+  }
+}
+
+if ($ScrubOnly) {
+  foreach ($deck in Get-ChildItem $out -Filter *.pptx) {
+    Scrub $deck.FullName
+    Write-Host "scrubbed fixtures/pptx/powerpoint/$($deck.Name)"
+  }
+  return
+}
 
 $msoTrue = -1
 $msoFalse = 0
@@ -36,14 +123,15 @@ $app.DisplayAlerts = $ppAlertsNone
 
 function Make($name, [scriptblock]$edit) {
   $pres = $app.Presentations.Open($source, $msoFalse, $msoTrue, $msoFalse)
+  $target = Join-Path $out $name
   try {
     & $edit $pres
-    $target = Join-Path $out $name
     $pres.SaveAs($target, $ppSaveAsOpenXMLPresentation)
-    Write-Host "wrote fixtures/pptx/powerpoint/$name"
   } finally {
     $pres.Close()
   }
+  Scrub $target
+  Write-Host "wrote fixtures/pptx/powerpoint/$name"
 }
 
 function Replace-Text($pres, $slide, $old, $new) {
