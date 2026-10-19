@@ -421,6 +421,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
     body = (
       <ChooseReturned
         busy={busy !== null}
+        format={openFile?.format === "xlsx" ? "xlsx" : "docx"}
         onBack={home}
         onFile={(bytes, name) =>
           void run("Looking for the copy it came from", async (l) => {

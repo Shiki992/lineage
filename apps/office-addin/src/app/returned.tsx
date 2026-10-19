@@ -26,17 +26,31 @@ import { Back, Button, LinkButton, Segments } from "./parts";
 /** Files over this are refused before they are read. */
 export const MAX_RETURNED_BYTES = 50 * 1024 * 1024;
 
-function isDocx(name: string): boolean {
-  return /\.docx$/i.test(name.trim());
-}
+/** What a file that came back can be, by the open file's format. */
+const RETURNED = {
+  docx: {
+    pattern: /\.docx$/i,
+    accept: ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    problem: "Choose a Word file (.docx). Lineage can't read other kinds of file yet.",
+  },
+  xlsx: {
+    pattern: /\.xls[xm]$/i,
+    accept:
+      ".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12",
+    problem: "Choose an Excel workbook (.xlsx or .xlsm).",
+  },
+} as const;
 
 /** "A file came back": the file picker and a drop zone. */
 export function ChooseReturned({
   busy,
+  format = "docx",
   onFile,
   onBack,
 }: {
   busy: boolean;
+  /** The open file's format: a workbook takes a workbook back. */
+  format?: "docx" | "xlsx";
   onFile: (bytes: Uint8Array, name: string) => void;
   onBack: () => void;
 }) {
@@ -44,13 +58,14 @@ export function ChooseReturned({
   const [over, setOver] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const hint = useId();
+  const kind = RETURNED[format];
 
   const take = (file: File | undefined) => {
     if (!file) {
       return;
     }
-    if (!isDocx(file.name)) {
-      setProblem("Choose a Word file (.docx). Lineage can't read other kinds of file yet.");
+    if (!kind.pattern.test(file.name.trim())) {
+      setProblem(kind.problem);
       return;
     }
     if (file.size > MAX_RETURNED_BYTES) {
@@ -102,7 +117,7 @@ export function ChooseReturned({
         <input
           ref={input}
           type="file"
-          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          accept={kind.accept}
           className="visually-hidden"
           tabIndex={-1}
           aria-hidden="true"
