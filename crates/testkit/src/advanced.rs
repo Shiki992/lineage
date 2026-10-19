@@ -409,6 +409,40 @@ pub fn model_full_signed() -> Workbook {
     wb
 }
 
+/// The model with only its macros (no form), for real Excel: the VBA
+/// spike's file (decision 0028).
+#[must_use]
+pub fn model_macros_only() -> Workbook {
+    let mut wb = model_master();
+    wb.title = "Brightwell Analytics model with macros".to_owned();
+    set_project(&mut wb, &model_project_for_excel(), None);
+    wb
+}
+
+/// The model with only its pivot tables and slicer.
+#[must_use]
+pub fn model_pivots_only() -> Workbook {
+    let mut wb = model_master();
+    add_pivots(&mut wb, &sales());
+    wb
+}
+
+/// The model with only its queries.
+#[must_use]
+pub fn model_queries_only() -> Workbook {
+    let mut wb = model_master();
+    add_queries(&mut wb, &model_queries(), &RATES_NOW);
+    wb
+}
+
+/// The full model without the stand-in form, for real Excel.
+#[must_use]
+pub fn model_full_for_excel() -> Workbook {
+    let mut wb = model_full();
+    set_project(&mut wb, &model_project_for_excel(), None);
+    wb
+}
+
 /// Every Phase 5B workbook, by file name.
 #[must_use]
 pub fn all() -> Vec<(&'static str, Workbook)> {
@@ -430,5 +464,9 @@ pub fn all() -> Vec<(&'static str, Workbook)> {
             "model-full-query-refreshed.xlsm",
             model_full_query_refreshed(),
         ),
+        ("model-macros-only.xlsm", model_macros_only()),
+        ("model-pivots-only.xlsx", model_pivots_only()),
+        ("model-queries-only.xlsx", model_queries_only()),
+        ("model-full-for-excel.xlsm", model_full_for_excel()),
     ]
 }

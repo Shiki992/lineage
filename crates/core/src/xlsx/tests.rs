@@ -21,11 +21,14 @@ fn cell<'a>(wb: &'a Workbook, sheet: &str, at: &str) -> &'a Cell {
 
 #[test]
 fn every_fixture_opens_and_round_trips_unchanged() {
-    for (name, wb) in workbooks::all() {
+    for (name, wb) in workbooks::all()
+        .into_iter()
+        .chain(lineage_testkit::advanced::all())
+    {
         let bytes = wb.to_bytes();
         let opened = Workbook::open(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(opened.sheets.len(), wb.sheets.len(), "{name}");
-        for (ours, theirs) in opened.sheets.iter().zip(&wb.sheets) {
+        for (ours, theirs) in opened.sheets.iter().zip(&wb.rendered_sheets()) {
             assert_eq!(ours.name, theirs.name, "{name}");
             assert_eq!(ours.rows.len(), theirs.rows.len(), "{name}: {}", ours.name);
         }

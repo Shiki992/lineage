@@ -10,12 +10,15 @@
 //! - `check-headers`: fail if any source file lacks the licence header.
 //! - `bench-xlsx [prepare | case]`: time each stage of comparing large
 //!   workbooks (build with `--release`).
+//! - `bench-objects`: time reading and comparing macros, queries and pivot
+//!   tables (Phase 5B; build with `--release`).
 //! - `returned-inputs <folder>`: write the files `scripts/libreoffice-resave.ps1`
 //!   re-saves with LibreOffice into `fixtures/docx/returned/libreoffice/`.
 
 #![forbid(unsafe_code)]
 
 mod bench;
+mod bench_objects;
 mod headers;
 
 use std::fs;
@@ -55,6 +58,7 @@ fn generated() -> Vec<(&'static str, Files)> {
             workbooks::OUT_DIR,
             workbooks::all()
                 .into_iter()
+                .chain(lineage_testkit::advanced::all())
                 .map(|(name, workbook)| (name, workbook.to_bytes()))
                 .collect(),
         ),
@@ -177,6 +181,13 @@ fn main() -> ExitCode {
                 Ok(ExitCode::FAILURE)
             }
         },
+        Some("bench-objects") => Ok(match bench_objects::bench() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        }),
         Some("bench-xlsx") => Ok(match bench::bench(std::env::args().nth(2).as_deref()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -199,7 +210,7 @@ fn main() -> ExitCode {
         },
         _ => {
             eprintln!(
-                "usage: cargo xtask <fixtures | check-fixtures | check-headers | returned-inputs <folder> | accounts <folder> | bench-xlsx [prepare | case]>"
+                "usage: cargo xtask <fixtures | check-fixtures | check-headers | returned-inputs <folder> | accounts <folder> | bench-xlsx [prepare | case] | bench-objects>"
             );
             Ok(ExitCode::FAILURE)
         }

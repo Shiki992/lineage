@@ -712,6 +712,14 @@ impl Workbook {
             .unwrap_or_else(|| panic!("no sheet {name}"))
     }
 
+    /// The sheets as written: with every pivot table's output cells.
+    #[must_use]
+    pub fn rendered_sheets(&self) -> Vec<Sheet> {
+        let mut sheets = self.sheets.clone();
+        crate::pivots::render(&mut sheets, &self.pivots, &self.pivot_caches, &self.slicers);
+        sheets
+    }
+
     /// The finished package bytes.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -751,14 +759,7 @@ impl Workbook {
         let mut slicer_sheet_number = 0usize;
         let mut pivot_number = 0usize;
 
-        // Pivots' output cells, rendered into a copy of their sheets.
-        let mut rendered = self.sheets.clone();
-        crate::pivots::render(
-            &mut rendered,
-            &self.pivots,
-            &self.pivot_caches,
-            &self.slicers,
-        );
+        let rendered = self.rendered_sheets();
         let tab_ids: Vec<u32> = self.sheets.iter().map(|s| s.sheet_id).collect();
 
         for (index, sheet) in rendered.iter().enumerate() {

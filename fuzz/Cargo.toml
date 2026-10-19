@@ -1,6 +1,6 @@
 [package]
 name = "lineage-fuzz"
-description = "cargo-fuzz targets for the .docx, .pptx, .xlsx and zip readers. Returned files are untrusted input."
+description = "cargo-fuzz targets for the .docx, .pptx, .xlsx and zip readers, the compound-file and VBA readers, and Power Query. Returned files are untrusted input."
 version = "0.0.0"
 edition = "2024"
 license = "Apache-2.0"
@@ -43,6 +43,34 @@ bench = false
 [[bin]]
 name = "zip_reader"
 path = "fuzz_targets/zip_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cfb_reader"
+path = "fuzz_targets/cfb_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vba_decompress"
+path = "fuzz_targets/vba_decompress.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vba_project"
+path = "fuzz_targets/vba_project.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mashup"
+path = "fuzz_targets/mashup.rs"
 test = false
 doc = false
 bench = false
