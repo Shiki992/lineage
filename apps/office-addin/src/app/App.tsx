@@ -6,6 +6,7 @@
 // the engine and storage; this file only draws and routes.
 
 import type {
+  AsyncEngine,
   Candidate,
   CardDecision,
   DeckPanel,
@@ -68,7 +69,8 @@ type Screen =
   | { kind: "diagnostics" };
 
 export interface AppProps {
-  engine: Engine;
+  /** In this thread, or in a Web Worker (Excel, decision 0025). */
+  engine: Engine | AsyncEngine;
   host: DocumentHost;
   storage: StorageChoice;
   /** Signs in and returns the person's storage (OneDrive). */

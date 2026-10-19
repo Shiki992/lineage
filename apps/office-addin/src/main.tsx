@@ -7,7 +7,8 @@ import "@fontsource/ibm-plex-mono/latin-400.css";
 import "@lineage/design/tokens.css";
 import "./styles/app.css";
 
-import { loadEngineAsync } from "@lineage/shell";
+import type { AsyncEngine, Engine, EnginePort } from "@lineage/shell";
+import { connectEngine, loadEngineAsync } from "@lineage/shell";
 import wasmUrl from "@lineage/shell/wasm?url";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -68,14 +69,14 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
     return;
   }
   try {
-    const { engine, loadMs } = await loadEngineAsync(wasmUrl);
+    const { engine, loadMs } = inExcel ? await workerEngine() : await loadEngineAsync(wasmUrl);
     timing("engine.load", loadMs);
     let storage = chooseStorage();
     if (storage.kind === "signIn") {
       // Signed in to Word already? Then no button is needed.
       try {
         const signedIn = await signIn({ interactive: false });
-        engine.setAuthor(signedIn.name);
+        void engine.setAuthor(signedIn.name);
         storage = { kind: "ready", storage: signedIn.storage };
       } catch {
         // The sign-in screen offers the button.
@@ -83,7 +84,7 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
     }
     const interactive = async () => {
       const signedIn = await signIn({ interactive: true });
-      engine.setAuthor(signedIn.name);
+      void engine.setAuthor(signedIn.name);
       return signedIn.storage;
     };
     const host = inExcel ? await excelHost() : inPowerPoint ? new PowerPointHost() : new WordHost();
@@ -105,6 +106,35 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
         Lineage couldn't start. Close and reopen the panel.
       </p>,
     );
+  }
+}
+
+/**
+ * The engine in a Web Worker, so comparing a large workbook never blocks
+ * Excel (decision 0025); in this thread if the worker can't start.
+ */
+async function workerEngine(): Promise<{ engine: Engine | AsyncEngine; loadMs: number }> {
+  const started = performance.now();
+  let worker: Worker | undefined;
+  try {
+    const started_ = new Worker(new URL("./engine-worker.ts", import.meta.url), {
+      type: "module",
+    });
+    worker = started_;
+    const failed = new Promise<never>((_, reject) => {
+      started_.addEventListener("error", (event) => {
+        reject(new Error(`the engine worker failed: ${event.message}`));
+      });
+      setTimeout(() => {
+        reject(new Error("the engine worker didn't start"));
+      }, 20_000);
+    });
+    const engine = await Promise.race([connectEngine(started_ as unknown as EnginePort), failed]);
+    return { engine, loadMs: performance.now() - started };
+  } catch (error) {
+    console.error(error);
+    worker?.terminate();
+    return loadEngineAsync(wasmUrl);
   }
 }
 

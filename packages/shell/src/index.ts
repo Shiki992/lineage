@@ -13,6 +13,8 @@ export type {
 export type { CellHost, CellNavigator, DocumentHost, SlideHost } from "./host.js";
 export { PlanStopped, changesCells, changesSlides, goesToCells, reportsEdits } from "./host.js";
 export { History } from "./history.js";
+export type { AsyncEngine, EnginePort } from "./worker.js";
+export { asyncEngine, connectEngine, serveEngine } from "./worker.js";
 export { Library } from "./library.js";
 export type { LibraryOptions, MissingFile, OpenedDocument } from "./library.js";
 export { Lineage, LineageError, userMessage } from "./lineage.js";

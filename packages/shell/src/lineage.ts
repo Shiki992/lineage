@@ -10,6 +10,8 @@
 // copies) are written after the append.
 
 import type { CommandResult, Engine, FamilyLedger, UpdateResult } from "./engine.js";
+import type { AsyncEngine } from "./worker.js";
+import { asyncEngine } from "./worker.js";
 import type { CellHost, DocumentHost, SlideHost } from "./host.js";
 import { PlanStopped, changesCells, changesSlides, reportsEdits } from "./host.js";
 import type * as s from "./schemas.js";
@@ -45,7 +47,8 @@ export type Opened =
   | { readonly kind: "cameBack"; readonly file: s.OpenFile; readonly returning: Returning };
 
 export interface LineageOptions {
-  readonly engine: Engine;
+  /** In this thread, or behind a Web Worker (the Excel pane, decision 0025). */
+  readonly engine: Engine | AsyncEngine;
   readonly storage: Storage;
   readonly host: DocumentHost;
   /** Milliseconds since 1970. */
@@ -76,7 +79,7 @@ function addressKind(ref: string): string {
 }
 
 export class Lineage {
-  private readonly engine: Engine;
+  private readonly engine: AsyncEngine;
   private readonly storage: Storage;
   private readonly host: DocumentHost;
   private readonly now: () => number;
@@ -88,7 +91,7 @@ export class Lineage {
   private indexing: Promise<unknown> = Promise.resolve();
 
   constructor(options: LineageOptions) {
-    this.engine = options.engine;
+    this.engine = asyncEngine(options.engine);
     this.storage = options.storage;
     this.host = options.host;
     this.now = options.now ?? Date.now;
@@ -150,7 +153,7 @@ export class Lineage {
    * Runs an engine call, fetching whatever blobs it reports missing: from the
    * family the engine names, else from `family`.
    */
-  private withBlobs<T>(family: string, run: () => T, rounds?: number): Promise<T> {
+  private withBlobs<T>(family: string, run: () => T | Promise<T>, rounds?: number): Promise<T> {
     return this.history.withBlobs(family, run, rounds);
   }
 
@@ -168,7 +171,7 @@ export class Lineage {
    */
   private async press(
     family: string,
-    run: (ledger: Uint8Array) => CommandResult,
+    run: (ledger: Uint8Array) => CommandResult | Promise<CommandResult>,
     change: (result: CommandResult) => Promise<(() => Promise<void>) | undefined> = () =>
       Promise.resolve(undefined),
   ): Promise<CommandResult> {
@@ -210,11 +213,11 @@ export class Lineage {
         this.openFile = undefined;
         return { kind: "elsewhere", ids };
       }
-      await this.fetchBlobs(ids.family, this.engine.referencedBlobs(ledger));
-      let file = this.engine.openFile(ledger, ids.checkpoint);
+      await this.fetchBlobs(ids.family, await this.engine.referencedBlobs(ledger));
+      let file = await this.engine.openFile(ledger, ids.checkpoint);
       if (file.copyOf === null && file.isLatest && (await this.followMove(file))) {
         ledger = await this.ledger(ids.family);
-        file = this.engine.openFile(ledger, ids.checkpoint);
+        file = await this.engine.openFile(ledger, ids.checkpoint);
       }
       if (file.copyOf !== null || !file.isLatest) {
         this.openFile = undefined;
@@ -271,7 +274,7 @@ export class Lineage {
       const ledger = await this.ledger(file.familyId);
       // The open file may have a new checkpoint now; find it again by its ids.
       const ids = await this.host.readIds();
-      const current = ids ? this.engine.openFile(ledger, ids.checkpoint) : file;
+      const current = ids ? await this.engine.openFile(ledger, ids.checkpoint) : file;
       this.openFile = current;
       return this.panelFor(current, ledger);
     });
@@ -288,7 +291,7 @@ export class Lineage {
         );
       }
       const bytes = await this.host.readBytes();
-      const result = this.engine.startTracking(bytes, name, url, this.now());
+      const result = await this.engine.startTracking(bytes, name, url, this.now());
       const { familyId, ids } = result.outcome;
       if (!familyId || !ids) {
         throw new LineageError(
@@ -313,7 +316,7 @@ export class Lineage {
         throw error;
       }
       const ledger = await this.ledger(familyId);
-      const file = this.engine.openFile(ledger, ids.checkpoint);
+      const file = await this.engine.openFile(ledger, ids.checkpoint);
       this.openFile = file;
       return this.panelFor(file, ledger);
     });
@@ -580,7 +583,9 @@ export class Lineage {
   /** Opens a file of a family: a tailored version from storage, or the master where Word has it. */
   openNode(family: string, node: string): Promise<void> {
     return this.serial("openNode", async () => {
-      const found = this.engine.family(await this.ledger(family)).nodes.find((n) => n.id === node);
+      const found = (await this.engine.family(await this.ledger(family))).nodes.find(
+        (n) => n.id === node,
+      );
       if (!found) {
         throw new LineageError("Lineage couldn't find that file.", `node ${node} is unknown`);
       }
@@ -597,13 +602,13 @@ export class Lineage {
   /** Puts `bytes` into the open document and checks it landed; else puts `previous` back. */
   private async write(bytes: Uint8Array, previous: Uint8Array): Promise<void> {
     await this.host.replaceContents(bytes);
-    const landed = this.engine.checkWritten(bytes, await this.host.readBytes());
+    const landed = await this.engine.checkWritten(bytes, await this.host.readBytes());
     if (landed.ok) {
       return;
     }
     const detail = `written: ${JSON.stringify(landed)}`;
     await this.host.replaceContents(previous);
-    const back = this.engine.checkWritten(previous, await this.host.readBytes());
+    const back = await this.engine.checkWritten(previous, await this.host.readBytes());
     if (!back.ok) {
       throw new LineageError(
         "Word didn't take the changes exactly as Lineage wrote them, and putting your file back didn't work either. Use Undo in Word, then check the file.",
@@ -637,9 +642,9 @@ export class Lineage {
       if (isOpen) {
         bytes = await this.host.readBytes();
       } else {
-        stored = this.engine
-          .family(await this.ledger(file.familyId))
-          .nodes.find((n) => n.id === node);
+        stored = (await this.engine.family(await this.ledger(file.familyId))).nodes.find(
+          (n) => n.id === node,
+        );
         if (stored?.role !== "variant") {
           throw new LineageError(
             "Open that file to send a copy of it.",
@@ -766,8 +771,8 @@ export class Lineage {
         const { bytes: ledger, version } = await this.storage.readLedger(file.familyId);
         // Every checkpoint's manifest, including the one just saved, so that a
         // missing part brings its whole snapshot in one round.
-        await this.fetchBlobs(file.familyId, this.engine.referencedBlobs(ledger));
-        const nodes = this.engine.family(ledger).nodes;
+        await this.fetchBlobs(file.familyId, await this.engine.referencedBlobs(ledger));
+        const nodes = (await this.engine.family(ledger)).nodes;
         const inputs: { node: string; file: Uint8Array; ref: string; version: string }[] = [];
         for (const node of versions) {
           const stored = nodes.find((n) => n.id === node && n.role === "variant");
@@ -921,12 +926,12 @@ export class Lineage {
     detail: string,
   ): Promise<never> {
     try {
-      const back = this.engine.deckSlideOps(await host.readBytes(), original);
+      const back = await this.engine.deckSlideOps(await host.readBytes(), original);
       if (back.ops.length > 0) {
         await host.applySlideOps(back.ops, original);
       }
       await host.writeIds(ids);
-      const left = this.engine.deckSlideOps(await host.readBytes(), original);
+      const left = await this.engine.deckSlideOps(await host.readBytes(), original);
       if (left.ops.length > 0) {
         throw new Error(`${String(left.ops.length)} steps still to go`);
       }
@@ -1004,14 +1009,19 @@ export class Lineage {
     role: s.Role | undefined,
     cards: readonly s.CardDecision[],
     engine: {
-      prepare(ledger: Uint8Array, node: string, original: Uint8Array): s.WorkbookPlan;
+      prepare(ledger: Uint8Array, node: string, original: Uint8Array): Promise<s.WorkbookPlan>;
       finish(
         ledger: Uint8Array,
         node: string,
         original: Uint8Array,
         held: Uint8Array,
-      ): CommandResult;
-      wayBack(ledger: Uint8Array, node: string, original: Uint8Array, done: number): s.CellStep[];
+      ): Promise<CommandResult>;
+      wayBack(
+        ledger: Uint8Array,
+        node: string,
+        original: Uint8Array,
+        done: number,
+      ): Promise<s.CellStep[]>;
     },
   ): Promise<s.WorkbookPlan> {
     return this.serial(name, async () => {
@@ -1122,10 +1132,8 @@ export class Lineage {
         await host.applyCellPlan(steps);
       }
       await host.writeIds(ids);
-      theirsKept = this.engine.workbookPutBack(
-        original,
-        await host.readBytes(),
-        host.editHints(),
+      theirsKept = (
+        await this.engine.workbookPutBack(original, await host.readBytes(), host.editHints())
       ).theirsKept;
     } catch (error) {
       throw new LineageError(
