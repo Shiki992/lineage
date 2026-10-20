@@ -424,6 +424,9 @@ pub struct QueryChange {
     pub code: Vec<CodeLine>,
     pub details: Vec<String>,
     pub summary: String,
+    /// The query's whole M code in the later version, for "Copy code"
+    /// (`None` for a removed query).
+    pub text: Option<String>,
 }
 
 fn plural(n: usize) -> &'static str {
@@ -495,6 +498,7 @@ pub fn diff(a: Option<&Mashup>, b: Option<&Mashup>) -> Vec<QueryChange> {
                     q.lines.len(),
                     plural(q.lines.len())
                 ),
+                text: Some(q.lines.join("\r\n")),
             });
             continue;
         };
@@ -552,6 +556,7 @@ pub fn diff(a: Option<&Mashup>, b: Option<&Mashup>) -> Vec<QueryChange> {
             code: code::view(&p.lines, &q.lines, &d),
             details,
             summary,
+            text: Some(q.lines.join("\r\n")),
         });
     }
     for (i, p) in qa.iter().enumerate() {
@@ -564,6 +569,7 @@ pub fn diff(a: Option<&Mashup>, b: Option<&Mashup>) -> Vec<QueryChange> {
                 code: code::view(&p.lines, &[], &code::line_diff(&p.lines, &[])),
                 details: Vec::new(),
                 summary: format!("Removed query {}", p.name),
+                text: None,
             });
         }
     }

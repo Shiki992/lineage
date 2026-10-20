@@ -118,6 +118,8 @@ pub struct WorkbookCardDto {
     pub fields: Option<FieldListsDto>,
     /// One line per thing that changed in a macro, query or pivot table.
     pub details: Vec<String>,
+    /// A macro's or query's whole code, for "Copy code".
+    pub copy: Option<String>,
 }
 
 impl From<&Card> for WorkbookCardDto {
@@ -140,6 +142,7 @@ impl From<&Card> for WorkbookCardDto {
             code: c.code.iter().map(CodeLineDto::from).collect(),
             fields: c.fields.as_ref().map(FieldListsDto::from),
             details: c.details.clone(),
+            copy: c.copy.clone(),
         }
     }
 }

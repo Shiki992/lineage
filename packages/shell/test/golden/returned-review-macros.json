@@ -120,9 +120,8 @@
                   }
                 ],
                 "conflict": null,
-                "details": [
-                  "Macro RefreshForecast: 1 line changed"
-                ],
+                "copy": "Option Explicit\r\n\r\n' Copies the forecast months into the Summary sheet.\r\nPublic Sub RefreshForecast()\r\n    Dim months As Integer\r\n    months = 12\r\n    Worksheets(\"Summary\").Range(\"B2\").Value = months\r\n    Application.StatusBar = \"Forecast updated\"\r\n    Call SendSummary\r\nEnd Sub\r\n\r\nPublic Function Growth(rate As Double) As Double\r\n    Growth = 1 + rate\r\nEnd Function",
+                "details": [],
                 "fields": null,
                 "id": "f9e5faa77d7e0090",
                 "ids": [
@@ -173,6 +172,7 @@
                   }
                 ],
                 "conflict": null,
+                "copy": "Public Sub SendSummary()\r\n    ' Invented: would e-mail the summary.\r\n    Debug.Print \"summary\"\r\nEnd Sub",
                 "details": [],
                 "fields": null,
                 "id": "0c1fdb2fcc7d99de",

@@ -699,6 +699,22 @@ export class Lineage {
     });
   }
 
+  /**
+   * "Open the master's version": a checkpoint of this file's family, as a new
+   * workbook, for the macros, queries and pivot tables that come in by hand
+   * (decision 0027). Never offered for a file that came back.
+   */
+  openCheckpoint(checkpoint: string): Promise<void> {
+    return this.serial("openCheckpoint", async () => {
+      const file = this.requireFile();
+      const ledger = await this.ledger(file.familyId);
+      const bytes = await this.withBlobs(file.familyId, () =>
+        this.engine.openCheckpoint(ledger, checkpoint),
+      );
+      await this.host.openCopy(bytes);
+    });
+  }
+
   /** "Open" on a sent copy: the exact bytes they received, as a new document. */
   openSentCopy(sent: string): Promise<void> {
     return this.serial("openSentCopy", async () => {

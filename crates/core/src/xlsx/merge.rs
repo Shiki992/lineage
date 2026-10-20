@@ -80,6 +80,8 @@ pub struct ObjectItem {
     pub code: Vec<crate::code::CodeLine>,
     pub details: Vec<String>,
     pub fields: Option<super::view::FieldLists>,
+    /// The whole code on the master's side, for "Copy code".
+    pub copy: Option<String>,
     pub sheet: String,
     /// This version changed the same object too.
     pub both: bool,
@@ -503,7 +505,8 @@ fn object_items(
                 name: format!("{} {}", m.kind.noun(), m.name),
                 summary: m.summary.clone(),
                 code: m.code.clone(),
-                details: m.details.clone(),
+                copy: m.text.clone(),
+                details: super::view::without(&m.details, &m.summary),
                 fields: None,
                 sheet: String::new(),
                 both,
@@ -529,6 +532,7 @@ fn object_items(
                 name: format!("Reference {r}"),
                 summary: format!("Added reference {r}"),
                 code: Vec::new(),
+                copy: None,
                 details: Vec::new(),
                 fields: None,
                 sheet: String::new(),
@@ -545,6 +549,7 @@ fn object_items(
                 name: format!("Reference {r}"),
                 summary: format!("Removed reference {r}"),
                 code: Vec::new(),
+                copy: None,
                 details: Vec::new(),
                 fields: None,
                 sheet: String::new(),
@@ -580,7 +585,8 @@ fn object_items(
                 name: format!("Query {}", q.name),
                 summary: q.summary.clone(),
                 code: q.code.clone(),
-                details: q.details.clone(),
+                copy: q.text.clone(),
+                details: super::view::without(&q.details, &q.summary),
                 fields: None,
                 sheet: String::new(),
                 both,
@@ -620,6 +626,7 @@ fn object_items(
                 name: format!("Pivot table {}", p.name),
                 summary: p.summary(),
                 code: Vec::new(),
+                copy: None,
                 details: p
                     .details
                     .iter()
@@ -653,6 +660,7 @@ fn object_items(
                 name: format!("Slicer {}", s.caption),
                 summary: s.summary.clone(),
                 code: Vec::new(),
+                copy: None,
                 details: Vec::new(),
                 fields: None,
                 sheet: String::new(),

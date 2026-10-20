@@ -858,6 +858,23 @@ pub fn open_sent_copy(state: &FamilyState, sent: &Id, blobs: &dyn BlobSource) ->
     Ok(bytes)
 }
 
+/// A checkpoint's file, exactly as saved: for "Open the master's version",
+/// where macros, queries and pivot tables come in by hand (decision 0027).
+///
+/// # Errors
+/// [`Error::NotAllowed`] for an unknown checkpoint; others when blobs are
+/// missing.
+pub fn open_checkpoint(
+    state: &FamilyState,
+    checkpoint: &Id,
+    blobs: &dyn BlobSource,
+) -> Result<Vec<u8>> {
+    let c = state
+        .checkpoint(checkpoint)
+        .ok_or_else(|| Error::NotAllowed("unknown checkpoint".to_owned()))?;
+    restore(&c.snapshot, blobs)
+}
+
 fn checkpoint_name(state: &FamilyState, checkpoint: &Id) -> Result<String> {
     let c = state
         .checkpoint(checkpoint)

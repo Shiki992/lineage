@@ -206,6 +206,8 @@ export const WorkbookCard = v.strictObject({
   code: v.array(CodeLine),
   fields: v.nullable(FieldLists),
   details: v.array(Text),
+  /** A macro's or query's whole code, for "Copy code" (Phase 5B). */
+  copy: v.nullable(Text),
 });
 export type WorkbookCard = v.InferOutput<typeof WorkbookCard>;
 

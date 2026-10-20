@@ -64,6 +64,9 @@ pub struct Card {
     pub fields: Option<FieldLists>,
     /// One line per thing that changed in a macro, query or pivot.
     pub details: Vec<String>,
+    /// A macro's or query's whole code in the later version, for "Copy
+    /// code": it comes in by hand (decision 0027).
+    pub copy: Option<String>,
 }
 
 /// A pivot table's fields, before and after.
@@ -751,6 +754,12 @@ fn category_nouns(c: Category) -> (&'static str, &'static str) {
     }
 }
 
+/// A card's detail lines without the one its summary already says.
+#[must_use]
+pub fn without(details: &[String], summary: &str) -> Vec<String> {
+    details.iter().filter(|d| *d != summary).cloned().collect()
+}
+
 /// A card for a macro module, query or pivot change.
 fn object_card(id: &str, summary: String, sheet: &str) -> Card {
     Card {
@@ -792,7 +801,8 @@ pub fn object_groups(d: &WorkbookDiff, b: &Workbook) -> Vec<Group> {
             let mut card = object_card(&c.id, c.summary.clone(), "");
             card.place = Some(format!("{} {}", c.kind.noun(), c.name));
             card.code.clone_from(&c.code);
-            card.details.clone_from(&c.details);
+            card.copy.clone_from(&c.text);
+            card.details = without(&c.details, &c.summary);
             card.why = Some("Macro code. Lineage never runs it.".to_owned());
             cards.push(card);
         }
@@ -863,7 +873,8 @@ pub fn object_groups(d: &WorkbookDiff, b: &Workbook) -> Vec<Group> {
                 let mut card = object_card(&q.id, q.summary.clone(), "");
                 card.place = Some(format!("Query {}", q.name));
                 card.code.clone_from(&q.code);
-                card.details.clone_from(&q.details);
+                card.copy.clone_from(&q.text);
+                card.details = without(&q.details, &q.summary);
                 card.why = Some(if q.kind == QueryChangeKind::Refreshed {
                     "From a data refresh. Nobody edited the query.".to_owned()
                 } else {
@@ -1196,6 +1207,7 @@ pub fn from_plan(
                     sheet: o.sheet.clone(),
                     cells: 1,
                     code: o.code.clone(),
+                    copy: o.copy.clone(),
                     details: o.details.clone(),
                     fields: o.fields.clone(),
                     ..Card::default()

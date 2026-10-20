@@ -101,6 +101,9 @@ pub struct ModuleChange {
     pub code: Vec<CodeLine>,
     /// "Macro RefreshForecast: 3 lines changed".
     pub summary: String,
+    /// The module's whole code in the later version, for "Copy code"
+    /// (`None` for a removed module). CRLF line ends, as the VBA editor uses.
+    pub text: Option<String>,
     /// One line per procedure and anything else that changed.
     pub details: Vec<String>,
 }
@@ -414,6 +417,7 @@ fn module_change(
         code: code::view(la, lb, &d),
         summary,
         details,
+        text: b.map(|m| m.lines.join("\r\n")),
     })
 }
 

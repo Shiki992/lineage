@@ -401,6 +401,44 @@ pub fn model_full_returned_with_macro() -> Workbook {
     wb
 }
 
+/// For the Excel run (stop 2): what an investor might send back, built from
+/// the workbook real Excel can open: a new module and a changed macro, the
+/// Rates query edited, and a seat count corrected on Sales. It has no
+/// Lineage ids, so it is recognised by its content.
+#[must_use]
+pub fn model_full_returned_for_excel() -> Workbook {
+    let mut p = model_project_for_excel();
+    if let Some(m) = p.module_mut("Forecast") {
+        m.code = FORECAST.replace(
+            "    Application.StatusBar = \"Forecast updated\"",
+            "    Application.StatusBar = \"Forecast updated\"\n    Call SendSummary",
+        );
+    }
+    p.modules.push(Module::new(
+        "Mailer",
+        ModuleKind::Standard,
+        "Public Sub SendSummary()\n    ' Invented: would e-mail the summary.\n    Debug.Print \"summary\"\nEnd Sub",
+    ));
+    let mut q = model_queries();
+    q[0].formula = RATES.replace(
+        "in\n    Typed",
+        "    Positive = Table.SelectRows(Typed, each [Rate] > 0)\nin\n    Positive",
+    );
+    q[0].formula = q[0].formula.replace(
+        "{\"Rate\", type number}})\n",
+        "{\"Rate\", type number}}),\n",
+    );
+    let mut rows = sales();
+    rows[3][3] = "3".to_owned();
+    rows[3][4] = "297".to_owned();
+    let mut wb = model_master();
+    wb.title = "Brightwell Analytics model with macros".to_owned();
+    set_project(&mut wb, &p, None);
+    add_pivots(&mut wb, &rows);
+    add_queries(&mut wb, &q, &RATES_NOW);
+    wb
+}
+
 /// The model's project signed by an invented test publisher.
 #[must_use]
 pub fn model_full_signed() -> Workbook {
@@ -468,5 +506,9 @@ pub fn all() -> Vec<(&'static str, Workbook)> {
         ("model-pivots-only.xlsx", model_pivots_only()),
         ("model-queries-only.xlsx", model_queries_only()),
         ("model-full-for-excel.xlsm", model_full_for_excel()),
+        (
+            "model-full-returned-for-excel.xlsm",
+            model_full_returned_for_excel(),
+        ),
     ]
 }

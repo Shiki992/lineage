@@ -1060,6 +1060,26 @@ impl Session {
         }
     }
 
+    /// "Open the master's version": a checkpoint's file as saved, in `file`.
+    #[must_use]
+    pub fn open_checkpoint(&self, ledger: &[u8], checkpoint: &str) -> Reply {
+        let prepared = fold(ledger).and_then(|s| Ok((s, id(checkpoint)?)));
+        let (state, checkpoint) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        let source = Recording::new(&self.cache);
+        let result = commands::open_checkpoint(&state, &checkpoint, &source).map_err(Failure::from);
+        match Self::finish(result, &source) {
+            Ok(bytes) => {
+                let mut reply = Reply::ok(&serde_json::Value::Null);
+                reply.file = Some(bytes);
+                reply
+            }
+            Err(e) => Reply::failure(&e),
+        }
+    }
+
     /// "A file came back": which copy `file` is. `ledgers` is a JSON array of
     /// `{family, ledger}`, every family in storage, the ledger as text.
     #[must_use]

@@ -238,6 +238,8 @@ export interface Engine {
   ): CommandResult;
   sentList(ledger: Uint8Array, search?: string): s.SentList;
   openSentCopy(ledger: Uint8Array, sent: string): Uint8Array;
+  /** A checkpoint's file as saved: "Open the master's version" (Phase 5B). */
+  openCheckpoint(ledger: Uint8Array, checkpoint: string): Uint8Array;
   /** Which copy `file` is, looking in every family given. */
   recognise(file: Uint8Array, ledgers: readonly FamilyLedger[]): s.Recognition;
   recordReturned(
@@ -684,6 +686,8 @@ function wrap(seed: Uint8Array): Engine {
     sentList: (ledger, search) =>
       view("sentList", s.SentList, (e) => e.sentList(ledger, search ?? null)),
     openSentCopy: (ledger, sent) => bytes("openSentCopy", (e) => e.openSentCopy(ledger, sent)),
+    openCheckpoint: (ledger, checkpoint) =>
+      bytes("openCheckpoint", (e) => e.openCheckpoint(ledger, checkpoint)),
     recognise: (file, ledgers) =>
       view("recognise", s.Recognition, (e) =>
         e.recognise(
