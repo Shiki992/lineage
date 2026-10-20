@@ -164,6 +164,30 @@ const SheetName = v.pipe(Text, v.minLength(1), v.maxLength(255));
 export const CellSide = v.strictObject({ shown: Text, formula: v.nullable(Text) });
 export type CellSide = v.InferOutput<typeof CellSide>;
 
+/** One line of a macro's or query's code view (Phase 5B). Line numbers from 1. */
+export const CodeLine = v.strictObject({
+  kind: v.picklist(["same", "removed", "added", "skipped"]),
+  before: v.nullable(v.pipe(v.number(), v.integer(), v.minValue(1))),
+  after: v.nullable(v.pipe(v.number(), v.integer(), v.minValue(1))),
+  text: Text,
+});
+export type CodeLine = v.InferOutput<typeof CodeLine>;
+
+/** A pivot table's fields, as the PivotTable Fields pane lists them. */
+export const PivotFields = v.strictObject({
+  rows: v.array(Text),
+  columns: v.array(Text),
+  values: v.array(Text),
+  filters: v.array(Text),
+});
+export type PivotFields = v.InferOutput<typeof PivotFields>;
+
+export const FieldLists = v.strictObject({
+  before: v.nullable(PivotFields),
+  after: v.nullable(PivotFields),
+});
+export type FieldLists = v.InferOutput<typeof FieldLists>;
+
 export const WorkbookCard = v.strictObject({
   id: v.pipe(Text, v.minLength(1)),
   summary: Text,
@@ -179,6 +203,9 @@ export const WorkbookCard = v.strictObject({
   byHand: v.nullable(Text),
   mine: v.nullable(CellSide),
   conflict: v.nullable(Text),
+  code: v.array(CodeLine),
+  fields: v.nullable(FieldLists),
+  details: v.array(Text),
 });
 export type WorkbookCard = v.InferOutput<typeof WorkbookCard>;
 
@@ -190,6 +217,7 @@ export const WorkbookView = v.strictObject({
   groups: v.array(
     v.strictObject({
       category: Category,
+      object: v.nullable(v.picklist(["macros", "queries", "pivots"])),
       title: Text,
       summary: Text,
       cards: v.array(WorkbookCard),
@@ -199,6 +227,9 @@ export const WorkbookView = v.strictObject({
   unmatched: v.array(v.strictObject({ sheet: Text, summary: Text })),
   untracked: v.array(Text),
   notes: v.array(Text),
+  /** Macro code is new or changed: for a file that came back, the warning (decision 0027). */
+  newMacroCode: v.boolean(),
+  signature: v.nullable(Text),
 });
 export type WorkbookView = v.InferOutput<typeof WorkbookView>;
 
@@ -467,6 +498,8 @@ export const LibraryEntry = v.strictObject({
   attention: v.nullable(Text),
   canOpen: v.boolean(),
   damage: v.nullable(Text),
+  /** "Contains macros". */
+  badges: v.array(Text),
 });
 export type LibraryEntry = v.InferOutput<typeof LibraryEntry>;
 
@@ -508,6 +541,7 @@ export const DocumentPage = v.strictObject({
   note: v.nullable(Text),
   files: v.array(FileHistory),
   sent: SentList,
+  badges: v.array(Text),
 });
 export type DocumentPage = v.InferOutput<typeof DocumentPage>;
 
@@ -693,4 +727,8 @@ export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "finish-workbook-keep": Outcome,
   "workbook-way-back": v.array(CellStep),
   "workbook-put-back": PutBack,
+  "workbook-what-changed-objects": WhatChanged,
+  "returned-review-macros": ReturnReview,
+  "sent-list-macros": SentList,
+  "document-macros": DocumentView,
 };

@@ -503,6 +503,7 @@ fn golden_replies() {
 
     deck_replies(&mut golden);
     workbook_replies(&mut golden);
+    object_replies(&mut golden);
 
     // Errors.
     let fresh = Session::new([7; 32]);
@@ -940,4 +941,121 @@ fn workbook_replies(golden: &mut Golden) {
     let value = golden.keep("finish-workbook-keep", &reply);
     assert_eq!(value["ok"], true, "{value}");
     host.take(reply);
+}
+
+/// Phase 5B: the founder's model with macros, pivots and queries. What
+/// changed when a macro, a pivot and a query change; a copy that came back
+/// with new macro code; and the document page's "Contains macros".
+fn object_replies(golden: &mut Golden) {
+    use lineage_core::docx::props::{read_ids, write_ids};
+    use lineage_testkit::advanced;
+
+    let with_ids = |file: &[u8], built: &lineage_testkit::xlsx::Workbook| -> Vec<u8> {
+        let ids = read_ids(&Package::read(file).expect("reads"))
+            .expect("reads")
+            .expect("ids");
+        let mut package = Package::read(&built.to_bytes()).expect("reads");
+        write_ids(&mut package, &ids).expect("writes");
+        package.to_bytes().expect("bytes")
+    };
+    let mut host = Host {
+        session: Session::new([45; 32]),
+        ledger: Vec::new(),
+        stored: Vec::new(),
+        now: START,
+    };
+    let reply = host.session.start_tracking(
+        &advanced::model_full().to_bytes(),
+        "Startup model.xlsm",
+        "Startup model.xlsm",
+        host.now,
+    );
+    let (master_file, _) = host.take(reply);
+    let master_file = master_file.expect("ids written");
+    let state: Value = serde_json::from_str(&host.session.family(&host.ledger).json).expect("json");
+    let family_id = id(&state["value"]["familyId"]);
+    let master = id(&state["value"]["nodes"][0]["id"]);
+
+    // A macro, a pivot table and a query changed together.
+    let mut edited = advanced::model_full_macro_edited();
+    advanced::pivot_mut(&mut edited, "SeatsByPlan").rows = 2;
+    let edited = with_ids(&master_file, &edited);
+    let value = golden.keep(
+        "workbook-what-changed-objects",
+        &host
+            .session
+            .workbook_what_changed(&host.ledger, &master, &edited, "[]"),
+    );
+    let groups = value["value"]["workbook"]["groups"]
+        .as_array()
+        .expect("groups");
+    let objects: Vec<&str> = groups.iter().filter_map(|g| g["object"].as_str()).collect();
+    assert_eq!(objects, ["macros", "pivots"], "{value}");
+    assert!(
+        value["value"]["workbook"]["newMacroCode"]
+            .as_bool()
+            .expect("bool")
+    );
+
+    // A copy goes out and comes back with new macro code.
+    let reply = host.session.send_copy(
+        &host.ledger,
+        &master,
+        &master_file,
+        r#"{"recipient":"Harbor Lane Capital","purpose":"Series A","embedId":true}"#,
+        host.now,
+    );
+    let (_, copy) = host.take(reply);
+    let back = with_ids(
+        &copy.expect("the copy"),
+        &advanced::model_full_returned_with_macro(),
+    );
+    let ledgers = serde_json::json!([{
+        "family": family_id,
+        "ledger": String::from_utf8(host.ledger.clone()).expect("utf-8"),
+    }])
+    .to_string();
+    let found: Value =
+        serde_json::from_str(&host.session.recognise(&back, &ledgers).json).expect("json");
+    let candidate = &found["value"]["candidates"][0];
+    let reply = host.session.record_returned(
+        &host.ledger,
+        &back,
+        &serde_json::json!({
+            "name": "Startup model - Harbor Lane.xlsm",
+            "checkpoint": candidate["checkpoint"],
+            "sent": candidate["sent"],
+            "matchedBy": "ids",
+        })
+        .to_string(),
+        host.now,
+    );
+    let recorded: Value = serde_json::from_str(&reply.json).expect("json");
+    let returned = id(&recorded["value"]["created"]);
+    host.take(reply);
+    let review = golden.keep(
+        "returned-review-macros",
+        &host
+            .session
+            .returned_review(&host.ledger, &master, &master_file, &returned),
+    );
+    assert!(
+        review["value"]["view"]["workbook"]["newMacroCode"]
+            .as_bool()
+            .expect("bool"),
+        "{review}"
+    );
+    let sent = golden.keep(
+        "sent-list-macros",
+        &host.session.sent_list(&host.ledger, None),
+    );
+    assert!(
+        sent.to_string().contains("including new macro code"),
+        "{sent}"
+    );
+    let document = golden.keep("document-macros", &host.session.document(&host.ledger));
+    assert_eq!(
+        document["value"]["page"]["badges"][0], "Contains macros",
+        "{document}"
+    );
 }

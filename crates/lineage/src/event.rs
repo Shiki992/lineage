@@ -85,6 +85,11 @@ fn is_zero(n: &usize) -> bool {
     *n == 0
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 /// Every kind of event.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
@@ -116,6 +121,11 @@ pub enum Event {
         /// JSON) from its parent. The ids in it are what change states refer to.
         changes: Option<BlobHash>,
         engine_version: String,
+        /// For a workbook: whether it holds macros (Phase 5B), for My
+        /// documents' "Contains macros". Absent for other formats and in
+        /// older ledgers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        macros: Option<bool>,
     },
     UpdateOffered {
         offer_id: Id,
@@ -172,6 +182,10 @@ pub enum Event {
         /// Their changes to the words, and their formatting-only changes.
         change_count: usize,
         formatting_count: usize,
+        /// It came back with macro code that is new or different from what
+        /// left (Phase 5B, decision 0027). Absent in older ledgers.
+        #[serde(default, skip_serializing_if = "is_false")]
+        new_macro_code: bool,
     },
     /// The person kept or skipped changes in a returned file. A file can be
     /// reviewed in more than one sitting.

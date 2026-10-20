@@ -75,7 +75,10 @@
                     "label": "Skip"
                   }
                 ],
+                "code": [],
                 "conflict": null,
+                "details": [],
+                "fields": null,
                 "id": "xe3979b9a543c3d3e",
                 "ids": [
                   "xe3979b9a543c3d3e"
@@ -89,12 +92,15 @@
             ],
             "category": "input",
             "more": 0,
+            "object": null,
             "summary": "1 change",
             "title": "Inputs"
           }
         ],
         "headline": "1 update",
+        "newMacroCode": false,
         "notes": [],
+        "signature": null,
         "unmatched": [],
         "untracked": []
       }

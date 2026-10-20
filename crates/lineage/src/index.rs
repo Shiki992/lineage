@@ -20,7 +20,7 @@ use crate::library::{EntryFacts, Library};
 use crate::read::read_lenient;
 
 /// The index format this crate writes and reads.
-pub const INDEX_VERSION: u32 = 1;
+pub const INDEX_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

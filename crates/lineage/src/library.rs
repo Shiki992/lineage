@@ -34,6 +34,9 @@ pub struct EntryFacts {
     pub last_at: Timestamp,
     /// The damage note, when only part of the history could be read.
     pub damage: Option<String>,
+    /// The master workbook holds macros (Phase 5B): "Contains macros".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub macros: bool,
 }
 
 impl EntryFacts {
@@ -54,6 +57,7 @@ impl EntryFacts {
                 to_review: 0,
                 last_at: Timestamp(0),
                 damage,
+                macros: false,
             };
         };
         Self {
@@ -72,6 +76,7 @@ impl EntryFacts {
                 .count(),
             last_at: state.last_at,
             damage,
+            macros: master_has_macros(state),
         }
     }
 
@@ -89,6 +94,25 @@ impl EntryFacts {
     }
 }
 
+/// Whether the master's latest checkpoint holds macros. Checkpoints saved
+/// before Phase 5B don't say; then a macro-enabled file name (`.xlsm`,
+/// `.xltm`) stands for it.
+pub(crate) fn master_has_macros(state: &FamilyState) -> bool {
+    let Ok(master) = state.master() else {
+        return false;
+    };
+    match state.latest(&master.id).and_then(|c| c.macros) {
+        Some(m) => m,
+        None => {
+            let name = master.display_name.to_ascii_lowercase();
+            state.format == "xlsx" && (name.ends_with(".xlsm") || name.ends_with(".xltm"))
+        }
+    }
+}
+
+/// The badge on a macro workbook's row and page.
+pub const CONTAINS_MACROS: &str = "Contains macros";
+
 /// One row of "My documents", worded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LibraryEntry {
@@ -104,6 +128,8 @@ pub struct LibraryEntry {
     /// False for a format this version of Lineage can't open yet, or a damaged
     /// history: compare, restore and open are not offered.
     pub can_open: bool,
+    /// "Contains macros".
+    pub badges: Vec<String>,
 }
 
 /// Formats the engine reads today.
@@ -172,6 +198,11 @@ impl LibraryEntry {
             },
             attention,
             can_open: facts.damage.is_none() && readable_format(&facts.format),
+            badges: if facts.macros {
+                vec![CONTAINS_MACROS.to_owned()]
+            } else {
+                Vec::new()
+            },
             facts,
         }
     }

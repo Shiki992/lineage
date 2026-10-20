@@ -65,7 +65,10 @@
                         "label": "Decline"
                       }
                     ],
+                    "code": [],
                     "conflict": null,
+                    "details": [],
+                    "fields": null,
                     "id": "xf2c3697854f6942d",
                     "ids": [
                       "xf2c3697854f6942d"
@@ -79,12 +82,15 @@
                 ],
                 "category": "input",
                 "more": 0,
+                "object": null,
                 "summary": "1 change",
                 "title": "Inputs"
               }
             ],
             "headline": "1 update",
+            "newMacroCode": false,
             "notes": [],
+            "signature": null,
             "unmatched": [],
             "untracked": []
           }

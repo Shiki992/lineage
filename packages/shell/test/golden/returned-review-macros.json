@@ -1,0 +1,205 @@
+{
+  "ok": true,
+  "value": {
+    "formatting": {
+      "formattingNote": null,
+      "note": null,
+      "wordsOnly": false
+    },
+    "from": "You sent this to Harbor Lane Capital on 15 Oct, from Startup model v1.",
+    "fromName": "Startup model",
+    "fromNode": "3fcef367cf2cee310584cd1f0ad0e712",
+    "headline": "2 changes from Harbor Lane Capital",
+    "notes": [],
+    "returned": "45a8a12f6913d29f6d76633f67a64b0c",
+    "theirs": "Harbor Lane Capital",
+    "view": {
+      "alreadyThere": [],
+      "byHand": [
+        {
+          "byHand": "Macros come in by hand: Lineage can't change macro code in Excel. Open the VBA editor (Alt+F11) and copy the code shown here.",
+          "choices": [
+            {
+              "decision": "decline",
+              "label": "Skip"
+            }
+          ],
+          "id": "f9e5faa77d7e0090",
+          "place": "Module Forecast",
+          "summary": "Macro RefreshForecast: 1 line changed",
+          "text": []
+        },
+        {
+          "byHand": "Macros come in by hand: Lineage can't change macro code in Excel. Open the VBA editor (Alt+F11) and copy the code shown here.",
+          "choices": [
+            {
+              "decision": "decline",
+              "label": "Skip"
+            }
+          ],
+          "id": "0c1fdb2fcc7d99de",
+          "place": "Module Mailer",
+          "summary": "Added module Mailer (4 lines)",
+          "text": []
+        }
+      ],
+      "changes": [],
+      "formatting": [],
+      "headline": "2 changes from Harbor Lane Capital",
+      "overlaps": [],
+      "workbook": {
+        "groups": [
+          {
+            "cards": [
+              {
+                "address": null,
+                "after": null,
+                "before": null,
+                "byHand": "Macros come in by hand: Lineage can't change macro code in Excel. Open the VBA editor (Alt+F11) and copy the code shown here.",
+                "cells": 1,
+                "choices": [
+                  {
+                    "decision": "decline",
+                    "label": "Skip"
+                  }
+                ],
+                "code": [
+                  {
+                    "after": null,
+                    "before": null,
+                    "kind": "skipped",
+                    "text": "5 unchanged lines"
+                  },
+                  {
+                    "after": 6,
+                    "before": 6,
+                    "kind": "same",
+                    "text": "    months = 12"
+                  },
+                  {
+                    "after": 7,
+                    "before": 7,
+                    "kind": "same",
+                    "text": "    Worksheets(\"Summary\").Range(\"B2\").Value = months"
+                  },
+                  {
+                    "after": 8,
+                    "before": 8,
+                    "kind": "same",
+                    "text": "    Application.StatusBar = \"Forecast updated\""
+                  },
+                  {
+                    "after": 9,
+                    "before": null,
+                    "kind": "added",
+                    "text": "    Call SendSummary"
+                  },
+                  {
+                    "after": 10,
+                    "before": 9,
+                    "kind": "same",
+                    "text": "End Sub"
+                  },
+                  {
+                    "after": 11,
+                    "before": 10,
+                    "kind": "same",
+                    "text": ""
+                  },
+                  {
+                    "after": 12,
+                    "before": 11,
+                    "kind": "same",
+                    "text": "Public Function Growth(rate As Double) As Double"
+                  },
+                  {
+                    "after": null,
+                    "before": null,
+                    "kind": "skipped",
+                    "text": "2 unchanged lines"
+                  }
+                ],
+                "conflict": null,
+                "details": [
+                  "Macro RefreshForecast: 1 line changed"
+                ],
+                "fields": null,
+                "id": "f9e5faa77d7e0090",
+                "ids": [
+                  "f9e5faa77d7e0090"
+                ],
+                "mine": null,
+                "place": "Module Forecast",
+                "sheet": "",
+                "summary": "Macro RefreshForecast: 1 line changed",
+                "why": null
+              },
+              {
+                "address": null,
+                "after": null,
+                "before": null,
+                "byHand": "Macros come in by hand: Lineage can't change macro code in Excel. Open the VBA editor (Alt+F11) and copy the code shown here.",
+                "cells": 1,
+                "choices": [
+                  {
+                    "decision": "decline",
+                    "label": "Skip"
+                  }
+                ],
+                "code": [
+                  {
+                    "after": 1,
+                    "before": null,
+                    "kind": "added",
+                    "text": "Public Sub SendSummary()"
+                  },
+                  {
+                    "after": 2,
+                    "before": null,
+                    "kind": "added",
+                    "text": "    ' Invented: would e-mail the summary."
+                  },
+                  {
+                    "after": 3,
+                    "before": null,
+                    "kind": "added",
+                    "text": "    Debug.Print \"summary\""
+                  },
+                  {
+                    "after": 4,
+                    "before": null,
+                    "kind": "added",
+                    "text": "End Sub"
+                  }
+                ],
+                "conflict": null,
+                "details": [],
+                "fields": null,
+                "id": "0c1fdb2fcc7d99de",
+                "ids": [
+                  "0c1fdb2fcc7d99de"
+                ],
+                "mine": null,
+                "place": "Module Mailer",
+                "sheet": "",
+                "summary": "Added module Mailer (4 lines)",
+                "why": null
+              }
+            ],
+            "category": "structure",
+            "more": 0,
+            "object": "macros",
+            "summary": "2 changes",
+            "title": "Macros"
+          }
+        ],
+        "headline": "2 updates",
+        "newMacroCode": true,
+        "notes": [],
+        "signature": null,
+        "unmatched": [],
+        "untracked": []
+      }
+    }
+  }
+}

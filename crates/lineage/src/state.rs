@@ -45,6 +45,8 @@ pub struct Checkpoint {
     pub number: usize,
     /// "Sent to ten companies", once marked.
     pub milestone: Option<String>,
+    /// For a workbook: whether it holds macros; `None` before Phase 5B.
+    pub macros: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -88,6 +90,8 @@ pub struct Returned {
     pub confidence: u8,
     pub change_count: usize,
     pub formatting_count: usize,
+    /// Came back with new or changed macro code (Phase 5B).
+    pub new_macro_code: bool,
     pub at: Timestamp,
     /// Each sitting in which the person kept or skipped its changes.
     pub reviews: Vec<Reviewed>,
@@ -254,6 +258,7 @@ impl FamilyState {
                 author,
                 changes,
                 engine_version: _,
+                macros,
             } => {
                 if self.checkpoint(checkpoint_id).is_some() {
                     return Err(bad("a checkpoint id is used twice"));
@@ -280,6 +285,7 @@ impl FamilyState {
                     changes: changes.clone(),
                     number,
                     milestone: None,
+                    macros: *macros,
                 });
             }
             Event::UpdateOffered {
@@ -384,6 +390,7 @@ impl FamilyState {
                 confidence,
                 change_count,
                 formatting_count,
+                new_macro_code,
             } => {
                 if self.checkpoint(from_checkpoint_id).is_none() {
                     return Err(bad("a returned file from an unknown checkpoint"));
@@ -414,6 +421,7 @@ impl FamilyState {
                     confidence: *confidence,
                     change_count: *change_count,
                     formatting_count: *formatting_count,
+                    new_macro_code: *new_macro_code,
                     at,
                     reviews: Vec::new(),
                 });

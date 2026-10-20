@@ -165,6 +165,19 @@ pub(crate) fn check_file(state: &FamilyState, node: &Id, bytes: &[u8]) -> Result
     Ok(ids)
 }
 
+/// Whether a file holds macros, read or kept untracked (Phase 5B).
+pub(crate) fn has_macros(doc: &Doc) -> bool {
+    match doc {
+        Doc::Workbook(w) => {
+            w.vba.is_some()
+                || w.unsupported
+                    .iter()
+                    .any(|u| u.kind == lineage_core::xlsx::UnsupportedKind::Macros)
+        }
+        _ => false,
+    }
+}
+
 /// Saves a checkpoint of `bytes` for `node` into the builder. Returns the new
 /// checkpoint and the file with its ids.
 pub(crate) fn checkpoint_into(
@@ -212,6 +225,7 @@ pub(crate) fn checkpoint_into(
         author,
         changes,
         engine_version: ENGINE_VERSION.to_owned(),
+        macros: matches!(docx, Doc::Workbook(_)).then(|| has_macros(&docx)),
     })?;
     if builder.state.node(node).map(|n| n.role) == Some(Role::Variant) {
         let state = builder.state.clone();

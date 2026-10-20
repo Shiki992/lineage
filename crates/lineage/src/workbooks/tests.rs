@@ -404,3 +404,94 @@ fn the_way_back_matches_how_far_excel_got() {
         "the later plan's way back first"
     );
 }
+
+// --- Phase 5B: macros, pivots and queries in a family --------------------------
+
+#[test]
+fn a_copy_that_came_back_with_new_macro_code_is_flagged() {
+    use crate::event::MatchedBy;
+    use crate::returned::review;
+    use lineage_core::xlsx::view::{NEW_MACRO_CODE, Object};
+    use lineage_testkit::advanced;
+
+    let mut host = Host::new();
+    let mut ctx = Context {
+        now: host.now,
+        ids: &mut host.ids,
+        author: None,
+    };
+    let (_, outcome) = commands::start_tracking(
+        &mut ctx,
+        &advanced::model_full().to_bytes(),
+        "Model.xlsm",
+        "Model.xlsm",
+        &host.blobs,
+    )
+    .expect("starts");
+    let master_file = host.take(outcome).file.expect("file with ids");
+    let master = host.master();
+    let first = host.state().latest(&master).expect("v1");
+    assert_eq!(
+        first.macros,
+        Some(true),
+        "the checkpoint says it has macros"
+    );
+
+    // My documents shows the badge.
+    let entry = crate::library::LibraryEntry::from_facts(crate::library::EntryFacts::of_state(
+        host.state(),
+    ));
+    assert_eq!(entry.badges, ["Contains macros"]);
+
+    let (_, copy) = host.send(&master, &master_file, "Harbor Lane Capital", true);
+    let back = wb_edit(&copy, &advanced::model_full_returned_with_macro());
+    let found = host.recognise(&back);
+    let returned = host.record(&back, &found, MatchedBy::Ids);
+    let r = host
+        .state()
+        .returned_file(&returned)
+        .expect("recorded")
+        .clone();
+    assert!(r.new_macro_code);
+
+    let sent = crate::views::sent_list(host.state(), None);
+    let chip = sent.groups[0].rows[0].chip.clone().expect("a chip");
+    assert!(chip.ends_with(", including new macro code"), "{chip}");
+
+    let r = review(host.state(), &returned, &master, &master_file, &host.blobs).expect("reviews");
+    let wv = r.view.workbook.as_ref().expect("a workbook view");
+    assert!(wv.new_macro_code, "the banner shows");
+    assert!(NEW_MACRO_CODE.starts_with("This file came back with new macro code"));
+    let macros = wv
+        .groups
+        .iter()
+        .find(|g| g.object == Some(Object::Macros))
+        .expect("a Macros group");
+    // Each module on its own card, by hand, with only Skip.
+    assert_eq!(macros.cards.len(), 2, "{:?}", macros.cards);
+    for card in &macros.cards {
+        let labels: Vec<&str> = card.choices.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["Skip"], "{}", card.summary);
+        assert!(
+            card.by_hand
+                .as_deref()
+                .is_some_and(|b| b.contains("VBA editor"))
+        );
+        assert!(!card.code.is_empty());
+    }
+}
+
+#[test]
+fn a_workbook_without_macros_has_no_badge() {
+    let mut host = Host::new();
+    host.start_workbook(&workbooks::model_master().to_bytes());
+    let master = host.master();
+    assert_eq!(
+        host.state().latest(&master).expect("v1").macros,
+        Some(false)
+    );
+    let entry = crate::library::LibraryEntry::from_facts(crate::library::EntryFacts::of_state(
+        host.state(),
+    ));
+    assert!(entry.badges.is_empty());
+}
