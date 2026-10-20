@@ -42,14 +42,10 @@ fn copy_token_help(difference: usize) -> (u16, u16, u32, usize) {
 #[must_use]
 pub fn compress(data: &[u8]) -> Vec<u8> {
     let mut out = vec![0x01];
-    let mut start = 0;
-    loop {
-        let end = (start + CHUNK).min(data.len());
-        out.extend(compress_chunk(&data[start..end]));
-        start = end;
-        if start >= data.len() {
-            break;
-        }
+    // An empty buffer is the signature byte alone: the spec's chunk loop
+    // runs no times, and a chunk can't hold nothing.
+    for chunk in data.chunks(CHUNK) {
+        out.extend(compress_chunk(chunk));
     }
     out
 }

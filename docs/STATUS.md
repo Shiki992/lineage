@@ -85,6 +85,8 @@ The maintainer chose (2026-10-19 and 20):
 - **Send a copy said "Formulas may read them, so they stay"** after "Macros go with this copy". Each hidden-content line now gives its own reason; the closing line is "Check before you send it."
 - From stop 1: the pivot key changed on a plain Excel save (attributes in other namespaces, `multipleFieldNames`).
 
+**Found by the `vba_project` fuzz target in CI, and fixed:** the testkit compressor wrote an empty buffer as a chunk whose size underflowed ("attempt to subtract with overflow"). An empty buffer is now the signature byte alone (MS-OVBA 2.4.1.3.6). It was the test kit, not the reader, but the fuzz target builds its input with it. A regression test, and property tests that run the `vba_project` and `mashup` targets' paths natively with overflow checks on (5,000 cases each, locally).
+
 **Measurements**
 
 - **wasm** 2,132,549 bytes raw and 712,227 gzipped (was 1,982,567 and 657,409), under 4 MB. JavaScript gzipped: task pane 181,396, My documents 160,923.
@@ -101,9 +103,9 @@ The maintainer chose (2026-10-19 and 20):
 
 **Tests**
 
-- **Rust:** 572 pass, 4 ignored (was 495).
+- **Rust:** 575 pass, 4 ignored (was 495).
   - Every parser, with malformed input.
-  - Five new property tests: decompression undoes compression and never panics; the code view rebuilds both sides; the M lexer never panics; reordering queries is no change.
+  - Seven new property tests: decompression undoes compression and never panics; the code view rebuilds both sides; the M lexer never panics; reordering queries is no change; any bytes through the `vba_project` and `mashup` fuzz targets' paths never panic.
   - Diff, view and merge for each kind of change; the Excel-saved fixtures; family logic; golden replies.
 - **TypeScript:** 307 pass (was 295): shell 176, add-in 47, My documents 31, design 15, OneDrive 29, storage-local 9. Playwright: 19 pass on Microsoft Edge, including a macro family kept as `.xlsm`.
 - **All checks pass:** fmt, clippy, cargo-deny, licence headers, fixtures, lint, typecheck, Prettier, budgets.
@@ -113,7 +115,7 @@ The maintainer chose (2026-10-19 and 20):
 - **The master's own macro edit in Excel** (script steps 3, 8, 10, and the macro parts of 6 and 15). Excel keeps the invented project's code, but after an edit in the VBA editor it couldn't save the workbook ("Errors were detected while saving"; cancelled). That is the spike's compile failure again. These steps need a project Excel made itself; the script says how. The same path is covered by engine, golden and component tests.
 - **Pasting copied code into Northwind and seeing "already there"** (step 10): not clicked in Excel.
 - **Excel for Mac**, and Excel on the web (decision 0020).
-- **The fuzz targets ran only in CI:** libFuzzer doesn't build on this Windows machine.
+- **The fuzz targets run only in CI:** libFuzzer doesn't build on this Windows machine. Two of them are mirrored by native property tests.
 - **Out of scope** (decision 0027): writing VBA, M or pivot definitions; `.xlsb`; Office Scripts; Excel 4.0 macro sheets, timelines and table slicers (still labelled untracked); `.docm` and `.pptm`.
 
 **Known issues**

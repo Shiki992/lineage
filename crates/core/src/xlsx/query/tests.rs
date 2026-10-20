@@ -152,6 +152,22 @@ proptest! {
         let _ = members(&src);
     }
 
+    // What `fuzz/fuzz_targets/mashup.rs` does, natively: libFuzzer doesn't
+    // build on Windows. Any bytes, as a DataMashup item's base64.
+    #[test]
+    fn any_bytes_as_the_fuzz_target_never_panic(
+        data in proptest::collection::vec(any::<u8>(), 0..400)
+    ) {
+        let item = format!(
+            "<DataMashup xmlns=\"{NS_MASHUP}\">{}</DataMashup>",
+            mashup::base64(&data)
+        );
+        if let Ok(m) = read("customXml/item1.xml", item.as_bytes()) {
+            prop_assert!(diff(Some(&m), Some(&m)).is_empty());
+        }
+        let _ = members(&String::from_utf8_lossy(&data));
+    }
+
     #[test]
     fn reordering_queries_is_no_change(swap in any::<bool>()) {
         let mut q = advanced::model_queries();

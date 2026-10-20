@@ -167,6 +167,47 @@ fn raw_chunks_decompress() {
     assert_eq!(compress::decompress(&packed, 1 << 20).unwrap(), noise);
 }
 
+/// Found by the `vba_project` fuzz target in CI: the testkit compressor
+/// wrote an empty buffer as a chunk whose size underflowed. MS-OVBA
+/// 2.4.1.3.6 compresses an empty buffer to the signature byte alone.
+#[test]
+fn an_empty_buffer_is_the_signature_alone() {
+    assert_eq!(kit::compress(&[]), [0x01]);
+    assert!(
+        compress::decompress(&[0x01], MAX_MODULE_BYTES)
+            .unwrap()
+            .is_empty()
+    );
+    // The fuzz target's shortest inputs, whose halves are empty or one byte.
+    for data in [&b""[..], b"x", b"xy", b"\x01"] {
+        as_the_fuzz_target(data);
+    }
+}
+
+/// What `fuzz/fuzz_targets/vba_project.rs` does with bytes that aren't a
+/// compound file: half become the dir stream, half the module. An error or
+/// a project, never a panic.
+fn as_the_fuzz_target(data: &[u8]) {
+    let (dir, module) = data.split_at(data.len() / 2);
+    let bin = kit::write_cfb(&[
+        CfbStream {
+            path: "PROJECT".to_owned(),
+            data: b"Module=Module1\r\n".to_vec(),
+        },
+        CfbStream {
+            path: "VBA/dir".to_owned(),
+            data: kit::compress(dir),
+        },
+        CfbStream {
+            path: "VBA/Module1".to_owned(),
+            data: kit::compress(module),
+        },
+    ]);
+    if let Ok(project) = read(&bin, &[data]) {
+        assert!(diff(Some(&project), Some(&project)).is_empty());
+    }
+}
+
 #[test]
 fn a_missing_dir_stream_is_damaged() {
     let bin = kit::write_cfb(&[CfbStream {
@@ -376,6 +417,14 @@ proptest! {
             compress::decompress(&packed, MAX_MODULE_BYTES).unwrap(),
             text.as_bytes()
         );
+    }
+
+    // The fuzz target's path, natively: libFuzzer doesn't build on Windows.
+    #[test]
+    fn any_bytes_as_the_fuzz_target_never_panic(
+        bytes in proptest::collection::vec(any::<u8>(), 0..400)
+    ) {
+        as_the_fuzz_target(&bytes);
     }
 
     #[test]
