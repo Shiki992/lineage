@@ -61,6 +61,30 @@ pub enum Manual {
     Refreshed,
     /// A part kept but not tracked yet.
     Untracked(UnsupportedKind),
+    /// Macro code: Office.js can't change it (decision 0027).
+    Macro,
+    /// A Power Query query: Office.js can't change it.
+    Query,
+    /// A pivot table or slicer: Office.js can't rebuild one exactly.
+    Pivot,
+}
+
+/// A change to a macro module, a reference, a query, a pivot table or a
+/// slicer, as one whole object (decisions 0027 to 0030).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObjectItem {
+    pub object: super::view::Object,
+    /// "Module Forecast", "Query Rates", "Pivot table SeatsByPlan".
+    pub name: String,
+    pub summary: String,
+    pub code: Vec<crate::code::CodeLine>,
+    pub details: Vec<String>,
+    pub fields: Option<super::view::FieldLists>,
+    /// The whole code on the master's side, for "Copy code".
+    pub copy: Option<String>,
+    pub sheet: String,
+    /// This version changed the same object too.
+    pub both: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -81,6 +105,8 @@ pub enum What {
     Rows { sheet_theirs: usize, rows: Vec<u32> },
     /// A structure change, never written in v0.
     Structure(StructureChange),
+    /// A macro, query, pivot table or slicer: always by hand.
+    Object(ObjectItem),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -410,6 +436,7 @@ pub fn plan<'d>(base: &'d Workbook, ours: &'d Workbook, theirs: &'d Workbook) ->
             mine: None,
         });
     }
+    items.extend(object_items(ours, theirs, &mine, &master));
 
     Plan {
         base,
@@ -419,6 +446,230 @@ pub fn plan<'d>(base: &'d Workbook, ours: &'d Workbook, theirs: &'d Workbook) ->
         master,
         items,
     }
+}
+
+/// The master's changes to macros, queries, pivot tables and slicers, each
+/// one item, always by hand: Office.js can't write macro or query code, or
+/// rebuild a pivot table exactly (decision 0027). An item is "already
+/// there" when this version already matches the master's side; a refresh
+/// is never an item.
+#[allow(clippy::too_many_lines)]
+fn object_items(
+    ours: &Workbook,
+    theirs: &Workbook,
+    mine: &WorkbookDiff,
+    master: &WorkbookDiff,
+) -> Vec<Item> {
+    use super::pivot::PivotChangeKind;
+    use super::query::QueryChangeKind;
+    use super::view::{FieldLists, Object};
+    use crate::vba::diff::ModuleChangeKind;
+    let mut out = Vec::new();
+    let mut push = |id: &str, object: ObjectItem, there: bool| {
+        out.push(Item {
+            id: id.to_owned(),
+            what: What::Object(object.clone()),
+            status: if there {
+                Status::AlreadyThere
+            } else {
+                Status::ByHand(match object.object {
+                    Object::Macros => Manual::Macro,
+                    Object::Queries => Manual::Query,
+                    Object::Pivots => Manual::Pivot,
+                })
+            },
+            mine: None,
+        });
+    };
+
+    // Macros, module by module.
+    for m in &master.macros.modules {
+        let ours_module = ours.vba.as_ref().and_then(|p| p.module(&m.name));
+        let theirs_module = theirs.vba.as_ref().and_then(|p| p.module(&m.name));
+        let there = match (&m.change, ours_module, theirs_module) {
+            (ModuleChangeKind::Removed, None, _) => true,
+            (_, Some(o), Some(t)) => {
+                o.lines == t.lines && o.kind == t.kind && o.designer == t.designer
+            }
+            _ => false,
+        };
+        let both = mine
+            .macros
+            .modules
+            .iter()
+            .any(|x| x.name.eq_ignore_ascii_case(&m.name));
+        push(
+            &m.id,
+            ObjectItem {
+                object: Object::Macros,
+                name: format!("{} {}", m.kind.noun(), m.name),
+                summary: m.summary.clone(),
+                code: m.code.clone(),
+                copy: m.text.clone(),
+                details: super::view::without(&m.details, &m.summary),
+                fields: None,
+                sheet: String::new(),
+                both,
+            },
+            there,
+        );
+    }
+    let ours_refs: Vec<String> = ours
+        .vba
+        .as_ref()
+        .map(|p| {
+            p.references
+                .iter()
+                .map(crate::vba::Reference::label)
+                .collect()
+        })
+        .unwrap_or_default();
+    for r in &master.macros.references_added {
+        push(
+            &format!("reference-added-{r}"),
+            ObjectItem {
+                object: Object::Macros,
+                name: format!("Reference {r}"),
+                summary: format!("Added reference {r}"),
+                code: Vec::new(),
+                copy: None,
+                details: Vec::new(),
+                fields: None,
+                sheet: String::new(),
+                both: false,
+            },
+            ours_refs.contains(r),
+        );
+    }
+    for r in &master.macros.references_removed {
+        push(
+            &format!("reference-removed-{r}"),
+            ObjectItem {
+                object: Object::Macros,
+                name: format!("Reference {r}"),
+                summary: format!("Removed reference {r}"),
+                code: Vec::new(),
+                copy: None,
+                details: Vec::new(),
+                fields: None,
+                sheet: String::new(),
+                both: false,
+            },
+            !ours_refs.contains(r),
+        );
+    }
+
+    // Queries, whole query by whole query.
+    for q in &master.queries {
+        if q.kind == QueryChangeKind::Refreshed {
+            continue;
+        }
+        let find = |w: &Workbook| {
+            w.queries
+                .as_ref()
+                .and_then(|m| m.queries.iter().find(|x| x.name == q.name).cloned())
+        };
+        let there = match (&q.kind, find(ours), find(theirs)) {
+            (QueryChangeKind::Removed, None, _) => true,
+            (_, Some(o), Some(t)) => o.lines == t.lines && o.load == t.load,
+            _ => false,
+        };
+        let both = mine
+            .queries
+            .iter()
+            .any(|x| x.name == q.name && x.kind != QueryChangeKind::Refreshed);
+        push(
+            &q.id,
+            ObjectItem {
+                object: Object::Queries,
+                name: format!("Query {}", q.name),
+                summary: q.summary.clone(),
+                code: q.code.clone(),
+                copy: q.text.clone(),
+                details: super::view::without(&q.details, &q.summary),
+                fields: None,
+                sheet: String::new(),
+                both,
+            },
+            there,
+        );
+    }
+
+    // Pivot tables and slicers, each whole.
+    fn pivot<'w>(
+        w: &'w Workbook,
+        name: &str,
+    ) -> Option<(&'w super::pivot::PivotTable, &'w super::pivot::PivotCache)> {
+        w.pivots
+            .tables
+            .iter()
+            .find(|t| t.name.eq_ignore_ascii_case(name))
+            .map(|t| (t, &w.pivots.caches[t.cache]))
+    }
+    for p in &master.pivots {
+        if p.kind == PivotChangeKind::Refreshed {
+            continue;
+        }
+        let there = match (p.kind, pivot(ours, &p.name), pivot(theirs, &p.name)) {
+            (PivotChangeKind::Removed, None, _) => true,
+            (_, Some((ot, oc)), Some((tt, tc))) => super::pivot::details(ot, oc, tt, tc).is_empty(),
+            _ => false,
+        };
+        let both = mine
+            .pivots
+            .iter()
+            .any(|x| x.name.eq_ignore_ascii_case(&p.name) && x.kind != PivotChangeKind::Refreshed);
+        push(
+            &p.id,
+            ObjectItem {
+                object: Object::Pivots,
+                name: format!("Pivot table {}", p.name),
+                summary: p.summary(),
+                code: Vec::new(),
+                copy: None,
+                details: p
+                    .details
+                    .iter()
+                    .filter(|d| *d != "Its data was refreshed")
+                    .cloned()
+                    .collect(),
+                fields: Some(FieldLists {
+                    before: p.before.clone(),
+                    after: p.after.clone(),
+                }),
+                sheet: p.sheet.clone(),
+                both,
+            },
+            there,
+        );
+    }
+    for s in &master.slicers {
+        let same = |w: &Workbook| {
+            w.pivots
+                .slicers
+                .iter()
+                .find(|x| x.caption == s.caption)
+                .map(|x| x.selected.clone())
+        };
+        let there = same(ours).is_some() && same(ours) == same(theirs);
+        let both = mine.slicers.iter().any(|x| x.caption == s.caption);
+        push(
+            &s.id,
+            ObjectItem {
+                object: Object::Pivots,
+                name: format!("Slicer {}", s.caption),
+                summary: s.summary.clone(),
+                code: Vec::new(),
+                copy: None,
+                details: Vec::new(),
+                fields: None,
+                sheet: String::new(),
+                both,
+            },
+            there,
+        );
+    }
+    out
 }
 
 /// Rows the master added: where they go in ours, and whether ours added

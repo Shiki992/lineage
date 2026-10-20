@@ -124,9 +124,9 @@
       "properties": {
         "format": { "const": "xlsx" },
         "part": {
-          "description": "Package part holding the sheet, for example xl/worksheets/sheet1.xml, or xl/workbook.xml for a change to the workbook.",
+          "description": "Package part holding the sheet, for example xl/worksheets/sheet1.xml, or xl/workbook.xml for a change to the workbook. For a macro, the VBA project (xl/vbaProject.bin); for a query, Power Query's custom XML item (customXml/item1.xml); for a pivot table or slicer, its definition.",
           "type": "string",
-          "pattern": "^xl/[A-Za-z0-9_./-]+\\.xml$"
+          "pattern": "^xl/[A-Za-z0-9_./-]+\\.(xml|bin)$|^customXml/[A-Za-z0-9_./-]+\\.xml$"
         },
         "sheet": {
           "description": "The sheet's name, in the version the change is in. Empty for a change to the workbook.",
@@ -148,7 +148,7 @@
           "pattern": "^\\$?[A-Z]{1,3}\\$?[0-9]{1,7}$"
         },
         "target": {
-          "description": "What changed when it isn't one cell: rows, columns, the sheet itself, a defined name, a table, a data connection, the workbook's settings, or a part kept but not tracked yet (macros, pivot tables, charts and so on).",
+          "description": "What changed when it isn't one cell: rows, columns, the sheet itself, a defined name, a table, a data connection, the workbook's settings, a macro module, a Power Query query, a pivot table, a slicer, or a part kept but not tracked yet (charts, links to other workbooks and so on).",
           "enum": [
             "cell",
             "rows",
@@ -158,10 +158,29 @@
             "table",
             "connection",
             "workbook",
+            "macro",
+            "query",
+            "pivot",
+            "slicer",
             "untracked"
           ]
+        },
+        "object": {
+          "description": "For the macro, query, pivot and slicer targets: the module, query, pivot table or slicer, by name.",
+          "type": "string",
+          "minLength": 1
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["target"],
+            "properties": { "target": { "enum": ["macro", "query", "pivot", "slicer"] } }
+          },
+          "then": { "required": ["object"] },
+          "else": { "not": { "required": ["object"] } }
+        }
+      ]
     },
     "pptxLocation": {
       "type": "object",

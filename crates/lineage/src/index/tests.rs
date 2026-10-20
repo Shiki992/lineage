@@ -129,8 +129,8 @@ fn indexes_that_cannot_be_trusted_are_refused() {
     let ledgers = ledgers();
     let good = full(&ledgers).index;
     let text = String::from_utf8(good.clone()).expect("utf-8");
-    let other_version = text.replacen("\"v\":1", "\"v\":2", 1);
-    let extra_field = text.replacen("\"v\":1", "\"v\":1,\"x\":0", 1);
+    let other_version = text.replacen("\"v\":2", "\"v\":1", 1);
+    let extra_field = text.replacen("\"v\":2", "\"v\":2,\"x\":0", 1);
     let mut index = parse(&good).expect("parses");
     let mut doubled = index.clone();
     doubled.families.push(index.families[0].clone());

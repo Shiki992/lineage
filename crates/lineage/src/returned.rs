@@ -113,9 +113,9 @@ pub fn prepare(bytes: &[u8]) -> Result<Prepared> {
         lineage_core::pptx::Kind::Word => {
             Doc::Word(Docx::from_package(package, lineage_core::View::Accepted)?)
         }
-        lineage_core::pptx::Kind::Workbook => Doc::Workbook(
+        lineage_core::pptx::Kind::Workbook => Doc::Workbook(Box::new(
             lineage_core::Workbook::from_package_limited(package, lineage_core::xlsx::PANEL_CELLS)?,
-        ),
+        )),
         lineage_core::pptx::Kind::PowerPoint => {
             Doc::Deck(lineage_core::Deck::from_package(package)?)
         }
@@ -566,10 +566,31 @@ pub fn record(
         confidence,
         change_count: content,
         formatting_count: formatting,
+        new_macro_code: new_macro_code(&base, &prepared.doc),
     })?;
     builder.blobs(vec![file]);
     builder.out.created = Some(returned);
     Ok(builder.finish())
+}
+
+/// Whether a workbook came back with macro code that is new or different
+/// from what left (decision 0027). Macros Lineage can't read count as new
+/// when their bytes changed: an unreadable change is never assumed safe.
+#[must_use]
+pub fn new_macro_code(base: &Doc, returned: &Doc) -> bool {
+    let (Doc::Workbook(a), Doc::Workbook(b)) = (base, returned) else {
+        return false;
+    };
+    let d = lineage_core::xlsx::diff::diff(a, b, &[]);
+    d.macros.new_code()
+        || d.structure.iter().any(|s| {
+            matches!(
+                s.kind,
+                lineage_core::xlsx::diff::StructureKind::Untracked {
+                    kind: lineage_core::xlsx::UnsupportedKind::Macros
+                }
+            )
+        }) && crate::commands::has_macros(returned)
 }
 
 /// What kept changes bring with them (decision 0014).

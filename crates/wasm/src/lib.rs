@@ -412,6 +412,12 @@ impl Engine {
         Reply(self.0.open_sent_copy(ledger, sent))
     }
 
+    #[wasm_bindgen(js_name = openCheckpoint)]
+    #[must_use]
+    pub fn open_checkpoint(&self, ledger: &[u8], checkpoint: &str) -> Reply {
+        Reply(self.0.open_checkpoint(ledger, checkpoint))
+    }
+
     #[must_use]
     pub fn recognise(&self, file: &[u8], ledgers: &str) -> Reply {
         Reply(self.0.recognise(file, ledgers))

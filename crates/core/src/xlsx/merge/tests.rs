@@ -233,3 +233,125 @@ fn rows_added_at_the_same_place_on_both_sides_overlap() {
     assert_eq!(rows[0].status, Status::Overlap(Conflict::BothAdded));
     assert_eq!(rows[0].choices().len(), 3);
 }
+
+// --- Phase 5B: macros, queries and pivot tables come in by hand ----------------
+
+mod objects {
+    use lineage_testkit::advanced;
+
+    use super::*;
+
+    fn objects(p: &Plan<'_>) -> Vec<(String, Status, bool)> {
+        p.items
+            .iter()
+            .filter_map(|i| match &i.what {
+                What::Object(o) => Some((o.name.clone(), i.status, o.both)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_masters_macro_comes_in_by_hand() {
+        let base = open(&advanced::model_full());
+        let theirs = open(&advanced::model_full_macro_edited());
+        let p = plan(&base, &base, &theirs);
+        assert_eq!(
+            objects(&p),
+            [(
+                "Module Forecast".to_owned(),
+                Status::ByHand(Manual::Macro),
+                false
+            )]
+        );
+        let item = &p
+            .items
+            .iter()
+            .find(|i| matches!(i.what, What::Object(_)))
+            .unwrap();
+        assert_eq!(item.choices(), [Decision::Decline]);
+        let What::Object(o) = &item.what else {
+            unreachable!()
+        };
+        assert!(!o.code.is_empty());
+    }
+
+    #[test]
+    fn a_macro_copied_by_hand_is_already_there() {
+        let base = open(&advanced::model_full());
+        let theirs = open(&advanced::model_full_macro_edited());
+        let p = plan(&base, &theirs, &theirs);
+        assert_eq!(
+            objects(&p),
+            [("Module Forecast".to_owned(), Status::AlreadyThere, true)]
+        );
+    }
+
+    #[test]
+    fn both_changed_the_macro() {
+        let base = open(&advanced::model_full());
+        let ours = open(&advanced::model_full_returned_with_macro());
+        let theirs = open(&advanced::model_full_macro_edited());
+        let p = plan(&base, &ours, &theirs);
+        assert_eq!(
+            objects(&p),
+            [(
+                "Module Forecast".to_owned(),
+                Status::ByHand(Manual::Macro),
+                true
+            )]
+        );
+    }
+
+    #[test]
+    fn pivots_and_queries_come_in_whole() {
+        let base = open(&advanced::model_full());
+        for (theirs, name, manual) in [
+            (
+                advanced::model_full_pivot_rows(),
+                "Pivot table SeatsByPlan",
+                Manual::Pivot,
+            ),
+            (
+                advanced::model_full_query_edited(),
+                "Query Rates",
+                Manual::Query,
+            ),
+            (
+                advanced::model_full_slicer(),
+                "Slicer Region",
+                Manual::Pivot,
+            ),
+        ] {
+            let theirs = open(&theirs);
+            let p = plan(&base, &base, &theirs);
+            let o = objects(&p);
+            assert!(
+                o.contains(&(name.to_owned(), Status::ByHand(manual), false)),
+                "{name}: {o:?}"
+            );
+            // And already there when this version made the same change.
+            let p = plan(&base, &theirs, &theirs);
+            assert!(
+                objects(&p)
+                    .iter()
+                    .all(|(_, s, _)| *s == Status::AlreadyThere),
+                "{name}: {:?}",
+                objects(&p)
+            );
+        }
+    }
+
+    #[test]
+    fn a_refresh_is_never_an_item() {
+        let base = open(&advanced::model_full());
+        for theirs in [
+            advanced::model_full_query_refreshed(),
+            advanced::model_full_refreshed(),
+        ] {
+            let theirs = open(&theirs);
+            let p = plan(&base, &base, &theirs);
+            assert!(objects(&p).is_empty(), "{:?}", objects(&p));
+        }
+    }
+}

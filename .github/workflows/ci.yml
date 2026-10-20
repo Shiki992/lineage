@@ -146,6 +146,16 @@ jobs:
         run: cargo +nightly-2026-10-01 fuzz run xlsx_reader --target "$FUZZ_TARGET" -- -max_total_time=60
       - name: zip_reader for 30 seconds
         run: cargo +nightly-2026-10-01 fuzz run zip_reader --target "$FUZZ_TARGET" -- -max_total_time=30
+      # Phase 5B: macros (compound files, VBA compression, the project) and
+      # Power Query. Returned files are untrusted input.
+      - name: cfb_reader for 30 seconds
+        run: cargo +nightly-2026-10-01 fuzz run cfb_reader --target "$FUZZ_TARGET" -- -max_total_time=30
+      - name: vba_decompress for 30 seconds
+        run: cargo +nightly-2026-10-01 fuzz run vba_decompress --target "$FUZZ_TARGET" -- -max_total_time=30
+      - name: vba_project for 30 seconds
+        run: cargo +nightly-2026-10-01 fuzz run vba_project --target "$FUZZ_TARGET" -- -max_total_time=30
+      - name: mashup for 30 seconds
+        run: cargo +nightly-2026-10-01 fuzz run mashup --target "$FUZZ_TARGET" -- -max_total_time=30
 
   dco:
     name: DCO sign-off

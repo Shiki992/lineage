@@ -140,6 +140,113 @@ describe("sending a workbook", () => {
     );
     expect(screen.getByText("Excel (.xlsx, or .xlsm with macros)")).toBeTruthy();
     const warning = screen.getByRole("region", { name: "What goes with this copy" });
-    expect(within(warning).getByText("2 hidden sheets go with this copy.")).toBeTruthy();
+    expect(
+      within(warning).getByText("2 hidden sheets go with this copy: formulas may read them."),
+    ).toBeTruthy();
+  });
+
+  it("gives no hidden-sheet reason when only macros go with the copy", () => {
+    const family = { ...(golden("family") as Family), format: "xlsx" };
+    render(
+      <SendCopy
+        family={family}
+        goesWith={["Macros go with this copy"]}
+        openNode={family.nodes[0]?.id ?? ""}
+        busy={false}
+        onSend={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+    const warning = screen.getByRole("region", { name: "What goes with this copy" });
+    expect(within(warning).getByText("Macros go with this copy.")).toBeTruthy();
+    expect(within(warning).queryByText(/formulas/i)).toBeNull();
+    expect(within(warning).getByText("Check before you send it.")).toBeTruthy();
+  });
+});
+
+describe("macros, queries and pivot tables (Phase 5B)", () => {
+  it("shows the macro's lines marked, the pivot's fields, and opens the master's version", () => {
+    const view = golden("workbook-what-changed-objects") as WhatChanged & {
+      workbook: NonNullable<WhatChanged["workbook"]>;
+    };
+    const onOpenMaster = vi.fn();
+    render(
+      <WorkbookReview
+        title={view.headline}
+        groups={[{ key: "c1", label: null, view: view.workbook }]}
+        verb="Bring in"
+        canBringIn
+        busy={false}
+        onOpenMaster={onOpenMaster}
+        onApply={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+    const macros = screen.getByRole("region", { name: "Macros" });
+    expect(within(macros).getByText("Macro RefreshForecast: 1 line changed")).toBeTruthy();
+    const code = within(macros).getByRole("list", { name: "− Removed + Added" });
+    expect(within(code).getByText(/^Removed line 6/)).toBeTruthy();
+    expect(within(code).getByText(/^Added line 6/)).toBeTruthy();
+    expect(within(code).getByText("months = 18")).toBeTruthy();
+    expect(within(macros).getByRole("button", { name: "Copy code" })).toBeTruthy();
+
+    const pivots = screen.getByRole("region", { name: "Pivot tables" });
+    const table = within(pivots).getByRole("table");
+    const rows = within(table).getByRole("rowheader", { name: /^Rows/ }).closest("tr");
+    expect(rows?.textContent).toBe("Rows (changed)PlanMonth");
+
+    // No warning: this is the person's own master.
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open the master's version" }));
+    expect(onOpenMaster).toHaveBeenCalledWith("c1");
+  });
+
+  it("warns about a file that came back with new macro code, and asks before copying it", async () => {
+    const review = golden("returned-review-macros") as ReturnReview;
+    const workbook = review.view.workbook;
+    if (!workbook) {
+      throw new Error("a workbook view");
+    }
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    const onOpenMaster = vi.fn();
+    render(
+      <WorkbookReview
+        title={review.headline}
+        groups={[{ key: review.returned, label: null, view: workbook }]}
+        verb="Keep"
+        canBringIn
+        busy={false}
+        fromOutside
+        onOpenMaster={onOpenMaster}
+        onApply={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /^This file came back with new macro code\. Lineage never runs it\./,
+    );
+    expect(screen.queryByRole("button", { name: "Open the master's version" })).toBeNull();
+    const macros = screen.getByRole("region", { name: "Macros" });
+    const copies = within(macros).getAllByRole("button", { name: "Copy code" });
+    expect(copies).toHaveLength(2);
+    const [first] = copies;
+    if (!first) {
+      throw new Error("a Copy code button");
+    }
+    fireEvent.click(first);
+    expect(writeText).not.toHaveBeenCalled();
+    const ask = within(macros).getByRole("group", { name: "Copy their code?" });
+    fireEvent.click(within(ask).getByRole("button", { name: "Copy their code" }));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(await within(macros).findByText(/^Copied\. Paste it in the VBA editor/)).toBeTruthy();
+    // Each module is decided on its own: Skip only, never a bulk choice.
+    for (const group of within(macros).getAllByRole("group", { name: "Your decision" })) {
+      expect(
+        within(group)
+          .getAllByRole("button")
+          .map((b) => b.textContent),
+      ).toEqual(["Skip"]);
+    }
   });
 });

@@ -387,6 +387,7 @@ pub fn large<S: Storage>(panel: &mut Panel<S>, checkpoints: usize, sent: usize) 
                 author: None,
                 changes: None,
                 engine_version: lineage::ENGINE_VERSION.to_owned(),
+                macros: None,
             },
         ));
         last[which] = id;

@@ -165,6 +165,19 @@ pub(crate) fn check_file(state: &FamilyState, node: &Id, bytes: &[u8]) -> Result
     Ok(ids)
 }
 
+/// Whether a file holds macros, read or kept untracked (Phase 5B).
+pub(crate) fn has_macros(doc: &Doc) -> bool {
+    match doc {
+        Doc::Workbook(w) => {
+            w.vba.is_some()
+                || w.unsupported
+                    .iter()
+                    .any(|u| u.kind == lineage_core::xlsx::UnsupportedKind::Macros)
+        }
+        _ => false,
+    }
+}
+
 /// Saves a checkpoint of `bytes` for `node` into the builder. Returns the new
 /// checkpoint and the file with its ids.
 pub(crate) fn checkpoint_into(
@@ -212,6 +225,7 @@ pub(crate) fn checkpoint_into(
         author,
         changes,
         engine_version: ENGINE_VERSION.to_owned(),
+        macros: matches!(docx, Doc::Workbook(_)).then(|| has_macros(&docx)),
     })?;
     if builder.state.node(node).map(|n| n.role) == Some(Role::Variant) {
         let state = builder.state.clone();
@@ -840,6 +854,29 @@ pub fn open_sent_copy(state: &FamilyState, sent: &Id, blobs: &dyn BlobSource) ->
         .ok_or_else(|| Error::MissingBlob(copy.file.as_str().to_owned()))?;
     if BlobHash::of(&bytes) != copy.file {
         return Err(Error::Ledger("the stored copy is damaged".to_owned()));
+    }
+    Ok(bytes)
+}
+
+/// A checkpoint's file for "Open the master's version", where macros,
+/// queries and pivot tables come in by hand (decision 0027): as saved, but a
+/// workbook without its macros, so Excel never asks to trust the add-in with
+/// them and nothing in it can run (decision 0028). The pane shows the code.
+///
+/// # Errors
+/// [`Error::NotAllowed`] for an unknown checkpoint; others when blobs are
+/// missing.
+pub fn open_checkpoint(
+    state: &FamilyState,
+    checkpoint: &Id,
+    blobs: &dyn BlobSource,
+) -> Result<Vec<u8>> {
+    let c = state
+        .checkpoint(checkpoint)
+        .ok_or_else(|| Error::NotAllowed("unknown checkpoint".to_owned()))?;
+    let bytes = restore(&c.snapshot, blobs)?;
+    if state.format == "xlsx" {
+        return Ok(lineage_core::xlsx::clean::without_macros(&bytes)?);
     }
     Ok(bytes)
 }

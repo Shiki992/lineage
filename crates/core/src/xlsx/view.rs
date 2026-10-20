@@ -57,11 +57,39 @@ pub struct Card {
     pub mine: Option<CellSide>,
     /// What the overlap is, in words.
     pub conflict: Option<String>,
+    /// A macro's or query's code: removed and added lines, with a little
+    /// context (decisions 0028, 0030).
+    pub code: Vec<crate::code::CodeLine>,
+    /// A pivot table's fields before and after (decision 0029).
+    pub fields: Option<FieldLists>,
+    /// One line per thing that changed in a macro, query or pivot.
+    pub details: Vec<String>,
+    /// A macro's or query's whole code in the later version, for "Copy
+    /// code": it comes in by hand (decision 0027).
+    pub copy: Option<String>,
+}
+
+/// A pivot table's fields, before and after.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FieldLists {
+    pub before: Option<super::pivot::Fields>,
+    pub after: Option<super::pivot::Fields>,
+}
+
+/// The groups for workbook parts beyond cells (Phase 5B).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Object {
+    Macros,
+    Queries,
+    Pivots,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Group {
     pub category: Category,
+    /// For the Macros, Queries and Pivot tables groups; their changes are
+    /// structure (or refreshed data) in the open change format.
+    pub object: Option<Object>,
     pub title: &'static str,
     /// One line for the whole group.
     pub summary: String,
@@ -87,7 +115,16 @@ pub struct WorkbookView {
     pub untracked: Vec<String>,
     /// How rows were matched, where a key was used.
     pub notes: Vec<String>,
+    /// Macro code is new or different in the later version: what makes a
+    /// returned file "come back with new macro code".
+    pub new_macro_code: bool,
+    /// "Signed by Fabrikam Test Signing. …" when the later version's macros
+    /// are signed.
+    pub signature: Option<String>,
 }
+
+/// Said when a workbook came back with new or changed macro code.
+pub const NEW_MACRO_CODE: &str = "This file came back with new macro code. Lineage never runs it. Check each macro before you bring it in.";
 
 #[must_use]
 pub fn title(category: Category) -> &'static str {
@@ -407,6 +444,7 @@ pub fn view(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> WorkbookView {
     if !inputs.is_empty() {
         let cards: Vec<Card> = inputs.iter().map(|c| cell_card(c)).collect();
         groups.push(Group {
+            object: None,
             category: Category::Input,
             title: title(Category::Input),
             summary: format!(
@@ -467,6 +505,7 @@ pub fn view(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> WorkbookView {
             .collect();
         cards.sort_by_key(|(row, c)| (c.sheet.clone(), *row));
         groups.push(Group {
+            object: None,
             category: Category::Formula,
             title: title(Category::Formula),
             summary: format!("{} changed", plural(formulas.len(), "formula", "formulas")),
@@ -474,6 +513,9 @@ pub fn view(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> WorkbookView {
             more: 0,
         });
     }
+
+    // Macros, queries and pivot tables (Phase 5B).
+    groups.extend(object_groups(d, b));
 
     // Knock-on changes: summarised, with examples.
     let mut knock_on: Vec<&Calculated> = d
@@ -509,6 +551,7 @@ pub fn view(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> WorkbookView {
             .map(|c| calc_card(a, b, d, c))
             .collect();
         groups.push(Group {
+            object: None,
             category: Category::KnockOn,
             title: title(Category::KnockOn),
             summary,
@@ -542,6 +585,7 @@ pub fn view(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> WorkbookView {
             cards.push(calc_card(a, b, d, c));
         }
         groups.push(Group {
+            object: None,
             category: Category::Refreshed,
             title: title(Category::Refreshed),
             summary: format!(
@@ -594,6 +638,7 @@ pub fn view(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> WorkbookView {
         }
         let n = structure.len() + format_cells.len();
         groups.push(Group {
+            object: None,
             category: Category::Structure,
             title: title(Category::Structure),
             summary: format!(
@@ -659,14 +704,11 @@ pub fn view(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> WorkbookView {
         .iter()
         .map(|g| {
             let n = g.cards.iter().map(|c| c.cells).sum::<usize>() + g.more;
-            let (one, many) = match g.category {
-                Category::Input => ("input", "inputs"),
-                Category::Formula => ("formula", "formulas"),
-                Category::KnockOn => ("knock-on change", "knock-on changes"),
-                Category::Refreshed => ("refreshed value", "refreshed values"),
-                Category::Structure => {
-                    ("structure or format change", "structure or format changes")
-                }
+            let (one, many) = match (g.object, g.category) {
+                (Some(Object::Macros), _) => ("macro change", "macro changes"),
+                (Some(Object::Queries), _) => ("query change", "query changes"),
+                (Some(Object::Pivots), _) => ("pivot table change", "pivot table changes"),
+                (None, c) => category_nouns(c),
             };
             plural(n, one, many)
         })
@@ -684,7 +726,231 @@ pub fn view(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> WorkbookView {
         unmatched,
         untracked,
         notes,
+        new_macro_code: d.macros.new_code(),
+        signature: signature_line(b),
     }
+}
+
+/// "Signed by …", when `wb`'s macros are signed.
+#[must_use]
+pub fn signature_line(wb: &Workbook) -> Option<String> {
+    let s = wb.vba.as_ref()?.signature.as_ref()?;
+    let who = s.signer.name.as_deref().map_or_else(
+        || "The macros are signed".to_owned(),
+        |n| format!("Signed by {n}"),
+    );
+    Some(format!(
+        "{who}. Lineage doesn't check signatures. Changing any macro removes the signature."
+    ))
+}
+
+fn category_nouns(c: Category) -> (&'static str, &'static str) {
+    match c {
+        Category::Input => ("input", "inputs"),
+        Category::Formula => ("formula", "formulas"),
+        Category::KnockOn => ("knock-on change", "knock-on changes"),
+        Category::Refreshed => ("refreshed value", "refreshed values"),
+        Category::Structure => ("structure or format change", "structure or format changes"),
+    }
+}
+
+/// A card's detail lines without the one its summary already says.
+#[must_use]
+pub fn without(details: &[String], summary: &str) -> Vec<String> {
+    details.iter().filter(|d| *d != summary).cloned().collect()
+}
+
+/// A card for a macro module, query or pivot change.
+fn object_card(id: &str, summary: String, sheet: &str) -> Card {
+    Card {
+        id: id.to_owned(),
+        summary,
+        sheet: sheet.to_owned(),
+        cells: 1,
+        ..Card::default()
+    }
+}
+
+/// The Macros, Queries and Pivot tables groups.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn object_groups(d: &WorkbookDiff, b: &Workbook) -> Vec<Group> {
+    use super::pivot::PivotChangeKind;
+    use super::query::QueryChangeKind;
+    use crate::vba::diff::SignatureChange;
+    let mut out = Vec::new();
+
+    let m = &d.macros;
+    if !m.is_empty() {
+        let mut cards = Vec::new();
+        if m.project_added {
+            cards.push(object_card(
+                "macros-added",
+                "This version has macros now".to_owned(),
+                "",
+            ));
+        }
+        if m.project_removed {
+            cards.push(object_card(
+                "macros-removed",
+                "The macros were removed".to_owned(),
+                "",
+            ));
+        }
+        for c in &m.modules {
+            let mut card = object_card(&c.id, c.summary.clone(), "");
+            card.place = Some(format!("{} {}", c.kind.noun(), c.name));
+            card.code.clone_from(&c.code);
+            card.copy.clone_from(&c.text);
+            card.details = without(&c.details, &c.summary);
+            card.why = Some("Macro code. Lineage never runs it.".to_owned());
+            cards.push(card);
+        }
+        for r in &m.references_added {
+            cards.push(object_card(
+                &format!("reference-added-{r}"),
+                format!("Added reference {r}"),
+                "",
+            ));
+        }
+        for r in &m.references_removed {
+            cards.push(object_card(
+                &format!("reference-removed-{r}"),
+                format!("Removed reference {r}"),
+                "",
+            ));
+        }
+        if let Some(s) = &m.signature {
+            let summary = match s {
+                SignatureChange::Added { signer } => match signer {
+                    Some(n) => format!("The macros are now signed by {n}"),
+                    None => "The macros are now signed".to_owned(),
+                },
+                SignatureChange::Removed { signer } => match signer {
+                    Some(n) => format!("The macros are no longer signed (by {n})"),
+                    None => "The macros are no longer signed".to_owned(),
+                },
+                SignatureChange::Changed { signer } => match signer {
+                    Some(n) => format!("The macros were signed again, by {n}"),
+                    None => "The macros were signed again".to_owned(),
+                },
+            };
+            cards.push(object_card("signature", summary, ""));
+        }
+        if let Some(locked) = m.locked {
+            cards.push(object_card(
+                "locked",
+                if locked {
+                    "The macros are now locked for viewing".to_owned()
+                } else {
+                    "The macros are no longer locked for viewing".to_owned()
+                },
+                "",
+            ));
+        }
+        out.push(Group {
+            category: Category::Structure,
+            object: Some(Object::Macros),
+            title: "Macros",
+            summary: format!(
+                "{} to the macros. Lineage never runs macros.",
+                plural(cards.len(), "change", "changes")
+            ),
+            cards,
+            more: 0,
+        });
+    }
+
+    if !d.queries.is_empty() {
+        let refreshed_only = d
+            .queries
+            .iter()
+            .all(|q| q.kind == QueryChangeKind::Refreshed);
+        let cards: Vec<Card> = d
+            .queries
+            .iter()
+            .map(|q| {
+                let mut card = object_card(&q.id, q.summary.clone(), "");
+                card.place = Some(format!("Query {}", q.name));
+                card.code.clone_from(&q.code);
+                card.copy.clone_from(&q.text);
+                card.details = without(&q.details, &q.summary);
+                card.why = Some(if q.kind == QueryChangeKind::Refreshed {
+                    "From a data refresh. Nobody edited the query.".to_owned()
+                } else {
+                    "Power Query code. Lineage never runs it.".to_owned()
+                });
+                card
+            })
+            .collect();
+        out.push(Group {
+            category: if refreshed_only {
+                Category::Refreshed
+            } else {
+                Category::Structure
+            },
+            object: Some(Object::Queries),
+            title: "Queries",
+            summary: format!(
+                "{} to Power Query queries",
+                plural(cards.len(), "change", "changes")
+            ),
+            cards,
+            more: 0,
+        });
+    }
+
+    if !d.pivots.is_empty() || !d.slicers.is_empty() {
+        let mut cards: Vec<Card> = d
+            .pivots
+            .iter()
+            .map(|p| {
+                let mut card = object_card(&p.id, p.summary(), &p.sheet);
+                card.place = Some(format!("{} · pivot table {}", p.sheet, p.name));
+                card.address = p.area.map(|a| area_name(&a));
+                card.details.clone_from(&p.details);
+                if p.kind == PivotChangeKind::Changed && p.cells > 0 {
+                    card.details.push(format!(
+                        "{} in its cells changed with it",
+                        plural(p.cells, "value", "values")
+                    ));
+                }
+                card.fields = Some(FieldLists {
+                    before: p.before.clone(),
+                    after: p.after.clone(),
+                });
+                card.why = (p.kind == PivotChangeKind::Refreshed)
+                    .then(|| "From a data refresh. Nobody typed these values.".to_owned());
+                card
+            })
+            .collect();
+        for s in &d.slicers {
+            let mut card = object_card(&s.id, s.summary.clone(), "");
+            card.place = Some(format!("Slicer {}", s.caption));
+            cards.push(card);
+        }
+        let refreshed_only = d.slicers.is_empty()
+            && d.pivots
+                .iter()
+                .all(|p| p.kind == PivotChangeKind::Refreshed);
+        let _ = b;
+        out.push(Group {
+            category: if refreshed_only {
+                Category::Refreshed
+            } else {
+                Category::Structure
+            },
+            object: Some(Object::Pivots),
+            title: "Pivot tables",
+            summary: format!(
+                "{} to pivot tables and slicers",
+                plural(cards.len(), "change", "changes")
+            ),
+            cards,
+            more: 0,
+        });
+    }
+    out
 }
 
 /// Why an item of the merge comes in by hand, in plain words.
@@ -706,6 +972,47 @@ pub fn manual_reason(m: super::merge::Manual) -> String {
         }
         Manual::Refreshed => "This came from a data refresh. Refresh this workbook's data to get it.".to_owned(),
         Manual::Untracked(kind) => format!("{}: {UNTRACKED} Copy the change in by hand.", kind.label()),
+        Manual::Macro => "Macros come in by hand: Lineage can't change macro code in Excel. Open the VBA editor (Alt+F11) and copy the code shown here.".to_owned(),
+        Manual::Query => "Queries come in by hand: Lineage can't change query code in Excel. Open Data > Queries & Connections, edit the query and copy the code shown here.".to_owned(),
+        Manual::Pivot => "Pivot tables come in by hand: Lineage can't rebuild a pivot table exactly. Change its fields to match the list shown here.".to_owned(),
+    }
+}
+
+/// A group's place in the panel: inputs and formulas, then macros, queries
+/// and pivot tables, then knock-on changes, refreshed data and structure.
+fn slot(category: Category, object: Option<Object>) -> u8 {
+    match (object, category) {
+        (Some(Object::Macros), _) => 2,
+        (Some(Object::Queries), _) => 3,
+        (Some(Object::Pivots), _) => 4,
+        (None, Category::Input) => 0,
+        (None, Category::Formula) => 1,
+        (None, Category::KnockOn) => 5,
+        (None, Category::Refreshed) => 6,
+        (None, Category::Structure) => 7,
+    }
+}
+
+/// The title of a Macros, Queries or Pivot tables group.
+#[must_use]
+pub fn object_title(object: Object) -> &'static str {
+    match object {
+        Object::Macros => "Macros",
+        Object::Queries => "Queries",
+        Object::Pivots => "Pivot tables",
+    }
+}
+
+/// What a by-hand object item says when this version changed it too.
+#[must_use]
+pub fn object_both(theirs: &crate::view::Theirs) -> String {
+    match theirs {
+        crate::view::Theirs::Master => {
+            "You changed this too. Compare both versions, then choose by hand.".to_owned()
+        }
+        crate::view::Theirs::Returned { who } => {
+            format!("You and {who} both changed this. Compare both, then choose by hand.")
+        }
     }
 }
 
@@ -741,7 +1048,7 @@ pub fn from_plan(
     use super::merge::{Status, What};
     use crate::view::{ChangeCard, Choice, OverlapCard, WhatChanged};
     let mut out = WhatChanged::default();
-    let mut groups: BTreeMap<Category, Vec<Card>> = BTreeMap::new();
+    let mut groups: BTreeMap<(u8, Category, Option<Object>), Vec<Card>> = BTreeMap::new();
     let choices_of = |item: &super::merge::Item| -> Vec<Choice> {
         item.choices()
             .into_iter()
@@ -771,73 +1078,79 @@ pub fn from_plan(
         .flat_map(|v| v.iter().map(|i| i.id.as_str()))
         .collect();
 
-    let mut push =
-        |item: &super::merge::Item, mut card: Card, category: Category, out: &mut WhatChanged| {
-            card.choices = choices_of(item);
-            let text = segments(&card);
-            match item.status {
-                Status::AlreadyThere => {
-                    out.already_there.push(ChangeCard {
-                        id: item.id.clone(),
-                        summary: card.summary.clone(),
-                        place: card.place.clone(),
-                        text,
-                        choices: Vec::new(),
-                        by_hand: None,
-                    });
-                    return;
-                }
-                Status::Clean => out.changes.push(ChangeCard {
+    let mut push = |item: &super::merge::Item,
+                    mut card: Card,
+                    category: Category,
+                    object: Option<Object>,
+                    out: &mut WhatChanged| {
+        card.choices = choices_of(item);
+        let text = segments(&card);
+        match item.status {
+            Status::AlreadyThere => {
+                out.already_there.push(ChangeCard {
+                    id: item.id.clone(),
+                    summary: card.summary.clone(),
+                    place: card.place.clone(),
+                    text,
+                    choices: Vec::new(),
+                    by_hand: None,
+                });
+                return;
+            }
+            Status::Clean => out.changes.push(ChangeCard {
+                id: item.id.clone(),
+                summary: card.summary.clone(),
+                place: card.place.clone(),
+                text,
+                choices: card.choices.clone(),
+                by_hand: None,
+            }),
+            Status::ByHand(m) => {
+                card.by_hand = Some(manual_reason(m));
+                out.by_hand.push(ChangeCard {
                     id: item.id.clone(),
                     summary: card.summary.clone(),
                     place: card.place.clone(),
                     text,
                     choices: card.choices.clone(),
-                    by_hand: None,
-                }),
-                Status::ByHand(m) => {
-                    card.by_hand = Some(manual_reason(m));
-                    out.by_hand.push(ChangeCard {
-                        id: item.id.clone(),
-                        summary: card.summary.clone(),
-                        place: card.place.clone(),
-                        text,
-                        choices: card.choices.clone(),
-                        by_hand: card.by_hand.clone(),
-                    });
-                }
-                Status::Overlap(conflict) => {
-                    card.conflict = Some(conflict_text(conflict, theirs));
-                    let side = |s: Option<&CellSide>| -> Vec<crate::diff::Segment> {
-                        s.map(|s| s.formula.clone().unwrap_or_else(|| s.shown.clone()))
-                            .filter(|t| !t.is_empty())
-                            .map(|t| {
-                                vec![crate::diff::Segment {
-                                    kind: crate::diff::SegmentKind::Added,
-                                    text: t,
-                                }]
-                            })
-                            .unwrap_or_default()
-                    };
-                    out.overlaps.push(OverlapCard {
-                        id: item.id.clone(),
-                        summary: card.conflict.clone().unwrap_or_default(),
-                        place: card.place.clone(),
-                        before: card
-                            .before
-                            .as_ref()
-                            .map(|b| b.formula.clone().unwrap_or_else(|| b.shown.clone())),
-                        mine: side(card.mine.as_ref()),
-                        masters: side(card.after.as_ref()),
-                        choices: card.choices.clone(),
-                    });
-                }
+                    by_hand: card.by_hand.clone(),
+                });
             }
-            if card.ids.is_empty() {
-                card.ids = vec![item.id.clone()];
+            Status::Overlap(conflict) => {
+                card.conflict = Some(conflict_text(conflict, theirs));
+                let side = |s: Option<&CellSide>| -> Vec<crate::diff::Segment> {
+                    s.map(|s| s.formula.clone().unwrap_or_else(|| s.shown.clone()))
+                        .filter(|t| !t.is_empty())
+                        .map(|t| {
+                            vec![crate::diff::Segment {
+                                kind: crate::diff::SegmentKind::Added,
+                                text: t,
+                            }]
+                        })
+                        .unwrap_or_default()
+                };
+                out.overlaps.push(OverlapCard {
+                    id: item.id.clone(),
+                    summary: card.conflict.clone().unwrap_or_default(),
+                    place: card.place.clone(),
+                    before: card
+                        .before
+                        .as_ref()
+                        .map(|b| b.formula.clone().unwrap_or_else(|| b.shown.clone())),
+                    mine: side(card.mine.as_ref()),
+                    masters: side(card.after.as_ref()),
+                    choices: card.choices.clone(),
+                });
             }
-            groups.entry(category).or_default().push(card);
-        };
+        }
+        if card.ids.is_empty() {
+            card.ids = vec![item.id.clone()];
+        }
+        groups
+            .entry((slot(category, object), category, object))
+            .or_default()
+            .push(card);
+    };
 
     for item in &p.items {
         if grouped.contains(item.id.as_str()) {
@@ -847,7 +1160,7 @@ pub fn from_plan(
             What::Cell(c) => {
                 let mut card = cell_card(c);
                 card.mine = item.mine.as_ref().map(|m| m.after.clone());
-                push(item, card, c.category, &mut out);
+                push(item, card, c.category, None, &mut out);
             }
             What::Rows { sheet_theirs, rows } => {
                 let sheet = p.theirs.sheets.get(*sheet_theirs);
@@ -881,9 +1194,29 @@ pub fn from_plan(
                     why: Some(ROWS_FORMATTED.to_owned()),
                     ..Card::default()
                 };
-                push(item, card, Category::Structure, &mut out);
+                push(item, card, Category::Structure, None, &mut out);
             }
-            What::Structure(s) => push(item, structure_card(s), Category::Structure, &mut out),
+            What::Structure(s) => {
+                push(item, structure_card(s), Category::Structure, None, &mut out);
+            }
+            What::Object(o) => {
+                let mut card = Card {
+                    id: item.id.clone(),
+                    summary: o.summary.clone(),
+                    place: Some(o.name.clone()),
+                    sheet: o.sheet.clone(),
+                    cells: 1,
+                    code: o.code.clone(),
+                    copy: o.copy.clone(),
+                    details: o.details.clone(),
+                    fields: o.fields.clone(),
+                    ..Card::default()
+                };
+                if o.both {
+                    card.conflict = Some(object_both(theirs));
+                }
+                push(item, card, Category::Structure, Some(o.object), &mut out);
+            }
         }
     }
     for items in formula_groups.values().filter(|v| v.len() > 1) {
@@ -918,7 +1251,7 @@ pub fn from_plan(
         card.ids = items.iter().map(|i| i.id.clone()).collect();
         // One card for the panel's lists too, standing for every cell: its
         // id is the first, and the pane sends the decision for all of them.
-        push(items[0], card, Category::Formula, &mut out);
+        push(items[0], card, Category::Formula, None, &mut out);
     }
 
     let counted: usize = out.changes.len() + out.overlaps.len() + out.by_hand.len();
@@ -931,16 +1264,19 @@ pub fn from_plan(
         headline: out.headline.clone(),
         ..WorkbookView::default()
     };
-    for (category, cards) in groups {
+    for ((_, category, object), cards) in groups {
         let n: usize = cards.iter().map(|c| c.cells).sum();
         wv.groups.push(Group {
+            object,
             category,
-            title: title(category),
+            title: object.map_or_else(|| title(category), object_title),
             summary: plural(n, "change", "changes"),
             cards,
             more: 0,
         });
     }
+    wv.new_macro_code = p.master.macros.new_code();
+    wv.signature = signature_line(p.theirs);
     let mut kinds: Vec<UnsupportedKind> = p.ours.unsupported.iter().map(|u| u.kind).collect();
     kinds.sort();
     kinds.dedup();
@@ -1223,11 +1559,207 @@ pub fn change_list(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> ChangeList {
             provenance: Some("unknown".to_owned()),
         });
     }
+    changes.extend(object_changes(d, a, b));
     ChangeList {
         spec_version: crate::SPEC_VERSION.to_owned(),
         format: "xlsx".to_owned(),
         changes,
     }
+}
+
+/// Macros, queries, pivot tables and slicers in the open change format:
+/// `target` says which, and `object` names it (Phase 5B).
+fn object_changes(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> Vec<SpecChange> {
+    use super::pivot::PivotChangeKind;
+    use super::query::QueryChangeKind;
+    use crate::vba::diff::ModuleChangeKind;
+    struct One<'s> {
+        id: &'s str,
+        kind: &'s str,
+        part: String,
+        sheet: String,
+        sheet_index: usize,
+        address: Option<String>,
+        target: &'s str,
+        object: String,
+        summary: String,
+        refreshed: bool,
+    }
+    let make = |o: One<'_>| {
+        let mut location = Location::xlsx(&o.part, &o.sheet, o.sheet_index);
+        location.address = o.address;
+        location.target = Some(o.target.to_owned());
+        location.object = Some(o.object);
+        let (before, after) = match o.kind {
+            "insert" => (None, Some(o.summary.clone())),
+            "delete" => (Some(o.summary.clone()), None),
+            _ => (Some(String::new()), Some(o.summary.clone())),
+        };
+        SpecChange {
+            id: o.id.to_owned(),
+            kind: o.kind.to_owned(),
+            location,
+            from_location: None,
+            before,
+            after,
+            formatting_only: false,
+            confidence: 100,
+            summary: Some(o.summary),
+            category: Some(
+                if o.refreshed {
+                    "refreshed"
+                } else {
+                    "structure"
+                }
+                .to_owned(),
+            ),
+            provenance: Some(if o.refreshed { "refresh" } else { "unknown" }.to_owned()),
+        }
+    };
+    let mut out = Vec::new();
+    let vba_part = b
+        .vba_part
+        .clone()
+        .or_else(|| a.vba_part.clone())
+        .unwrap_or_else(|| "xl/vbaProject.bin".to_owned());
+    for m in &d.macros.modules {
+        let kind = match m.change {
+            ModuleChangeKind::Added => "insert",
+            ModuleChangeKind::Removed => "delete",
+            _ => "modify",
+        };
+        out.push(make(One {
+            id: &m.id,
+            kind,
+            part: vba_part.clone(),
+            sheet: String::new(),
+            sheet_index: 0,
+            address: None,
+            target: "macro",
+            object: m.name.clone(),
+            summary: m.summary.clone(),
+            refreshed: false,
+        }));
+    }
+    // References, the signature and the lock: the project's own settings.
+    let mut project_lines: Vec<(String, &str, String)> = Vec::new();
+    for r in &d.macros.references_added {
+        project_lines.push((
+            format!("Reference {r}"),
+            "insert",
+            format!("Added reference {r}"),
+        ));
+    }
+    for r in &d.macros.references_removed {
+        project_lines.push((
+            format!("Reference {r}"),
+            "delete",
+            format!("Removed reference {r}"),
+        ));
+    }
+    if d.macros.signature.is_some() {
+        let summary = object_groups(d, b)
+            .into_iter()
+            .flat_map(|g| g.cards)
+            .find(|c| c.id == "signature")
+            .map_or_else(|| "The signature changed".to_owned(), |c| c.summary);
+        project_lines.push(("Signature".to_owned(), "modify", summary));
+    }
+    if let Some(locked) = d.macros.locked {
+        project_lines.push((
+            "Lock".to_owned(),
+            "modify",
+            if locked {
+                "The macros are now locked for viewing".to_owned()
+            } else {
+                "The macros are no longer locked for viewing".to_owned()
+            },
+        ));
+    }
+    for (object, kind, summary) in project_lines {
+        let id = crate::hash::sha256_hex(
+            format!("macro-project\u{1f}{object}\u{1f}{summary}").as_bytes(),
+        )[..16]
+            .to_owned();
+        out.push(make(One {
+            id: &id,
+            kind,
+            part: vba_part.clone(),
+            sheet: String::new(),
+            sheet_index: 0,
+            address: None,
+            target: "macro",
+            object,
+            summary,
+            refreshed: false,
+        }));
+    }
+    let query_part = b
+        .queries
+        .as_ref()
+        .or(a.queries.as_ref())
+        .map_or_else(|| "customXml/item1.xml".to_owned(), |q| q.part.clone());
+    for q in &d.queries {
+        let kind = match q.kind {
+            QueryChangeKind::Added => "insert",
+            QueryChangeKind::Removed => "delete",
+            _ => "modify",
+        };
+        out.push(make(One {
+            id: &q.id,
+            kind,
+            part: query_part.clone(),
+            sheet: String::new(),
+            sheet_index: 0,
+            address: None,
+            target: "query",
+            object: q.name.clone(),
+            summary: q.summary.clone(),
+            refreshed: q.kind == QueryChangeKind::Refreshed,
+        }));
+    }
+    for p in &d.pivots {
+        let (wb, kind) = match p.kind {
+            PivotChangeKind::Added => (b, "insert"),
+            PivotChangeKind::Removed => (a, "delete"),
+            _ => (b, "modify"),
+        };
+        let table = wb.pivots.tables.iter().find(|t| t.name == p.name);
+        out.push(make(One {
+            id: &p.id,
+            kind,
+            part: table.map_or_else(|| wb.main_part.clone(), |t| t.part.clone()),
+            sheet: p.sheet.clone(),
+            sheet_index: wb.sheet_index(&p.sheet).unwrap_or(0),
+            address: p.area.map(|area| area_name(&area)),
+            target: "pivot",
+            object: p.name.clone(),
+            summary: p.summary(),
+            refreshed: p.kind == PivotChangeKind::Refreshed,
+        }));
+    }
+    for s in &d.slicers {
+        let part = b
+            .pivots
+            .slicers
+            .iter()
+            .chain(&a.pivots.slicers)
+            .find(|x| x.caption == s.caption)
+            .map_or_else(|| b.main_part.clone(), |x| x.part.clone());
+        out.push(make(One {
+            id: &s.id,
+            kind: "modify",
+            part,
+            sheet: String::new(),
+            sheet_index: 0,
+            address: None,
+            target: "slicer",
+            object: s.caption.clone(),
+            summary: s.summary.clone(),
+            refreshed: false,
+        }));
+    }
+    out
 }
 
 /// One cell as the side by side shows it.

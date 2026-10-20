@@ -58,6 +58,19 @@ fn customxml_props_of_mashup(name: &str, package: &crate::Package) -> bool {
     })
 }
 
+/// The value of the root element's `refreshedBy` attribute, as a byte range,
+/// when it isn't empty.
+fn refreshed_by(text: &str) -> Option<std::ops::Range<usize>> {
+    let start = text.find("<pivotCacheDefinition")?;
+    let end = start + text[start..].find('>')?;
+    let tag = &text[start..end];
+    let at = tag
+        .find(" refreshedBy=\"")
+        .map(|i| i + " refreshedBy=\"".len())?;
+    let close = tag[at..].find('"')?;
+    (close > 0).then(|| start + at..start + at + close)
+}
+
 /// Makes a clean copy of a workbook for sending. With `ids`, the copy
 /// carries the two Lineage ids as its only custom properties; without, none.
 ///
@@ -87,10 +100,12 @@ pub fn clean_copy(bytes: &[u8], ids: Option<&LineageIds>) -> Result<(Vec<u8>, Cl
                     .sum::<usize>()
             })
             .sum(),
-        macros: wb
-            .unsupported
-            .iter()
-            .any(|u| u.kind == UnsupportedKind::Macros),
+        // Read (decision 0028) or kept untracked, macros go with the copy.
+        macros: wb.vba.is_some()
+            || wb
+                .unsupported
+                .iter()
+                .any(|u| u.kind == UnsupportedKind::Macros),
         ..CleanReport::default()
     };
     let mut package = wb.package.clone();
@@ -194,6 +209,18 @@ pub fn clean_copy(bytes: &[u8], ids: Option<&LineageIds>) -> Result<(Vec<u8>, Cl
     prune_relationships(&mut package, &removed_set)?;
     prune_content_types(&mut package, &removed_set)?;
     empty_properties(&mut package);
+    // A pivot cache names who last refreshed it (decision 0029).
+    for cache in &wb.pivots.caches {
+        let Some(bytes) = package.part(&cache.part).map(<[u8]>::to_vec) else {
+            continue;
+        };
+        let text = xml::text(&cache.part, &bytes)?;
+        if let Some(range) = refreshed_by(text) {
+            let mut edits = Edits::new();
+            edits.replace(range, String::new());
+            package.set_part(&cache.part, edits.apply(text)?.into_bytes());
+        }
+    }
 
     report.parts_removed = removed_names;
     let out = package.to_bytes()?;
@@ -214,6 +241,74 @@ pub fn clean_copy(bytes: &[u8], ids: Option<&LineageIds>) -> Result<(Vec<u8>, Cl
         }
     }
     Ok((out, report))
+}
+
+/// The workbook without its VBA project, for "Open the master's version".
+/// Excel asks the person to trust an add-in before it opens a workbook with
+/// macros for them, and the pane shows the code to copy anyway (decision
+/// 0028). Everything else stays as it was. A workbook without macros, or
+/// with Excel 4.0 macro sheets (which only a macro-enabled workbook may
+/// hold), comes back unchanged.
+///
+/// # Errors
+/// [`Error`] when the workbook can't be read, or the result doesn't reopen.
+pub fn without_macros(bytes: &[u8]) -> Result<Vec<u8>> {
+    use super::read::{CT_TEMPLATE, CT_TEMPLATE_MACRO, CT_WORKBOOK, REL_MACROSHEET};
+    use crate::package::ContentTypes;
+    use crate::package::edit::{add_override, remove_override};
+
+    let wb = Workbook::open(bytes)?;
+    let macro_sheets =
+        wb.main_rels.items.iter().any(|r| {
+            r.rel_type.ends_with(REL_MACROSHEET) || r.rel_type.ends_with("xlIntlMacrosheet")
+        });
+    if !wb.macro_enabled || macro_sheets {
+        return Ok(bytes.to_vec());
+    }
+    let mut package = wb.package.clone();
+    let mut removed: BTreeSet<String> = BTreeSet::new();
+    for rel in wb.main_rels.of_kind("vbaProject") {
+        let part = resolve_target(&wb.main_part, &rel.target);
+        // The signatures hang off the project.
+        let rels_part = rels_part_for(&part);
+        if let Some(b) = package.part(&rels_part) {
+            for r in Relationships::parse(&rels_part, b)?
+                .items
+                .iter()
+                .filter(|r| !r.external)
+            {
+                removed.insert(resolve_target(&part, &r.target));
+            }
+            removed.insert(rels_part);
+        }
+        removed.insert(part);
+    }
+    for name in &removed {
+        package.remove_part(name);
+    }
+    let removed: BTreeSet<String> = removed.iter().map(|n| n.to_ascii_lowercase()).collect();
+    prune_relationships(&mut package, &removed)?;
+    prune_content_types(&mut package, &removed)?;
+    let types = ContentTypes::parse(
+        package
+            .part(ContentTypes::PART)
+            .ok_or_else(|| Error::NotAnOfficeFile("no content types".to_owned()))?,
+    )?;
+    let plain = if types.of(&wb.main_part) == Some(CT_TEMPLATE_MACRO) {
+        CT_TEMPLATE
+    } else {
+        CT_WORKBOOK
+    };
+    remove_override(&mut package, &wb.main_part)?;
+    add_override(&mut package, &wb.main_part, plain)?;
+    let out = package.to_bytes()?;
+    let check = Workbook::open(&out).map_err(|e| {
+        Error::CannotEdit(format!("the workbook without macros doesn't reopen: {e}"))
+    })?;
+    if check.macro_enabled || check.vba.is_some() {
+        return Err(Error::CannotEdit("the macros are still there".to_owned()));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -267,6 +362,77 @@ mod tests {
         let (_, report) =
             clean_copy(&workbooks::tracker_filtered().to_bytes(), None).expect("cleans");
         assert_eq!(report.hidden_rows, 2);
+    }
+
+    #[test]
+    fn the_full_model_keeps_its_macros_queries_and_pivots() {
+        let kit = lineage_testkit::advanced::model_full();
+        let (out, report) = clean_copy(&kit.to_bytes(), None).expect("cleans");
+        assert!(report.macros, "readable macros are counted too");
+        let clean = Workbook::open(&out).expect("opens");
+        assert!(clean.vba.is_some());
+        assert_eq!(clean.queries.as_ref().map(|q| q.queries.len()), Some(2));
+        assert_eq!(clean.pivots.tables.len(), 2);
+        let cache = String::from_utf8_lossy(
+            clean
+                .package
+                .part("xl/pivotCache/pivotCacheDefinition1.xml")
+                .expect("cache"),
+        )
+        .into_owned();
+        assert!(cache.contains(r#"refreshedBy="""#), "{cache}");
+        // Nothing else about the pivots changed.
+        let original = Workbook::open(&kit.to_bytes()).expect("opens");
+        let d = super::super::diff::diff(&original, &clean, &[]);
+        assert!(d.pivots.is_empty() && d.macros.is_empty() && d.queries.is_empty());
+    }
+
+    /// Round trip: the project, its signature and its links go; every other
+    /// part is byte for byte the same, and the workbook reads the same.
+    #[test]
+    fn the_masters_version_opens_without_its_macros() {
+        use crate::package::ContentTypes;
+
+        for kit in [
+            lineage_testkit::advanced::model_full(),
+            lineage_testkit::advanced::model_full_signed(),
+        ] {
+            let bytes = kit.to_bytes();
+            let out = without_macros(&bytes).expect("removes");
+            let (a, b) = (
+                Workbook::open(&bytes).expect("opens"),
+                Workbook::open(&out).expect("reopens"),
+            );
+            assert!(a.vba.is_some() && b.vba.is_none());
+            assert!(!b.macro_enabled);
+            assert_eq!(b.extension(), ".xlsx");
+            assert!(
+                !b.unsupported
+                    .iter()
+                    .any(|u| u.kind == UnsupportedKind::Macros)
+            );
+            assert!(
+                !b.package
+                    .part_names()
+                    .any(|n| n.to_ascii_lowercase().contains("vbaproject")),
+                "{:?}",
+                b.package.part_names().collect::<Vec<_>>()
+            );
+            let bookkeeping = [ContentTypes::PART.to_owned(), rels_part_for(&a.main_part)];
+            for name in b.package.part_names() {
+                if !bookkeeping.contains(&name.to_owned()) {
+                    assert_eq!(a.package.part(name), b.package.part(name), "{name}");
+                }
+            }
+            crate::xlsx::apply::put_back(&a, &b).expect("same cells");
+            let d = super::super::diff::diff(&a, &b, &[]);
+            assert!(d.pivots.is_empty() && d.queries.is_empty() && d.slicers.is_empty());
+            assert!(d.cells.is_empty(), "{:?}", d.cells);
+            // Again, it changes nothing.
+            assert_eq!(without_macros(&out).expect("unchanged"), out);
+        }
+        let plain = workbooks::model_master().to_bytes();
+        assert_eq!(without_macros(&plain).expect("unchanged"), plain);
     }
 
     #[test]

@@ -259,10 +259,19 @@ export class ExcelHost implements DocumentHost, CellHost, CellNavigator {
 
   /**
    * Opens bytes as a new workbook in a new window: "open what they saw".
+   * For a workbook with macros Excel first asks whether to trust the add-in;
+   * "Don't allow" rejects (seen in Excel for Windows, Phase 5B).
    * https://learn.microsoft.com/javascript/api/excel#excel-excel-createworkbook-function(1)
    */
   async openCopy(bytes: Uint8Array): Promise<void> {
-    await Excel.createWorkbook(base64(bytes));
+    try {
+      await Excel.createWorkbook(base64(bytes));
+    } catch (e) {
+      throw new LineageError(
+        "Excel didn't open the workbook. Nothing was changed.",
+        e instanceof Error ? e.message : String(e),
+      );
+    }
   }
 }
 

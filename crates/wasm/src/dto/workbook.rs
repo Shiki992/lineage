@@ -7,10 +7,14 @@
 //! passes in.
 
 use lineage::workbooks::WorkbookPlan;
+use lineage_core::code::{CodeLine, LineKind};
 use lineage_core::xlsx::apply::{Expect, Skipped, Step, Write};
 use lineage_core::xlsx::diff::{Category, CellSide, Hint};
+use lineage_core::xlsx::pivot::Fields;
 use lineage_core::xlsx::refs::{a1, parse_area};
-use lineage_core::xlsx::view::{Card, CellDetail, Group, SideBySide, WorkbookView};
+use lineage_core::xlsx::view::{
+    Card, CellDetail, FieldLists, Group, Object, SideBySide, WorkbookView,
+};
 use serde::{Deserialize, Serialize};
 
 use super::{ChoiceDto, choices};
@@ -108,6 +112,14 @@ pub struct WorkbookCardDto {
     pub by_hand: Option<String>,
     pub mine: Option<CellSideDto>,
     pub conflict: Option<String>,
+    /// A macro's or query's code: removed and added lines, with context.
+    pub code: Vec<CodeLineDto>,
+    /// A pivot table's fields before and after.
+    pub fields: Option<FieldListsDto>,
+    /// One line per thing that changed in a macro, query or pivot table.
+    pub details: Vec<String>,
+    /// A macro's or query's whole code, for "Copy code".
+    pub copy: Option<String>,
 }
 
 impl From<&Card> for WorkbookCardDto {
@@ -127,6 +139,10 @@ impl From<&Card> for WorkbookCardDto {
             by_hand: c.by_hand.clone(),
             mine: c.mine.as_ref().map(CellSideDto::from),
             conflict: c.conflict.clone(),
+            code: c.code.iter().map(CodeLineDto::from).collect(),
+            fields: c.fields.as_ref().map(FieldListsDto::from),
+            details: c.details.clone(),
+            copy: c.copy.clone(),
         }
     }
 }
@@ -135,6 +151,8 @@ impl From<&Card> for WorkbookCardDto {
 #[serde(rename_all = "camelCase")]
 pub struct WorkbookGroupDto {
     pub category: CategoryDto,
+    /// The Macros, Queries and Pivot tables groups (Phase 5B).
+    pub object: Option<ObjectDto>,
     pub title: String,
     pub summary: String,
     pub cards: Vec<WorkbookCardDto>,
@@ -145,10 +163,116 @@ impl From<&Group> for WorkbookGroupDto {
     fn from(g: &Group) -> Self {
         Self {
             category: g.category.into(),
+            object: g.object.map(ObjectDto::from),
             title: g.title.to_owned(),
             summary: g.summary.clone(),
             cards: g.cards.iter().map(WorkbookCardDto::from).collect(),
             more: g.more,
+        }
+    }
+}
+
+/// Which of the Phase 5B groups.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ObjectDto {
+    Macros,
+    Queries,
+    Pivots,
+}
+
+impl From<Object> for ObjectDto {
+    fn from(o: Object) -> Self {
+        match o {
+            Object::Macros => Self::Macros,
+            Object::Queries => Self::Queries,
+            Object::Pivots => Self::Pivots,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LineKindDto {
+    Same,
+    Removed,
+    Added,
+    /// Unchanged lines not shown; `text` says how many.
+    Skipped,
+}
+
+/// One line of a code view. Line numbers count from 1.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeLineDto {
+    pub kind: LineKindDto,
+    pub before: Option<u32>,
+    pub after: Option<u32>,
+    pub text: String,
+}
+
+impl From<&CodeLine> for CodeLineDto {
+    fn from(l: &CodeLine) -> Self {
+        Self {
+            kind: match l.kind {
+                LineKind::Same => LineKindDto::Same,
+                LineKind::Removed => LineKindDto::Removed,
+                LineKind::Added => LineKindDto::Added,
+                LineKind::Skipped => LineKindDto::Skipped,
+            },
+            before: l.before,
+            after: l.after,
+            text: l.text.clone(),
+        }
+    }
+}
+
+/// A pivot table's fields, as the PivotTable Fields pane lists them.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldsDto {
+    pub rows: Vec<String>,
+    pub columns: Vec<String>,
+    /// "Sum of Revenue", "Sum of Seats (percentOfTotal)".
+    pub values: Vec<String>,
+    /// "Month: all", "Month: Feb".
+    pub filters: Vec<String>,
+}
+
+impl From<&Fields> for FieldsDto {
+    fn from(f: &Fields) -> Self {
+        Self {
+            rows: f.rows.clone(),
+            columns: f.columns.clone(),
+            values: f
+                .values
+                .iter()
+                .map(|v| match &v.show_as {
+                    Some(s) => format!("{} ({s})", v.name),
+                    None => v.name.clone(),
+                })
+                .collect(),
+            filters: f
+                .filters
+                .iter()
+                .map(|x| format!("{}: {}", x.field, x.item.as_deref().unwrap_or("all")))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldListsDto {
+    pub before: Option<FieldsDto>,
+    pub after: Option<FieldsDto>,
+}
+
+impl From<&FieldLists> for FieldListsDto {
+    fn from(f: &FieldLists) -> Self {
+        Self {
+            before: f.before.as_ref().map(FieldsDto::from),
+            after: f.after.as_ref().map(FieldsDto::from),
         }
     }
 }
@@ -168,6 +292,11 @@ pub struct WorkbookViewDto {
     pub unmatched: Vec<UnmatchedDto>,
     pub untracked: Vec<String>,
     pub notes: Vec<String>,
+    /// The later version has new or changed macro code: for a file that
+    /// came back, the panel shows the warning (decision 0027).
+    pub new_macro_code: bool,
+    /// "Signed by …" when its macros are signed.
+    pub signature: Option<String>,
 }
 
 impl From<&WorkbookView> for WorkbookViewDto {
@@ -185,6 +314,8 @@ impl From<&WorkbookView> for WorkbookViewDto {
                 .collect(),
             untracked: v.untracked.clone(),
             notes: v.notes.clone(),
+            new_macro_code: v.new_macro_code,
+            signature: v.signature.clone(),
         }
     }
 }

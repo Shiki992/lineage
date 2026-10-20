@@ -22,7 +22,7 @@ Left out:
 
 Kept, and counted in the report so Send a copy can say so:
 
-- **hidden sheets, rows and columns** ("2 hidden sheets go with this copy");
+- **hidden sheets, rows and columns** ("2 hidden sheets go with this copy: formulas may read them");
 - **macros** ("Macros go with this copy");
 - Power Query queries, which the workbook's data needs.
 
@@ -43,3 +43,9 @@ The writer (decision 0023) leaves them byte for byte (tested on a `.xlsx` with a
 
 - A sent workbook can carry hidden data the person forgot about; Send a copy names it before saving.
 - Macros, pivots and queries are carried, not understood, until Phase 5B.
+
+## Update, Phase 5B (2026-10-20)
+
+Now tracked, when their parts read (decisions 0028 to 0030): VBA macros (`vbaProject.bin` and its signature parts), pivot tables and their caches, pivot slicers, and Power Query (the `DataMashup` item). Each leaves the "Preserved; semantic tracking not yet supported" list only when it was read; a part that doesn't read stays on it, as before. Still kept and labelled untracked: charts, links to other workbooks, table slicers and timelines, pictures, linked data types and pictures in cells, chart sheets, and Excel 4.0 macro or dialog sheets.
+
+A sent copy still carries macros and queries. It now also blanks the pivot caches' `refreshedBy`, which names a person. Each hidden-content line says why it stays ("… formulas may read them"), because the closing line also follows "Macros go with this copy", where that reason doesn't fit (seen in Excel at the Phase 5B check).

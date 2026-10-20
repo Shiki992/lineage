@@ -371,11 +371,17 @@ pub fn sent_list(state: &FamilyState, search: Option<&str>) -> SentList {
             } else if !r.reviews.is_empty() {
                 "Partly reviewed".to_owned()
             } else {
-                match (r.change_count, r.formatting_count) {
+                let chip = match (r.change_count, r.formatting_count) {
                     (0, 0) => "Came back unchanged".to_owned(),
                     (0, _) => "Came back with formatting changes only".to_owned(),
                     (1, _) => "Came back with 1 change".to_owned(),
                     (n, _) => format!("Came back with {n} changes"),
+                };
+                // Macro code from outside is always named (decision 0027).
+                if r.new_macro_code {
+                    format!("{chip}, including new macro code")
+                } else {
+                    chip
                 }
             }
         });
@@ -454,6 +460,8 @@ pub struct DocumentPage {
     /// The master first, then tailored versions in the order they were made.
     pub files: Vec<FileHistory>,
     pub sent: SentList,
+    /// "Contains macros".
+    pub badges: Vec<String>,
 }
 
 /// A document's page. `damage` is the note from a lenient read, if any.
@@ -528,5 +536,10 @@ pub fn document_page(state: &FamilyState, damage: Option<String>) -> DocumentPag
         note,
         files,
         sent: sent_list(state, None),
+        badges: if crate::library::master_has_macros(state) {
+            vec![crate::library::CONTAINS_MACROS.to_owned()]
+        } else {
+            Vec::new()
+        },
     }
 }

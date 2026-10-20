@@ -143,10 +143,11 @@ pub fn goes_with_copy(bytes: &[u8]) -> Result<Vec<String>> {
             "hidden columns go",
         ),
     ] {
+        // Each line says why: the pane's closing words fit macros too.
         match n {
             0 => {}
-            1 => out.push(format!("1 {one} with this copy")),
-            n => out.push(format!("{n} {many} with this copy")),
+            1 => out.push(format!("1 {one} with this copy: formulas may read it")),
+            n => out.push(format!("{n} {many} with this copy: formulas may read them")),
         }
     }
     if report.macros {
@@ -162,7 +163,7 @@ fn pair(
 ) -> Result<(Workbook, Workbook)> {
     let (before, after) = checkpoint_pair(state, checkpoint, blobs)?;
     match (before, after) {
-        (lineage_core::doc::Doc::Workbook(a), lineage_core::doc::Doc::Workbook(b)) => Ok((a, b)),
+        (lineage_core::doc::Doc::Workbook(a), lineage_core::doc::Doc::Workbook(b)) => Ok((*a, *b)),
         _ => Err(Error::NotAllowed("not a workbook family".to_owned())),
     }
 }

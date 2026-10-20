@@ -43,6 +43,8 @@ pub struct LibraryEntryDto {
     pub attention: Option<String>,
     pub can_open: bool,
     pub damage: Option<String>,
+    /// "Contains macros".
+    pub badges: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -75,6 +77,7 @@ impl From<&Library> for LibraryDto {
                     attention: e.attention.clone(),
                     can_open: e.can_open,
                     damage: e.facts.damage.clone(),
+                    badges: e.badges.clone(),
                 })
                 .collect(),
             empty: l.empty.clone(),
@@ -127,6 +130,8 @@ pub struct DocumentPageDto {
     pub note: Option<String>,
     pub files: Vec<FileHistoryDto>,
     pub sent: SentListDto,
+    /// "Contains macros".
+    pub badges: Vec<String>,
 }
 
 impl DocumentPageDto {
@@ -167,6 +172,7 @@ impl DocumentPageDto {
                 })
                 .collect(),
             sent: SentListDto::from(&page.sent),
+            badges: page.badges.clone(),
         }
     }
 }

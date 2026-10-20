@@ -568,6 +568,7 @@ fn a_returned_record_must_match_its_copy() {
             confidence: 90,
             change_count: 1,
             formatting_count: 0,
+            new_macro_code: false,
         },
     };
     assert!(

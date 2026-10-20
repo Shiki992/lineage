@@ -88,3 +88,10 @@ export function fakeDocuments(overrides: Partial<Documents> = {}): Documents {
     ...overrides,
   };
 }
+
+/** Phase 5B: a macro and a pivot table changed in the founder's model. */
+export const objectsCompared = (): WhatChanged =>
+  v.parse(schemas.WhatChanged, golden("workbook-what-changed-objects"));
+/** The model's document page, with "Contains macros". */
+export const macroDocumentView = (): DocumentView =>
+  v.parse(schemas.DocumentView, golden("document-macros"));

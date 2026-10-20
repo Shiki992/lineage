@@ -270,7 +270,7 @@ export function SendCopy({
               {line}.
             </p>
           ))}
-          <p className="small">Formulas may read them, so they stay. Check before you send it.</p>
+          <p className="small">Check before you send it.</p>
         </section>
       )}
       <Button type="submit" primary wide disabled={busy}>

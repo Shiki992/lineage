@@ -201,9 +201,14 @@ function Entries({ library, checking }: { library: LibraryView; checking: boolea
                   </span>
                   <span className="small">{entry.summary}</span>
                   <span className="secondary small">{entry.lastActivity}</span>
-                  {entry.attention && (
-                    <span>
-                      <Chip kind="accent">{entry.attention}</Chip>
+                  {(entry.attention !== null || entry.badges.length > 0) && (
+                    <span className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+                      {entry.attention && <Chip kind="accent">{entry.attention}</Chip>}
+                      {entry.badges.map((b) => (
+                        <Chip key={b} kind="warning">
+                          {b}
+                        </Chip>
+                      ))}
                     </span>
                   )}
                   {entry.damage && <span className="warning-text small">{entry.damage}</span>}

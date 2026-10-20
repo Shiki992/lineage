@@ -1,0 +1,134 @@
+{
+  "ok": true,
+  "value": {
+    "graph": {
+      "edges": [
+        {
+          "from": "7c4ebe615dabb2e1b44e34a07e4f7211",
+          "kind": "sent",
+          "label": null,
+          "to": "5dcf2964440e28a0072c30cd0a51a375"
+        },
+        {
+          "from": "5dcf2964440e28a0072c30cd0a51a375",
+          "kind": "cameBack",
+          "label": null,
+          "to": "45a8a12f6913d29f6d76633f67a64b0c"
+        }
+      ],
+      "lanes": [
+        {
+          "archived": false,
+          "chip": "Master",
+          "id": "3fcef367cf2cee310584cd1f0ad0e712",
+          "kind": "master",
+          "title": "Startup model.xlsm"
+        },
+        {
+          "archived": false,
+          "chip": null,
+          "id": "sent",
+          "kind": "sent",
+          "title": "Copies sent"
+        },
+        {
+          "archived": false,
+          "chip": null,
+          "id": "returned",
+          "kind": "returned",
+          "title": "Files that came back"
+        }
+      ],
+      "nodes": [
+        {
+          "archived": false,
+          "at": 1792056600000,
+          "detail": "Started tracking",
+          "id": "7c4ebe615dabb2e1b44e34a07e4f7211",
+          "kind": "checkpoint",
+          "label": "v1",
+          "lane": "3fcef367cf2cee310584cd1f0ad0e712",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792056660000,
+          "detail": "Excel · v1 · Lineage ID inside",
+          "id": "5dcf2964440e28a0072c30cd0a51a375",
+          "kind": "sent",
+          "label": "Harbor Lane Capital",
+          "lane": "sent",
+          "milestone": null,
+          "when": "15 Oct"
+        },
+        {
+          "archived": false,
+          "at": 1792056720000,
+          "detail": "2 changes",
+          "id": "45a8a12f6913d29f6d76633f67a64b0c",
+          "kind": "returned",
+          "label": "From Harbor Lane Capital",
+          "lane": "returned",
+          "milestone": null,
+          "when": "15 Oct"
+        }
+      ]
+    },
+    "page": {
+      "badges": [
+        "Contains macros"
+      ],
+      "canChange": true,
+      "familyId": "2d5f42c2cb83cbd9799c057c2b6f5bf0",
+      "files": [
+        {
+          "archived": false,
+          "chip": "Master",
+          "entries": [
+            {
+              "author": null,
+              "date": "15 Oct 2026",
+              "id": "7c4ebe615dabb2e1b44e34a07e4f7211",
+              "label": "v1",
+              "milestone": null,
+              "note": "Started tracking",
+              "sent": "Sent to Harbor Lane Capital"
+            }
+          ],
+          "name": "Startup model.xlsm",
+          "node": "3fcef367cf2cee310584cd1f0ad0e712",
+          "role": "master",
+          "status": "The file your tailored versions follow",
+          "storageRef": "Startup model.xlsm"
+        }
+      ],
+      "format": "xlsx",
+      "kind": "Excel workbook",
+      "name": "Startup model",
+      "note": null,
+      "sent": {
+        "groups": [
+          {
+            "month": "October 2026",
+            "rows": [
+              {
+                "button": "Review",
+                "chip": "Came back with 2 changes, including new macro code",
+                "date": "15 Oct",
+                "format": "Excel",
+                "id": "5dcf2964440e28a0072c30cd0a51a375",
+                "purpose": "Series A",
+                "recipient": "Harbor Lane Capital",
+                "returned": "45a8a12f6913d29f6d76633f67a64b0c",
+                "version": "Startup model · v1"
+              }
+            ]
+          }
+        ],
+        "note": "Each copy is kept exactly as sent.",
+        "title": "What I've sent"
+      }
+    }
+  }
+}

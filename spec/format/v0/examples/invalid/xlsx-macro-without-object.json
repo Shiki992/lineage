@@ -1,0 +1,23 @@
+{
+  "specVersion": "0",
+  "format": "xlsx",
+  "changes": [
+    {
+      "id": "forecast",
+      "kind": "modify",
+      "location": {
+        "format": "xlsx",
+        "part": "xl/vbaProject.bin",
+        "sheet": "",
+        "sheetIndex": 0,
+        "target": "macro"
+      },
+      "before": "",
+      "after": "Macro RefreshForecast: 1 line changed",
+      "formattingOnly": false,
+      "confidence": 100,
+      "category": "structure",
+      "provenance": "unknown"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "value": {
+    "groups": [
+      {
+        "month": "October 2026",
+        "rows": [
+          {
+            "button": "Review",
+            "chip": "Came back with 2 changes, including new macro code",
+            "date": "15 Oct",
+            "format": "Excel",
+            "id": "5dcf2964440e28a0072c30cd0a51a375",
+            "purpose": "Series A",
+            "recipient": "Harbor Lane Capital",
+            "returned": "45a8a12f6913d29f6d76633f67a64b0c",
+            "version": "Startup model · v1"
+          }
+        ]
+      }
+    ],
+    "note": "Each copy is kept exactly as sent.",
+    "title": "What I've sent"
+  }
+}

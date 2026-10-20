@@ -1,0 +1,180 @@
+{
+  "ok": true,
+  "value": {
+    "alreadyThere": [],
+    "byHand": [],
+    "changes": [
+      {
+        "byHand": null,
+        "choices": [],
+        "id": "b9408dfe05ac9514",
+        "place": "Module Forecast",
+        "summary": "Macro RefreshForecast: 1 line changed",
+        "text": []
+      },
+      {
+        "byHand": null,
+        "choices": [],
+        "id": "03fca536b638b25b",
+        "place": "Pivots · pivot table SeatsByPlan",
+        "summary": "Pivot table SeatsByPlan: Rows: Month (was Plan)",
+        "text": []
+      }
+    ],
+    "formatting": [],
+    "headline": "1 macro change, 1 pivot table change since v1",
+    "overlaps": [],
+    "workbook": {
+      "groups": [
+        {
+          "cards": [
+            {
+              "address": null,
+              "after": null,
+              "before": null,
+              "byHand": null,
+              "cells": 1,
+              "choices": [],
+              "code": [
+                {
+                  "after": null,
+                  "before": null,
+                  "kind": "skipped",
+                  "text": "2 unchanged lines"
+                },
+                {
+                  "after": 3,
+                  "before": 3,
+                  "kind": "same",
+                  "text": "' Copies the forecast months into the Summary sheet."
+                },
+                {
+                  "after": 4,
+                  "before": 4,
+                  "kind": "same",
+                  "text": "Public Sub RefreshForecast()"
+                },
+                {
+                  "after": 5,
+                  "before": 5,
+                  "kind": "same",
+                  "text": "    Dim months As Integer"
+                },
+                {
+                  "after": null,
+                  "before": 6,
+                  "kind": "removed",
+                  "text": "    months = 12"
+                },
+                {
+                  "after": 6,
+                  "before": null,
+                  "kind": "added",
+                  "text": "    months = 18"
+                },
+                {
+                  "after": 7,
+                  "before": 7,
+                  "kind": "same",
+                  "text": "    Worksheets(\"Summary\").Range(\"B2\").Value = months"
+                },
+                {
+                  "after": 8,
+                  "before": 8,
+                  "kind": "same",
+                  "text": "    Application.StatusBar = \"Forecast updated\""
+                },
+                {
+                  "after": 9,
+                  "before": 9,
+                  "kind": "same",
+                  "text": "End Sub"
+                },
+                {
+                  "after": null,
+                  "before": null,
+                  "kind": "skipped",
+                  "text": "4 unchanged lines"
+                }
+              ],
+              "conflict": null,
+              "copy": "Option Explicit\r\n\r\n' Copies the forecast months into the Summary sheet.\r\nPublic Sub RefreshForecast()\r\n    Dim months As Integer\r\n    months = 18\r\n    Worksheets(\"Summary\").Range(\"B2\").Value = months\r\n    Application.StatusBar = \"Forecast updated\"\r\nEnd Sub\r\n\r\nPublic Function Growth(rate As Double) As Double\r\n    Growth = 1 + rate\r\nEnd Function",
+              "details": [],
+              "fields": null,
+              "id": "b9408dfe05ac9514",
+              "ids": [],
+              "mine": null,
+              "place": "Module Forecast",
+              "sheet": "",
+              "summary": "Macro RefreshForecast: 1 line changed",
+              "why": "Macro code. Lineage never runs it."
+            }
+          ],
+          "category": "structure",
+          "more": 0,
+          "object": "macros",
+          "summary": "1 change to the macros. Lineage never runs macros.",
+          "title": "Macros"
+        },
+        {
+          "cards": [
+            {
+              "address": "A12:B15",
+              "after": null,
+              "before": null,
+              "byHand": null,
+              "cells": 1,
+              "choices": [],
+              "code": [],
+              "conflict": null,
+              "copy": null,
+              "details": [
+                "Rows: Month (was Plan)"
+              ],
+              "fields": {
+                "after": {
+                  "columns": [],
+                  "filters": [],
+                  "rows": [
+                    "Month"
+                  ],
+                  "values": [
+                    "Sum of Seats"
+                  ]
+                },
+                "before": {
+                  "columns": [],
+                  "filters": [],
+                  "rows": [
+                    "Plan"
+                  ],
+                  "values": [
+                    "Sum of Seats"
+                  ]
+                }
+              },
+              "id": "03fca536b638b25b",
+              "ids": [],
+              "mine": null,
+              "place": "Pivots · pivot table SeatsByPlan",
+              "sheet": "Pivots",
+              "summary": "Pivot table SeatsByPlan: Rows: Month (was Plan)",
+              "why": null
+            }
+          ],
+          "category": "structure",
+          "more": 0,
+          "object": "pivots",
+          "summary": "1 change to pivot tables and slicers",
+          "title": "Pivot tables"
+        }
+      ],
+      "headline": "1 macro change, 1 pivot table change",
+      "newMacroCode": true,
+      "notes": [],
+      "signature": null,
+      "unmatched": [],
+      "untracked": []
+    }
+  }
+}

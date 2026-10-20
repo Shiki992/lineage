@@ -246,6 +246,14 @@ pub struct WorkbookDiff {
     pub calculated: Vec<Calculated>,
     pub structure: Vec<StructureChange>,
     pub unmatched: Vec<Unmatched>,
+    /// Macros, compared as code (decision 0028). Empty when either side's
+    /// macros can't be read: then the untracked change says so.
+    pub macros: crate::vba::VbaDiff,
+    /// Pivot tables and slicers (decision 0029).
+    pub pivots: Vec<super::pivot::PivotChange>,
+    pub slicers: Vec<super::pivot::SlicerChange>,
+    /// Power Query queries (decision 0030).
+    pub queries: Vec<super::query::QueryChange>,
 }
 
 impl WorkbookDiff {
@@ -255,6 +263,10 @@ impl WorkbookDiff {
             && self.calculated.is_empty()
             && self.structure.is_empty()
             && self.unmatched.is_empty()
+            && self.macros.is_empty()
+            && self.pivots.is_empty()
+            && self.slicers.is_empty()
+            && self.queries.is_empty()
     }
 
     /// How many changes are in a category.
@@ -711,13 +723,28 @@ impl Builder<'_> {
         let (ta, tb) = (a.sheet_text(i), b.sheet_text(j));
         let al = self.out.alignments[&(i, j)].clone();
         let name = sb.name.clone();
+        // Data a connection loads, and pivot tables' output: what changes
+        // there is refreshed, never typed (decisions 0022, 0029).
         let query_b: Vec<Area> = b
             .query_areas
             .iter()
+            .chain(&b.pivot_areas)
             .filter(|(s, _)| *s == j)
             .map(|(_, a)| *a)
             .collect();
         let in_query = |col: u32, row: u32| query_b.iter().any(|q| q.contains(col, row));
+        let pivot_b: Vec<Area> = b
+            .pivot_areas
+            .iter()
+            .filter(|(s, _)| *s == j)
+            .map(|(_, a)| *a)
+            .collect();
+        let in_pivot = |col: u32, row: u32| pivot_b.iter().any(|p| p.contains(col, row));
+        let pivot_rows = |wb: &Workbook, sheet: usize, row: u32| {
+            wb.pivot_areas
+                .iter()
+                .any(|(s, a)| *s == sheet && (a.row1..=a.row2).contains(&row))
+        };
 
         // Rows.
         let mut hidden = Vec::new();
@@ -754,7 +781,9 @@ impl Builder<'_> {
                 let vy = y.map_or(Value::Blank, |c| value::either(b, tb, c));
                 let style_x = x.map_or(a.styles.key(0), |c| a.styles.key(c.style));
                 let style_y = y.map_or(b.styles.key(0), |c| b.styles.key(c.style));
-                let format_changed = style_x != style_y;
+                // Excel formats a pivot table's cells itself as it lays them
+                // out: not someone's formatting (decision 0029).
+                let format_changed = style_x != style_y && !in_pivot(cb, rb);
                 let category = match (fx, fy) {
                     (false, false) => {
                         if vx.key() != vy.key() {
@@ -900,10 +929,26 @@ impl Builder<'_> {
                 }
             }
         }
-        for run in runs(al.rows.only_b.clone()) {
+        // A pivot table grows and shrinks as it refreshes: its rows aren't
+        // rows someone added.
+        let added: Vec<u32> = al
+            .rows
+            .only_b
+            .iter()
+            .copied()
+            .filter(|r| !pivot_rows(b, j, *r))
+            .collect();
+        let removed: Vec<u32> = al
+            .rows
+            .only_a
+            .iter()
+            .copied()
+            .filter(|r| !pivot_rows(a, i, *r))
+            .collect();
+        for run in runs(added) {
             self.structure(&name, StructureKind::RowsAdded { rows: run });
         }
-        for run in runs(al.rows.only_a.clone()) {
+        for run in runs(removed) {
             self.structure(&name, StructureKind::RowsRemoved { rows: run });
         }
         if let Some((col, descending)) = al.sorted_by {
@@ -999,7 +1044,13 @@ impl Builder<'_> {
             } else if hx && !hy {
                 shown.push(cb);
             }
-            if fx != fy {
+            // Excel fits a pivot table's columns to it each time it updates.
+            let under_pivot = self
+                .b
+                .pivot_areas
+                .iter()
+                .any(|(s, a)| *s == j && (a.col1..=a.col2).contains(&cb));
+            if fx != fy && !under_pivot {
                 format.push(cb);
             }
         }
@@ -1318,7 +1369,46 @@ pub fn diff(a: &Workbook, b: &Workbook, hints: &[Hint]) -> WorkbookDiff {
     }
     builder.workbook(&space);
     builder.calculated();
+    builder.objects();
     builder.out
+}
+
+impl Builder<'_> {
+    /// Macros, queries, pivot tables and slicers.
+    fn objects(&mut self) {
+        let (a, b) = (self.a, self.b);
+        let unreadable =
+            |w: &Workbook, kind: UnsupportedKind| w.unsupported.iter().any(|u| u.kind == kind);
+        if !unreadable(a, UnsupportedKind::Macros) && !unreadable(b, UnsupportedKind::Macros) {
+            self.out.macros = crate::vba::diff::diff(a.vba.as_ref(), b.vba.as_ref());
+        }
+        if !unreadable(a, UnsupportedKind::PowerQuery)
+            && !unreadable(b, UnsupportedKind::PowerQuery)
+        {
+            self.out.queries = super::query::diff(a.queries.as_ref(), b.queries.as_ref());
+        }
+        let names = |w: &Workbook| w.sheets.iter().map(|s| s.name.clone()).collect::<Vec<_>>();
+        let pairs = self.out.sheets.both.clone();
+        let map = |i: usize| pairs.iter().find(|p| p.0 == i).map(|p| p.1);
+        let (mut pivots, slicers) =
+            super::pivot::diff(&a.pivots, &b.pivots, &names(a), &names(b), &map);
+        for p in &mut pivots {
+            if let (Some(area), Some(j)) = (p.area, b.sheet_index(&p.sheet)) {
+                p.cells = self
+                    .out
+                    .cells
+                    .iter()
+                    .filter(|c| {
+                        c.category == Category::Refreshed
+                            && c.sheet_b == j
+                            && area.contains(c.at_b.0, c.at_b.1)
+                    })
+                    .count();
+            }
+        }
+        self.out.pivots = pivots;
+        self.out.slicers = slicers;
+    }
 }
 
 #[cfg(test)]

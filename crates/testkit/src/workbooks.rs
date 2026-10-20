@@ -983,6 +983,7 @@ pub fn connected(rates: &[(&str, &str)]) -> Workbook {
         id: 1,
         name: "rates".to_owned(),
         source_file: r"C:\Shared\rates.csv".to_owned(),
+        mashup: None,
     });
     wb.sheets.push(sheet);
 

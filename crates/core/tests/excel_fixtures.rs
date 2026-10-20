@@ -137,3 +137,171 @@ fn excel_keeps_what_the_engine_relies_on() {
     let wb = fixture("excel", "rates-saved.xlsx");
     assert_eq!(wb.query_areas.len(), 1);
 }
+
+// --- Phase 5B: macros, pivot tables and Power Query, saved by Excel --------
+// (scripts/excel-resave-5b.ps1; decisions 0028 to 0030)
+
+mod phase_5b {
+    use lineage_core::Workbook;
+    use lineage_core::xlsx::diff::{Category, diff};
+    use lineage_core::xlsx::model::UnsupportedKind;
+    use lineage_core::xlsx::pivot::PivotChangeKind;
+    use lineage_testkit::advanced;
+
+    use super::fixture;
+
+    fn open(wb: &lineage_testkit::xlsx::Workbook) -> Workbook {
+        Workbook::open(&wb.to_bytes()).expect("opens")
+    }
+
+    fn untracked(wb: &Workbook) -> Vec<UnsupportedKind> {
+        wb.unsupported.iter().map(|u| u.kind).collect()
+    }
+
+    /// The VBA spike: Excel accepts a project in the spec's on-write form
+    /// and keeps every module's code exactly.
+    #[test]
+    fn excel_keeps_every_macro_line() {
+        let ours = open(&advanced::model_macros_only());
+        let saved = fixture("excel", "model-macros-saved.xlsm");
+        let (a, b) = (
+            ours.vba.as_ref().expect("ours"),
+            saved.vba.as_ref().expect("Excel's reads"),
+        );
+        let names = |p: &lineage_core::vba::VbaProject| {
+            let mut v: Vec<String> = p.modules.iter().map(|m| m.name.clone()).collect();
+            v.sort();
+            v
+        };
+        assert_eq!(names(a), names(b));
+        for m in &a.modules {
+            let n = b.module(&m.name).expect("module");
+            assert_eq!(m.lines, n.lines, "{}", m.name);
+            assert_eq!(m.kind, n.kind, "{}", m.name);
+        }
+        assert!(
+            untracked(&saved)
+                .iter()
+                .all(|k| *k != UnsupportedKind::Macros)
+        );
+        let d = lineage_core::vba::diff::diff(Some(a), Some(b));
+        assert!(d.modules.is_empty(), "{:?}", d.modules);
+    }
+
+    #[test]
+    fn excel_keeps_the_pivots_slicer_and_queries() {
+        for name in ["model-pivots-saved.xlsx", "model-full-saved.xlsm"] {
+            let wb = fixture("excel", name);
+            assert!(
+                wb.pivots.unreadable.is_empty(),
+                "{name}: {:?}",
+                wb.pivots.unreadable
+            );
+            assert_eq!(wb.pivots.tables.len(), 2, "{name}");
+            assert_eq!(wb.pivots.slicers.len(), 1, "{name}");
+            assert_eq!(wb.pivots.slicers[0].caption, "Region", "{name}");
+        }
+        for name in ["model-queries-saved.xlsx", "model-full-saved.xlsm"] {
+            let wb = fixture("excel", name);
+            let q = wb
+                .queries
+                .as_ref()
+                .unwrap_or_else(|| panic!("{name}: no queries"));
+            let names: Vec<&str> = q.queries.iter().map(|q| q.name.as_str()).collect();
+            assert_eq!(names, ["Rates", "RegionList"], "{name}");
+        }
+    }
+
+    #[test]
+    fn a_plain_save_by_excel_shows_no_changes() {
+        let ours = open(&advanced::model_full_for_excel());
+        let saved = fixture("excel", "model-full-saved.xlsm");
+        let d = diff(&ours, &saved, &[]);
+        assert!(d.macros.is_empty(), "{:?}", d.macros);
+        assert!(d.queries.is_empty(), "{:?}", d.queries);
+        assert!(
+            d.pivots
+                .iter()
+                .all(|p| p.kind == PivotChangeKind::Refreshed)
+                && d.slicers.is_empty(),
+            "{:?} {:?}",
+            d.pivots,
+            d.slicers
+        );
+        assert!(
+            d.cells.iter().all(|c| c.category != Category::Input),
+            "{:?}",
+            d.cells.iter().map(|c| c.address()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn excels_own_pivot_edits() {
+        let base = fixture("excel", "model-full-saved.xlsm");
+        let rows = fixture("excel", "model-full-pivot-rows-excel.xlsm");
+        let d = diff(&base, &rows, &[]);
+        let changed: Vec<&str> = d
+            .pivots
+            .iter()
+            .filter(|p| p.kind == PivotChangeKind::Changed)
+            .flat_map(|p| p.details.iter().map(String::as_str))
+            .collect();
+        assert!(
+            changed.contains(&"Rows: Month (was Plan)"),
+            "{:?}",
+            d.pivots
+        );
+
+        let refreshed = fixture("excel", "model-full-refreshed-excel.xlsm");
+        let d = diff(&base, &refreshed, &[]);
+        let inputs: Vec<String> = d
+            .cells
+            .iter()
+            .filter(|c| c.category == Category::Input)
+            .map(|c| c.address())
+            .collect();
+        assert_eq!(inputs, ["Sales!E13"], "only the typed sale is an input");
+        assert!(
+            d.pivots
+                .iter()
+                .any(|p| p.kind == PivotChangeKind::Refreshed)
+        );
+
+        // As in the Excel run: the generated file, then Excel's refresh. Excel
+        // re-formats the pivot's cells and fits its columns; none of that is
+        // someone's formatting.
+        let ours = open(&advanced::model_full_for_excel());
+        let d = diff(&ours, &refreshed, &[]);
+        let on_pivots: Vec<String> = d
+            .structure
+            .iter()
+            .filter(|s| s.sheet == "Pivots")
+            .map(|s| format!("{:?}", s.kind))
+            .collect();
+        assert!(on_pivots.is_empty(), "{on_pivots:?}");
+        assert!(
+            d.cells
+                .iter()
+                .all(|c| c.sheet != "Pivots" || c.category == Category::Refreshed),
+            "only refreshed values on Pivots"
+        );
+        for p in &d.pivots {
+            let refreshed_cells = d
+                .cells
+                .iter()
+                .filter(|c| c.sheet == "Pivots" && c.category == Category::Refreshed)
+                .count();
+            assert!(p.cells <= refreshed_cells, "{p:?}");
+        }
+
+        let slicer = fixture("excel", "model-full-slicer-excel.xlsm");
+        let d = diff(&base, &slicer, &[]);
+        assert!(
+            d.slicers
+                .iter()
+                .any(|s| s.summary == "Slicer Region: shows North, West (was all)"),
+            "{:?}",
+            d.slicers
+        );
+    }
+}

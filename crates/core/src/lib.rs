@@ -11,6 +11,7 @@
 
 pub mod check;
 pub mod clean;
+pub mod code;
 pub mod diff;
 pub mod doc;
 pub mod docx;
@@ -21,6 +22,7 @@ pub mod origin;
 pub mod package;
 pub mod pptx;
 pub mod summary;
+pub mod vba;
 pub mod view;
 pub mod write;
 pub mod xlsx;
