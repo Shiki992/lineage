@@ -155,6 +155,15 @@ function Page({
           <h1>{page.name}</h1>
         </div>
         <p className="secondary">{page.kind}</p>
+        {page.badges.length > 0 && (
+          <p className="row" style={{ gap: 4 }}>
+            {page.badges.map((b) => (
+              <Chip key={b} kind="warning">
+                {b}
+              </Chip>
+            ))}
+          </p>
+        )}
       </header>
       {page.note && <p className="warning">{page.note}</p>}
       {notice && (

@@ -191,6 +191,13 @@ a {
   color: var(--milestone-text);
 }
 
+/* "Contains macros": the overlap and warning colours. */
+.chip--warning {
+  background: var(--warning-tint);
+  border: 1px solid var(--warning-border);
+  color: var(--warning-text);
+}
+
 .callout {
   background: var(--accent-tint);
   border: 1px solid var(--accent);
@@ -635,4 +642,108 @@ details > summary {
   .tree {
     grid-template-columns: 128px 1fr;
   }
+}
+
+/*
+ * Macros and queries (Phase 5B): the code before and after, side by side.
+ * Each changed line has a minus or plus mark and a hidden "Removed" or
+ * "Added", so colour is never the only cue.
+ */
+.code-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+table.code {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+table.code th {
+  text-align: left;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.code__num {
+  width: 3.5em;
+  color: var(--text-secondary);
+  text-align: right;
+  padding: 0 6px;
+  user-select: none;
+  vertical-align: top;
+}
+
+.code__cell {
+  white-space: pre;
+  vertical-align: top;
+  padding-right: 8px;
+}
+
+.code__cell--removed {
+  background: var(--removed-tint);
+  color: var(--removed-text);
+}
+
+.code__cell--added {
+  background: var(--added-tint);
+  color: var(--added-text);
+}
+
+.code__mark {
+  font-weight: 600;
+  padding-right: 4px;
+  user-select: none;
+}
+
+.code__skipped {
+  padding: 2px 8px;
+  font-family: var(--font-ui);
+  font-style: italic;
+}
+
+.code-key {
+  padding: 0 4px;
+  border-radius: 4px;
+  font-weight: 400;
+}
+
+.code-key--removed {
+  background: var(--removed-tint);
+  color: var(--removed-text);
+}
+
+.code-key--added {
+  background: var(--added-tint);
+  color: var(--added-text);
+}
+
+/* A pivot table's fields before and after. */
+.fields {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.fields th,
+.fields td {
+  text-align: left;
+  vertical-align: top;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.fields thead th {
+  color: var(--text-secondary);
+}
+
+.fields__changed td:last-child {
+  background: var(--added-tint);
+  color: var(--added-text);
+  font-weight: 600;
 }

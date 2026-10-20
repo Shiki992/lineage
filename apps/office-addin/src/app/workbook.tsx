@@ -16,6 +16,7 @@ import type {
   WorkbookView,
 } from "@lineage/shell";
 import { useId, useState } from "react";
+import { CodeView, CopyCode, FieldsView, NEW_MACRO_CODE } from "./objects";
 import { Back, Button, LinkButton } from "./parts";
 
 /** What a screen can do with a cell of the open workbook. */
@@ -91,11 +92,17 @@ function Choices({
 
 function Card({
   card,
+  object,
+  fromOutside,
   cells,
   chosen,
   onChoose,
 }: {
   card: WorkbookCard;
+  /** The Macros, Queries or Pivot tables group it is in. */
+  object?: WorkbookView["groups"][number]["object"] | undefined;
+  /** Its code came back from outside: copying it asks first. */
+  fromOutside?: boolean | undefined;
   cells?: CellActions | undefined;
   chosen?: Decision | undefined;
   onChoose?: ((card: string, decision: Decision | undefined) => void) | undefined;
@@ -131,7 +138,23 @@ function Card({
           </div>
         </div>
       )}
+      {card.details.length > 0 && (
+        <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
+          {card.details.map((d) => (
+            <li key={d}>{d}</li>
+          ))}
+        </ul>
+      )}
+      {card.code.length > 0 && <CodeView lines={card.code} />}
+      {card.fields && <FieldsView fields={card.fields} />}
       {card.byHand && <p className="warning small">{card.byHand}</p>}
+      {card.copy !== null && (
+        <CopyCode
+          code={card.copy}
+          where={object === "queries" ? "the query's Advanced Editor" : "the VBA editor (Alt+F11)"}
+          fromOutside={fromOutside === true}
+        />
+      )}
       {address && cells && (cells.goTo !== undefined || cells.sideBySide !== undefined) && (
         <div className="row" style={{ flexWrap: "wrap" }}>
           {cells.goTo && (
@@ -179,11 +202,14 @@ function Card({
 export function WorkbookChanges({
   view,
   cells,
+  fromOutside,
   chosen,
   onChoose,
 }: {
   view: WorkbookView;
   cells?: CellActions | undefined;
+  /** A file that came back: copying its code asks first. */
+  fromOutside?: boolean | undefined;
   chosen?: ReadonlyMap<string, Decision> | undefined;
   onChoose?: ((card: string, decision: Decision | undefined) => void) | undefined;
 }) {
@@ -192,18 +218,21 @@ export function WorkbookChanges({
     <div className="stack">
       {view.groups.map((group, i) => (
         <section
-          key={group.category}
+          key={`${group.category}-${group.object ?? "cells"}`}
           className="stack"
           style={{ gap: 8 }}
           aria-labelledby={`${base}-${String(i)}`}
         >
           <h2 id={`${base}-${String(i)}`}>{group.title}</h2>
           <p className="secondary small">{group.summary}</p>
+          {group.object === "macros" && view.signature && <p className="small">{view.signature}</p>}
           <ul className="list">
             {group.cards.map((card) => (
               <Card
                 key={card.id}
                 card={card}
+                object={group.object}
+                fromOutside={fromOutside}
                 cells={cells}
                 chosen={chosen?.get(card.id)}
                 onChoose={onChoose}
@@ -275,6 +304,8 @@ export function WorkbookReview({
   verb,
   canBringIn,
   busy,
+  fromOutside,
+  onOpenMaster,
   onApply,
   onBack,
 }: {
@@ -285,6 +316,14 @@ export function WorkbookReview({
   /** False when this Excel can't carry the changes out (decision 0020). */
   canBringIn: boolean;
   busy: boolean;
+  /** A file that came back: new macro code is flagged, and copying it asks first. */
+  fromOutside?: boolean | undefined;
+  /**
+   * "Open the master's version" of a group (by its key, a checkpoint), for the
+   * macros, queries and pivot tables that come in by hand. Never for a file
+   * that came back.
+   */
+  onOpenMaster?: ((key: string) => void) | undefined;
   onApply: (cards: CardDecision[]) => void;
   onBack: () => void;
 }) {
@@ -322,11 +361,33 @@ export function WorkbookReview({
           this is what changed.
         </p>
       )}
+      {fromOutside && groups.some((g) => g.view.newMacroCode) && (
+        <p className="warning" role="alert">
+          {NEW_MACRO_CODE}
+        </p>
+      )}
       {groups.map((g) => (
         <section key={g.key} className="stack" aria-label={g.label ?? title}>
           {g.label && <h2>{g.label}</h2>}
+          {onOpenMaster && !fromOutside && g.view.groups.some((w) => w.object !== null) && (
+            <div className="stack" style={{ gap: 4 }}>
+              <Button
+                disabled={busy}
+                onClick={() => {
+                  onOpenMaster(g.key);
+                }}
+              >
+                Open the master's version
+              </Button>
+              <p className="secondary small">
+                Macros, queries and pivot tables come in by hand. This opens the master as a new
+                workbook, to copy from.
+              </p>
+            </div>
+          )}
           <WorkbookChanges
             view={g.view}
+            fromOutside={fromOutside}
             chosen={chosen}
             onChoose={canBringIn ? choose : undefined}
           />

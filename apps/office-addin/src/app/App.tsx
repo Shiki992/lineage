@@ -549,6 +549,11 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         verb="Bring in"
         canBringIn={lineage?.bringsIntoOpenWorkbook === true}
         busy={busy !== null}
+        onOpenMaster={(checkpoint) =>
+          void run("Opening the master's version", async (l) => {
+            await l.openCheckpoint(checkpoint);
+          })
+        }
         onBack={home}
         onApply={(cards) =>
           void run("Bringing the changes into this workbook", async (l) => {
@@ -577,6 +582,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         verb="Keep"
         canBringIn={lineage?.bringsIntoOpenWorkbook === true}
         busy={busy !== null}
+        fromOutside
         onBack={home}
         onApply={(cards) =>
           void run("Keeping their changes in this workbook", async (l) => {
