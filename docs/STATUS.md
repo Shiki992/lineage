@@ -1,5 +1,130 @@
 # Status
 
+## Phase 5B: macros, pivot tables and Power Query (2026-10-20). Built, and checked twice in Excel for Windows: invented workbooks re-saved by Excel (stop 1), and the pane on a scratch dev folder (stop 2). The master's own macro edit wasn't checked in Excel (see Not done).
+
+Branch `claude/modest-perlman-35f244`, from the Phase 5 branch `claude/amazing-lamport-081931` at `45fdf1b`. Not pushed.
+
+Decisions:
+
+- [0027 Macros, queries and pivot tables: security, and how their changes land](decisions/0027-phase-5b-security-and-landing.md): nothing runs, parser limits, by-hand landing, the returned-macro warning, the spec change, no new crates, the budgets;
+- [0028 Reading VBA, and why Lineage only compares it](decisions/0028-reading-vba.md), with the spike's result;
+- [0029 Pivot tables, slicers and refreshed pivot data](decisions/0029-pivot-tables-and-slicers.md);
+- [0030 Power Query](decisions/0030-power-query.md);
+- [0026](decisions/0026-sent-workbooks-and-untracked-parts.md) updated with what is now tracked; [0010](decisions/0010-wasm-boundary-and-budgets.md) with the sizes and pane timings.
+
+Manual test script: [docs/testing/excel-macros.md](testing/excel-macros.md).
+
+The maintainer chose (2026-10-19 and 20):
+
+- changes to macros, queries and pivots are compared by the engine and come in by hand, with no new write path;
+- a Windows-only VBA spike, with VBA shipped compare-only (it was: decision 0028);
+- at stop 1, the Excel re-save run, the compile check done through computer use, and the budgets: at most 100 ms natively and 300 ms in the pane on top of a workbook's own;
+- at stop 2, the whole run: the pane's dev server on port 3000 with a scratch folder, a scratch Excel-only sideload (removed afterwards), and an Excel instance of its own with macros left disabled.
+
+**Done**
+
+- **Reading** (`crates/core/src/vba/`, `xlsx/pivot.rs`, `xlsx/query.rs`), each bounded and fuzzed:
+  - **VBA:** compound files, MS-OVBA decompression, the dir and PROJECT streams, module kinds, references, "locked for viewing", and who signed;
+  - **pivots:** caches, pivot tables and pivot slicers;
+  - **Power Query:** the DataMashup item, its inner package, an M lexer, and each query's id, load target and last load.
+
+  A kind leaves the "Preserved; semantic tracking not yet supported" list only when its parts read.
+
+- **What changed:** Macros, Queries and Pivot tables groups after Formulas.
+  - Code cards show changed lines with three lines of context, line numbers and a − / + glyph with the words Removed and Added. Pivot cards show the fields before and after. The Macros group says who signed.
+  - A pivot's output cells are refreshed data, never inputs, and so is a refresh. Excel's own formatting of pivot cells is left out of structure.
+  - The open change format gained `macro`, `query`, `pivot` and `slicer` targets with `object` (additive, v0).
+- **Merge:** each module, reference, query, pivot or slicer change is one item that comes in by hand ("already there" once it matches; says when the version changed it too).
+  - **Copy code** copies the whole module or query.
+  - **Open the master's version** opens the master as a new workbook without its macros.
+  - Refresh-only changes are never items and aren't stored.
+- **Returned files:** new or changed macro code shows the warning first. Each module is its own card with Skip only. Copying its code asks first. What I've sent says "… including new macro code", and no Open is offered.
+- **Clean copies** count readable macros, and blank the pivot caches' `refreshedBy`.
+- **Family logic:**
+  - a checkpoint records whether the file has macros;
+  - a returned file records whether it came back with new macro code;
+  - My documents rows and pages say **Contains macros**;
+  - the library index is at version 2.
+- **Boundary and screens:** DTOs, schemas and golden replies for code lines, field lists, object groups, the warning and badges.
+  - The Excel pane: stacked code view, field table, Copy code with its confirm, the warning, Open the master's version.
+  - My documents: code side by side at full width, and the field table.
+- **Fixtures** (invented, `crates/testkit`): a compound-file writer, the VBA compressor (reproduces the spec's three examples), projects in the spec's on-write form, pivots and slicers with their rendered cells, DataMashup items.
+  - 16 workbooks in `fixtures/xlsx/synthetic/`: the founder's model with macros, two pivots on one cache, a slicer and two queries; a variant for each kind of change; a signed project; a copy that came back with a new module.
+  - 7 saved and edited by real Excel in `fixtures/xlsx/excel/` (`scripts/excel-resave-5b.ps1`).
+- **Fuzz targets** `cfb_reader`, `vba_decompress`, `vba_project` and `mashup`, 30 s each in CI. **`cargo xtask bench-objects`.**
+
+**Checked in Excel for Windows** (16.0.20430), macros disabled throughout, invented workbooks only:
+
+- **Stop 1** (`scripts/excel-resave-5b.ps1`, Excel's own instance, macros force-disabled):
+  - Excel opened and saved the macro, pivot and query workbooks without a repair, keeping every module's code exactly.
+  - It made three pivot edits of its own. They read as a pivot change, refreshed data (the typed sale the only input) and a slicer change.
+  - A plain save shows no changes.
+  - **The spike:** Debug › Compile on the spec-form project stopped with "Invalid procedure call or argument" (nothing ran), so VBA is compare-only.
+- **Stop 2, through the real pane** (DevTools port, scratch dev folder, scratch sideload). On "Startup model.xlsm":
+  1. **Start tracking**; Northwind's tailored version; **Send a copy** to Harbor Lane said "Macros go with this copy".
+  2. A sale typed (Sales!E13 396 → 420), SeatsByPlan's rows changed from Plan to Month, and RevenueByRegion refreshed (through COM, saved).
+  3. **Save checkpoint:** "1 input, 2 pivot table changes, 2 refreshed values since v1". Sales!E13 was the only input; "Rows: Month (was Plan)" with the field table; "RevenueByRegion was refreshed: 2 values changed. From a data refresh. Nobody typed these values." No structure group (after the first fix below).
+  4. **Offer**, then Northwind's **Review them**: the sale with Bring in; the pivot card by hand with Decline; the refreshed values said to refresh. **Open the master's version** opened Book1: an `.xlsx`, no VBA project, both pivots, connections disabled, no trust prompt (after the third fix below). Closed unsaved. **Bring in 1 change:** Northwind's E13 became 420, it was saved, its macros were intact and its pivot was unchanged (v2).
+  5. **A file came back** with the copy that came back (no ids): "This came back from Harbor Lane Capital … 98% of the text matches". **Review:** the warning first, then:
+     - 2 inputs;
+     - Macros: "Macro RefreshForecast: 1 line changed" (line 9 added) and "Added module Mailer (4 lines)", each with Copy code and Skip only;
+     - Queries: "Query Rates: 3 lines changed", with the lines marked;
+     - 2 refreshed values.
+
+     **Copy code** on Mailer asked "This code came from outside…", and only **Copy their code** copied: the clipboard held the whole module. Forecast's copy was all 14 lines. What I've sent: "Came back with 7 changes, including new macro code", with Review only.
+
+  6. **My documents** (built-in browser): the row and page say **Contains macros**. v1 against v2: the input, both pivot cards with their field tables, refreshed data.
+  7. **The audit** (`dev_folder.rs`): 1 family, 4 checkpoints restore, 5 blobs check, the tailored version and the sent copy on disk match the record, 1 file came back.
+  8. Afterwards: my Excel was closed without saving, the scratch sideload was removed (the maintainer's own entry kept), and the dev servers were stopped.
+
+**Bugs found in the Excel runs, and fixed** (each with a test)
+
+- **Excel's re-formatting of a refreshed pivot read as 13 structure changes** (cell formats, column widths). Pivot areas are now left out of formatting, and a pivot's cell count is its refreshed cells only.
+- **A refresh-only pivot change was stored with the checkpoint.** It had no card, so Northwind's panel said "5 updates" over 4 cards, and the version could never catch up (it still says "has v1" in the scratch ledger, written before the fix). Refresh-only pivot and query changes are now summarised and not stored, like calculated results (decision 0022).
+- **Open the master's version made Excel ask "Trust this add-in? … wants to create a file with macros".** "Don't allow" then showed only "Something went wrong". The master's version now opens without its VBA project (`xlsx::clean::without_macros`, a round-trip test on the full and signed models). If Excel refuses any copy, the pane says "Excel didn't open the workbook. Nothing was changed."
+- **Send a copy said "Formulas may read them, so they stay"** after "Macros go with this copy". Each hidden-content line now gives its own reason; the closing line is "Check before you send it."
+- From stop 1: the pivot key changed on a plain Excel save (attributes in other namespaces, `multipleFieldNames`).
+
+**Measurements**
+
+- **wasm** 2,132,549 bytes raw and 712,227 gzipped (was 1,982,567 and 657,409), under 4 MB. JavaScript gzipped: task pane 181,396, My documents 160,923.
+- **Native** (`cargo xtask bench-objects`, release; the computer of decision 0025), all inside the 100 ms budget:
+
+  | Case                        | Size        | Read    | Compare |
+  | --------------------------- | ----------- | ------- | ------- |
+  | A 20,000-line module        | 149 KB      | 11.2 ms | 10.4 ms |
+  | 200 queries                 | 258 KB item | 3.8 ms  | 0.5 ms  |
+  | A 20,000-record pivot cache | 66 KB file  | 3.2 ms  | 0.5 ms  |
+  | The full model, both opened | 23 KB file  | 2.7 ms  | 0.4 ms  |
+
+- **In the Excel pane** (its log): what changed 209 to 537 ms, save checkpoint 751 ms, updates 532 to 580 ms, bring in 823 ms, recognise 488 ms, returned review 201 ms, Open the master's version 1.4 s (16.8 s while Excel's trust prompt waited).
+
+**Tests**
+
+- **Rust:** 572 pass, 4 ignored (was 495).
+  - Every parser, with malformed input.
+  - Five new property tests: decompression undoes compression and never panics; the code view rebuilds both sides; the M lexer never panics; reordering queries is no change.
+  - Diff, view and merge for each kind of change; the Excel-saved fixtures; family logic; golden replies.
+- **TypeScript:** 307 pass (was 295): shell 176, add-in 47, My documents 31, design 15, OneDrive 29, storage-local 9. Playwright: 19 pass on Microsoft Edge, including a macro family kept as `.xlsm`.
+- **All checks pass:** fmt, clippy, cargo-deny, licence headers, fixtures, lint, typecheck, Prettier, budgets.
+
+**Not done**
+
+- **The master's own macro edit in Excel** (script steps 3, 8, 10, and the macro parts of 6 and 15). Excel keeps the invented project's code, but after an edit in the VBA editor it couldn't save the workbook ("Errors were detected while saving"; cancelled). That is the spike's compile failure again. These steps need a project Excel made itself; the script says how. The same path is covered by engine, golden and component tests.
+- **Pasting copied code into Northwind and seeing "already there"** (step 10): not clicked in Excel.
+- **Excel for Mac**, and Excel on the web (decision 0020).
+- **The fuzz targets ran only in CI:** libFuzzer doesn't build on this Windows machine.
+- **Out of scope** (decision 0027): writing VBA, M or pivot definitions; `.xlsb`; Office Scripts; Excel 4.0 macro sheets, timelines and table slicers (still labelled untracked); `.docm` and `.pptm`.
+
+**Known issues**
+
+- **OLAP and data-model pivots** are read in part, and the panel doesn't say so yet.
+- **`GETPIVOTDATA`** names a pivot by one cell, so its result can move while that cell doesn't; it isn't handled specially.
+- **Open as sent** for a sent `.xlsm` opens its exact bytes, so Excel asks to trust the add-in. "Don't allow" now gets a clear message, but the person still meets the prompt.
+- **Ledgers written by this branch before the refresh fix** keep a refresh-only pivot change that can't be decided (only scratch ledgers; nothing released has one).
+- **Pivot cells formatted by hand** are left out with Excel's own formatting of them.
+- **Driving Excel by computer use:** ribbon clicks and Alt+F11 didn't reach Excel. The pane in Northwind's window was opened by the maintainer, and the VBA editor through COM (`ExecuteMso("VisualBasic")`).
+
 ## Phase 5: Excel (2026-10-18). Built, and the three pilots clicked through in the Excel pane in Excel for Windows with a scratch dev folder. Excel on the web is not supported yet (decision 0020).
 
 Branch `claude/amazing-lamport-081931`, from `main` at `bd8dd04`. Not pushed.

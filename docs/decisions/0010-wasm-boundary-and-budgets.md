@@ -1,6 +1,6 @@
 # 0010: The wasm boundary, and the task pane's budgets
 
-Date: 2026-10-15. Status: accepted. Updated 2026-10-17 (Phase 4): the wasm budgets are raised to 4 MB, and the blob rules for "Update N versions".
+Date: 2026-10-15. Status: accepted. Updated 2026-10-17 (Phase 4): the wasm budgets are raised to 4 MB, and the blob rules for "Update N versions". Updated 2026-10-18 (Phase 5) and 2026-10-20 (Phase 5B) with the workbook measurements.
 
 ## Context
 
@@ -106,6 +106,10 @@ In Excel for Windows (16.0.20430), with a scratch dev folder, from the pane's lo
 | Keep a returned workbook's change | 1.78 s                                     |
 
 Reading the open workbook (`getFileAsync`) takes 125 to 150 ms for these files, and each bring-in reads it twice. The one 6.8 s checkpoint save came right after a row insert and cell writes through Office.js, as did one 5.6 s bring-in at stop 2; neither repeated.
+
+### Phase 5B: macros, pivot tables and queries (2026-10-20)
+
+Reading and comparing them took the wasm to 2,132,549 bytes raw and 712,227 gzipped (was 1,982,567 and 657,409), inside the 4 MB limits. Task pane JavaScript: 181,396 gzipped; My documents 160,923. Their own budget (at most 100 ms natively and 300 ms in the pane on top of a workbook's) is in decision 0027. In Excel for Windows with the founder's model (macros, two pivot tables, a slicer, two queries), from the pane's log: what changed 209 to 537 ms, save checkpoint 751 ms, the updates panel 532 to 580 ms, a returned file recognised in 488 ms and reviewed in 201 ms.
 
 ## Alternatives
 
