@@ -342,9 +342,15 @@ fn what_changed_uses_excels_hints_and_shows_a_cell_side_by_side() {
 #[test]
 fn send_a_copy_says_what_goes_with_it() {
     let notes = goes_with_copy(&workbooks::awkward_cells().to_bytes()).expect("reads");
-    assert_eq!(notes, ["2 hidden sheets go with this copy"]);
+    assert_eq!(
+        notes,
+        ["2 hidden sheets go with this copy: formulas may read them"]
+    );
     let notes = goes_with_copy(&workbooks::tracker_filtered().to_bytes()).expect("reads");
-    assert_eq!(notes, ["2 hidden rows go with this copy"]);
+    assert_eq!(
+        notes,
+        ["2 hidden rows go with this copy: formulas may read them"]
+    );
     assert!(
         goes_with_copy(&workbooks::model_master().to_bytes())
             .expect("reads")
@@ -436,6 +442,12 @@ fn a_copy_that_came_back_with_new_macro_code_is_flagged() {
         Some(true),
         "the checkpoint says it has macros"
     );
+    // "Open the master's version" opens it without them, so Excel needn't
+    // ask to trust the add-in.
+    let opened = commands::open_checkpoint(host.state(), &first.id, &host.blobs).expect("opens");
+    let opened = Workbook::open(&opened).expect("a workbook");
+    assert!(opened.vba.is_none() && !opened.macro_enabled);
+    assert_eq!(opened.pivots.tables.len(), 2, "the rest is there");
 
     // My documents shows the badge.
     let entry = crate::library::LibraryEntry::from_facts(crate::library::EntryFacts::of_state(
@@ -479,6 +491,64 @@ fn a_copy_that_came_back_with_new_macro_code_is_flagged() {
         );
         assert!(!card.code.is_empty());
     }
+}
+
+/// A pivot table that was only refreshed is not an update of its own: its
+/// cells are offered as refreshed data, and once they are decided the version
+/// has caught up. (In Excel the panel said "5 updates" over 4 cards, and
+/// the refresh could never be decided.)
+#[test]
+fn a_refreshed_pivot_is_offered_as_its_cells_only() {
+    use lineage_testkit::advanced;
+
+    let mut host = Host::new();
+    let mut ctx = Context {
+        now: host.now,
+        ids: &mut host.ids,
+        author: None,
+    };
+    let (_, outcome) = commands::start_tracking(
+        &mut ctx,
+        &advanced::model_full().to_bytes(),
+        "Model.xlsm",
+        "Model.xlsm",
+        &host.blobs,
+    )
+    .expect("starts");
+    let master_file = host.take(outcome).file.expect("file with ids");
+    let master = host.master();
+    let (northwind, file) = host.make_version("Model – Northwind.xlsm");
+    host.save(
+        &master,
+        &wb_edit(&master_file, &advanced::model_full_refreshed()),
+        "A sale corrected, pivots refreshed",
+    );
+    host.offer(std::slice::from_ref(&northwind));
+
+    let panel = crate::views::version_panel(host.state(), &northwind, &host.blobs).expect("panel");
+    let updates = commands::updates(host.state(), &northwind, &file, &host.blobs).expect("updates");
+    assert_eq!(
+        panel.updates.as_deref(),
+        Some(updates.headline.as_str()),
+        "the panel counts what the review shows"
+    );
+    let decisions: Vec<(String, Decision)> = updates
+        .groups
+        .iter()
+        .filter_map(|g| g.view.workbook.as_ref())
+        .flat_map(|wv| &wv.groups)
+        .flat_map(|g| &g.cards)
+        .filter(|c| !c.choices.is_empty())
+        .flat_map(|c| c.ids.iter().map(|id| (id.clone(), Decision::Decline)))
+        .collect();
+    assert!(!decisions.is_empty());
+    let (_, after) = host.bring(&northwind, &file, &decisions);
+    let updates =
+        commands::updates(host.state(), &northwind, &after, &host.blobs).expect("updates");
+    assert_eq!(updates.headline, "You're up to date with the master");
+    let panel = crate::views::version_panel(host.state(), &northwind, &host.blobs).expect("panel");
+    assert_eq!(panel.updates, None);
+    assert!(panel.status.ends_with("has v2"), "{}", panel.status);
 }
 
 #[test]

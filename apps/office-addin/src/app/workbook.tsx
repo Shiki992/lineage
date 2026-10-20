@@ -381,7 +381,7 @@ export function WorkbookReview({
               </Button>
               <p className="secondary small">
                 Macros, queries and pivot tables come in by hand. This opens the master as a new
-                workbook, to copy from.
+                workbook to copy from, without its macros: copy their code from here.
               </p>
             </div>
           )}

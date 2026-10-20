@@ -172,10 +172,16 @@ pub fn change_list(before: &Doc, after: &Doc) -> Result<ChangeList> {
         }
         (Doc::Deck(a), Doc::Deck(b)) => pptx::view::change_list(&pptx::diff::diff(a, b), a, b),
         // Stored with each checkpoint, so calculated results are left out:
-        // they are summarised, never offered (decision 0022).
+        // they are summarised, never offered (decision 0022). So is a pivot
+        // table or query that was only refreshed: its cells are offered as
+        // refreshed data, and nothing else can be decided (decision 0029).
         (Doc::Workbook(a), Doc::Workbook(b)) => {
             let mut d = xlsx::diff::diff(a, b, &[]);
             d.calculated.clear();
+            d.pivots
+                .retain(|p| p.kind != xlsx::pivot::PivotChangeKind::Refreshed);
+            d.queries
+                .retain(|q| q.kind != xlsx::query::QueryChangeKind::Refreshed);
             xlsx::view::change_list(&d, a, b)
         }
         _ => unreachable!("checked above"),

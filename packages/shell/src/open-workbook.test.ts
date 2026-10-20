@@ -248,6 +248,8 @@ describe("what changed in an open workbook", () => {
     const pane = new Lineage({ engine: e, storage: new MemoryStorage(), host, now: clock() });
     await pane.open();
     await pane.startTracking();
-    expect(await pane.goesWithCopy()).toEqual(["2 hidden sheets go with this copy"]);
+    expect(await pane.goesWithCopy()).toEqual([
+      "2 hidden sheets go with this copy: formulas may read them",
+    ]);
   });
 });

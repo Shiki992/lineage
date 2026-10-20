@@ -140,7 +140,27 @@ describe("sending a workbook", () => {
     );
     expect(screen.getByText("Excel (.xlsx, or .xlsm with macros)")).toBeTruthy();
     const warning = screen.getByRole("region", { name: "What goes with this copy" });
-    expect(within(warning).getByText("2 hidden sheets go with this copy.")).toBeTruthy();
+    expect(
+      within(warning).getByText("2 hidden sheets go with this copy: formulas may read them."),
+    ).toBeTruthy();
+  });
+
+  it("gives no hidden-sheet reason when only macros go with the copy", () => {
+    const family = { ...(golden("family") as Family), format: "xlsx" };
+    render(
+      <SendCopy
+        family={family}
+        goesWith={["Macros go with this copy"]}
+        openNode={family.nodes[0]?.id ?? ""}
+        busy={false}
+        onSend={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+    const warning = screen.getByRole("region", { name: "What goes with this copy" });
+    expect(within(warning).getByText("Macros go with this copy.")).toBeTruthy();
+    expect(within(warning).queryByText(/formulas/i)).toBeNull();
+    expect(within(warning).getByText("Check before you send it.")).toBeTruthy();
   });
 });
 

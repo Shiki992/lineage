@@ -858,8 +858,10 @@ pub fn open_sent_copy(state: &FamilyState, sent: &Id, blobs: &dyn BlobSource) ->
     Ok(bytes)
 }
 
-/// A checkpoint's file, exactly as saved: for "Open the master's version",
-/// where macros, queries and pivot tables come in by hand (decision 0027).
+/// A checkpoint's file for "Open the master's version", where macros,
+/// queries and pivot tables come in by hand (decision 0027): as saved, but a
+/// workbook without its macros, so Excel never asks to trust the add-in with
+/// them and nothing in it can run (decision 0028). The pane shows the code.
 ///
 /// # Errors
 /// [`Error::NotAllowed`] for an unknown checkpoint; others when blobs are
@@ -872,7 +874,11 @@ pub fn open_checkpoint(
     let c = state
         .checkpoint(checkpoint)
         .ok_or_else(|| Error::NotAllowed("unknown checkpoint".to_owned()))?;
-    restore(&c.snapshot, blobs)
+    let bytes = restore(&c.snapshot, blobs)?;
+    if state.format == "xlsx" {
+        return Ok(lineage_core::xlsx::clean::without_macros(&bytes)?);
+    }
+    Ok(bytes)
 }
 
 fn checkpoint_name(state: &FamilyState, checkpoint: &Id) -> Result<String> {
