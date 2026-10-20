@@ -733,6 +733,13 @@ impl Builder<'_> {
             .map(|(_, a)| *a)
             .collect();
         let in_query = |col: u32, row: u32| query_b.iter().any(|q| q.contains(col, row));
+        let pivot_b: Vec<Area> = b
+            .pivot_areas
+            .iter()
+            .filter(|(s, _)| *s == j)
+            .map(|(_, a)| *a)
+            .collect();
+        let in_pivot = |col: u32, row: u32| pivot_b.iter().any(|p| p.contains(col, row));
         let pivot_rows = |wb: &Workbook, sheet: usize, row: u32| {
             wb.pivot_areas
                 .iter()
@@ -774,7 +781,9 @@ impl Builder<'_> {
                 let vy = y.map_or(Value::Blank, |c| value::either(b, tb, c));
                 let style_x = x.map_or(a.styles.key(0), |c| a.styles.key(c.style));
                 let style_y = y.map_or(b.styles.key(0), |c| b.styles.key(c.style));
-                let format_changed = style_x != style_y;
+                // Excel formats a pivot table's cells itself as it lays them
+                // out: not someone's formatting (decision 0029).
+                let format_changed = style_x != style_y && !in_pivot(cb, rb);
                 let category = match (fx, fy) {
                     (false, false) => {
                         if vx.key() != vy.key() {
@@ -1035,7 +1044,13 @@ impl Builder<'_> {
             } else if hx && !hy {
                 shown.push(cb);
             }
-            if fx != fy {
+            // Excel fits a pivot table's columns to it each time it updates.
+            let under_pivot = self
+                .b
+                .pivot_areas
+                .iter()
+                .any(|(s, a)| *s == j && (a.col1..=a.col2).contains(&cb));
+            if fx != fy && !under_pivot {
                 format.push(cb);
             }
         }
@@ -1383,7 +1398,11 @@ impl Builder<'_> {
                     .out
                     .cells
                     .iter()
-                    .filter(|c| c.sheet_b == j && area.contains(c.at_b.0, c.at_b.1))
+                    .filter(|c| {
+                        c.category == Category::Refreshed
+                            && c.sheet_b == j
+                            && area.contains(c.at_b.0, c.at_b.1)
+                    })
                     .count();
             }
         }

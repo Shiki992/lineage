@@ -267,6 +267,33 @@ mod phase_5b {
                 .any(|p| p.kind == PivotChangeKind::Refreshed)
         );
 
+        // As in the Excel run: the generated file, then Excel's refresh. Excel
+        // re-formats the pivot's cells and fits its columns; none of that is
+        // someone's formatting.
+        let ours = open(&advanced::model_full_for_excel());
+        let d = diff(&ours, &refreshed, &[]);
+        let on_pivots: Vec<String> = d
+            .structure
+            .iter()
+            .filter(|s| s.sheet == "Pivots")
+            .map(|s| format!("{:?}", s.kind))
+            .collect();
+        assert!(on_pivots.is_empty(), "{on_pivots:?}");
+        assert!(
+            d.cells
+                .iter()
+                .all(|c| c.sheet != "Pivots" || c.category == Category::Refreshed),
+            "only refreshed values on Pivots"
+        );
+        for p in &d.pivots {
+            let refreshed_cells = d
+                .cells
+                .iter()
+                .filter(|c| c.sheet == "Pivots" && c.category == Category::Refreshed)
+                .count();
+            assert!(p.cells <= refreshed_cells, "{p:?}");
+        }
+
         let slicer = fixture("excel", "model-full-slicer-excel.xlsm");
         let d = diff(&base, &slicer, &[]);
         assert!(
