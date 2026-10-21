@@ -13,6 +13,7 @@ import wasmUrl from "@lineage/shell/wasm?url";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
+import { Stopped } from "./app/stopped";
 import { signIn } from "./auth/sign-in";
 import { pageStart, timing } from "./metrics";
 import { myDocumentsOpener } from "./office/my-documents";
@@ -102,13 +103,15 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
     const host = inExcel ? await excelHost() : inPowerPoint ? new PowerPointHost() : new WordHost();
     view.render(
       <StrictMode>
-        <App
-          engine={engine}
-          host={host}
-          storage={storage}
-          signIn={interactive}
-          openMyDocuments={myDocumentsOpener()}
-        />
+        <Stopped>
+          <App
+            engine={engine}
+            host={host}
+            storage={storage}
+            signIn={interactive}
+            openMyDocuments={myDocumentsOpener()}
+          />
+        </Stopped>
       </StrictMode>,
     );
   } catch (error) {

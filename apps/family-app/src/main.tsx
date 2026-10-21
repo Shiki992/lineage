@@ -13,6 +13,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { chooseAccount } from "./account/choose";
 import { App } from "./app/App";
+import { Stopped } from "./app/stopped";
 
 async function boot(): Promise<void> {
   const element = document.getElementById("root");
@@ -24,7 +25,9 @@ async function boot(): Promise<void> {
     const { engine } = await loadEngineAsync(wasmUrl);
     view.render(
       <StrictMode>
-        <App account={chooseAccount()} engine={engine} />
+        <Stopped>
+          <App account={chooseAccount()} engine={engine} />
+        </Stopped>
       </StrictMode>,
     );
   } catch (error) {
