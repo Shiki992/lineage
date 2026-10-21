@@ -7,12 +7,16 @@ on:
   pull_request:
   push:
     branches: [main]
+  # The deploy runs all of this first (deploy.yml, decision 0031).
+  workflow_call:
 
 permissions:
   contents: read
 
+# github.workflow is the caller's name when the deploy calls this, so the
+# deploy's run and the push's own run don't cancel each other.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
