@@ -224,6 +224,9 @@ importers:
         specifier: 19.3.0
         version: 19.3.0(react@19.3.0)
     devDependencies:
+      '@lineage/hosting':
+        specifier: workspace:*
+        version: link:../../packages/hosting
       '@playwright/test':
         specifier: 1.64.0
         version: 1.64.0
@@ -276,6 +279,9 @@ importers:
         specifier: 19.3.0
         version: 19.3.0(react@19.3.0)
     devDependencies:
+      '@lineage/hosting':
+        specifier: workspace:*
+        version: link:../../packages/hosting
       '@testing-library/dom':
         specifier: 10.4.2
         version: 10.4.2
@@ -296,6 +302,8 @@ importers:
         version: 30.1.2
 
   packages/design: {}
+
+  packages/hosting: {}
 
   packages/shell:
     dependencies:

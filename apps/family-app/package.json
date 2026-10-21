@@ -24,6 +24,7 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@lineage/hosting": "workspace:*",
     "@playwright/test": "1.64.0",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",

@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copyright 2026 Hrishikesh Vedantam
+  SPDX-License-Identifier: Apache-2.0
+
+  Lineage's add-in manifest, for {{name}}. Written from
+  apps/office-addin/manifest.template.xml by @lineage/hosting (decision 0031):
+  apps/office-addin/manifest.xml for `pnpm dev`, and manifest.xml in each
+  release build. Edit the template, then run
+  `pnpm --filter @lineage/hosting manifest`; a test fails while they differ.
+
+  Add-in-only (XML) manifest, valid for production Word,
+  PowerPoint and Excel add-ins (decisions 0008, 0018 and 0020):
+  https://learn.microsoft.com/office/dev/add-ins/develop/add-in-manifests
+  One add-in for all three: a <Requirements> on WordApi here would keep it out
+  of the others, so the floors are checked when the pane starts (main.tsx):
+  WordApi 1.5 (Document.insertFileFromBase64) in Word, PowerPointApi 1.7
+  (custom properties) in PowerPoint, ExcelApi 1.7 (custom properties) in Excel.
+  https://learn.microsoft.com/office/dev/add-ins/develop/specify-office-hosts-and-api-requirements
+-->
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+  <Id>{{id}}</Id>
+  <Version>{{version}}</Version>
+  <ProviderName>Lineage (open source)</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="{{name}}"/>
+  <Description DefaultValue="Keep a master and its tailored versions in step, and record every copy you send."/>
+  <IconUrl DefaultValue="{{origin}}/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="{{origin}}/assets/icon-64.png"/>
+  <SupportUrl DefaultValue="{{supportUrl}}"/>
+  <AppDomains>
+    <AppDomain>https://login.microsoftonline.com</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Document"/>
+    <Host Name="Presentation"/>
+    <Host Name="Workbook"/>
+  </Hosts>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="{{origin}}/taskpane.html"/>
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="GetStarted.Title"/>
+            <Description resid="GetStarted.Description"/>
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
+          </GetStarted>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="Lineage.Group">
+                <Label resid="Group.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16"/>
+                  <bt:Image size="32" resid="Icon.32"/>
+                  <bt:Image size="80" resid="Icon.80"/>
+                </Icon>
+                <Control xsi:type="Button" id="Lineage.Open">
+                  <Label resid="Button.Label"/>
+                  <Supertip>
+                    <Title resid="Button.Label"/>
+                    <Description resid="Button.Tooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16"/>
+                    <bt:Image size="32" resid="Icon.32"/>
+                    <bt:Image size="80" resid="Icon.80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>Lineage.Taskpane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+      <Host xsi:type="Presentation">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="GetStarted.Title"/>
+            <Description resid="GetStarted.DeckDescription"/>
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
+          </GetStarted>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="Lineage.Group.Deck">
+                <Label resid="Group.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16"/>
+                  <bt:Image size="32" resid="Icon.32"/>
+                  <bt:Image size="80" resid="Icon.80"/>
+                </Icon>
+                <Control xsi:type="Button" id="Lineage.Open.Deck">
+                  <Label resid="Button.Label"/>
+                  <Supertip>
+                    <Title resid="Button.Label"/>
+                    <Description resid="Button.DeckTooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16"/>
+                    <bt:Image size="32" resid="Icon.32"/>
+                    <bt:Image size="80" resid="Icon.80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>Lineage.Taskpane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+      <Host xsi:type="Workbook">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="GetStarted.Title"/>
+            <Description resid="GetStarted.WorkbookDescription"/>
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
+          </GetStarted>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="Lineage.Group.Workbook">
+                <Label resid="Group.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16"/>
+                  <bt:Image size="32" resid="Icon.32"/>
+                  <bt:Image size="80" resid="Icon.80"/>
+                </Icon>
+                <Control xsi:type="Button" id="Lineage.Open.Workbook">
+                  <Label resid="Button.Label"/>
+                  <Supertip>
+                    <Title resid="Button.Label"/>
+                    <Description resid="Button.WorkbookTooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16"/>
+                    <bt:Image size="32" resid="Icon.32"/>
+                    <bt:Image size="80" resid="Icon.80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>Lineage.Taskpane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icon.16" DefaultValue="{{origin}}/assets/icon-16.png"/>
+        <bt:Image id="Icon.32" DefaultValue="{{origin}}/assets/icon-32.png"/>
+        <bt:Image id="Icon.80" DefaultValue="{{origin}}/assets/icon-80.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="{{learnMoreUrl}}"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="{{origin}}/taskpane.html"/>
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="GetStarted.Title" DefaultValue="Lineage is ready"/>
+        <bt:String id="Group.Label" DefaultValue="Lineage"/>
+        <bt:String id="Button.Label" DefaultValue="Lineage"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="GetStarted.Description" DefaultValue="Open Lineage from the Home tab to track this file and its tailored versions."/>
+        <bt:String id="Button.Tooltip" DefaultValue="Track this file, make tailored versions and record the copies you send."/>
+        <bt:String id="GetStarted.DeckDescription" DefaultValue="Open Lineage from the Home tab to track this deck and the versions you make for each investor or customer."/>
+        <bt:String id="Button.DeckTooltip" DefaultValue="Track this deck, update its tailored versions and record the copies you send."/>
+        <bt:String id="GetStarted.WorkbookDescription" DefaultValue="Open Lineage from the Home tab to track this workbook and the versions you make from it."/>
+        <bt:String id="Button.WorkbookTooltip" DefaultValue="Track this workbook, bring the master's changes into its versions and record the copies you send."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>

@@ -350,7 +350,9 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         }}
       />
     );
-  } else if (screen.kind === "diagnostics") {
+  } else if (import.meta.env.DEV && screen.kind === "diagnostics") {
+    // Development only: the guard keeps Diagnostics and the dev-folder client
+    // out of production builds (the hosting plugin's checks fail otherwise).
     body = (
       <div className="stack">
         <LinkButton onClick={home}>← Back</LinkButton>

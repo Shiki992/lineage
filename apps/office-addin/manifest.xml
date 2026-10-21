@@ -3,8 +3,13 @@
   Copyright 2026 Hrishikesh Vedantam
   SPDX-License-Identifier: Apache-2.0
 
-  The development manifest: the task pane is served by `pnpm dev` at
-  https://localhost:3000. Add-in-only (XML) manifest, valid for production Word,
+  Lineage's add-in manifest, for Lineage (development). Written from
+  apps/office-addin/manifest.template.xml by @lineage/hosting (decision 0031):
+  apps/office-addin/manifest.xml for `pnpm dev`, and manifest.xml in each
+  release build. Edit the template, then run
+  `pnpm --filter @lineage/hosting manifest`; a test fails while they differ.
+
+  Add-in-only (XML) manifest, valid for production Word,
   PowerPoint and Excel add-ins (decisions 0008, 0018 and 0020):
   https://learn.microsoft.com/office/dev/add-ins/develop/add-in-manifests
   One add-in for all three: a <Requirements> on WordApi here would keep it out
