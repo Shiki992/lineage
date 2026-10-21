@@ -106,6 +106,13 @@ export function App({ account, engine, documents }: AppProps) {
         )}
         {history && <Pages documents={history} where={account.where} />}
       </main>
+      <footer className="content site-footer">
+        <nav className="page-nav small" aria-label="About Lineage">
+          <a href="/support.html">Help</a>
+          <a href="/privacy.html">Privacy</a>
+          <a href="/terms.html">Terms</a>
+        </nav>
+      </footer>
     </div>
   );
 }
