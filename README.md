@@ -201,6 +201,8 @@ https://<task pane host>/taskpane.html
 https://<My documents host>/redirect.html
 ```
 
+Under **Branding & properties**, set **Terms of service URL** and **Privacy statement URL** to production's `https://<My documents host>/terms.html` and `/privacy.html`. Microsoft shows them where people grant Lineage access, and warns when they're missing.
+
 ### 2. Create the two sites
 
 In the Azure portal, create two Static Web Apps (Free plan, deployment source **Other**), for example `lineage-addin` and `lineage-app`. Each needs an origin of its own. Copy each site's deployment token. The details, including custom domains and staging, are in [`docs/setup/hosting.md`](docs/setup/hosting.md).

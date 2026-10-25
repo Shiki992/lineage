@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Lineage, MemoryStorage, loadEngine } from "@lineage/shell";
 import { FakeHost } from "@lineage/shell/testing";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
 
@@ -297,6 +297,34 @@ describe("the task pane", () => {
     render(<App engine={engine} host={host} storage={{ kind: "ready", storage }} />);
     await screen.findByRole("button", { name: "What I've sent" });
     expect(screen.queryByRole("button", { name: "My documents" })).toBeNull();
+  });
+
+  it("links to Privacy and Terms before sign-in when it knows where they are", async () => {
+    const engine = loadEngine(wasm, new Uint8Array(32).fill(13));
+    const host = new FakeHost(engine, fixture("resume-master.docx"), {
+      name: "Resume.docx",
+      url: "https://d.docs.live.net/0/Documents/Resume.docx",
+    });
+    const opened: string[] = [];
+    const { unmount } = render(
+      <App
+        engine={engine}
+        host={host}
+        storage={{ kind: "signIn" }}
+        openPage={(page) => {
+          opened.push(page);
+        }}
+      />,
+    );
+    await screen.findByRole("button", { name: "Sign in with Microsoft" });
+    const about = screen.getByRole("navigation", { name: "About Lineage" });
+    fireEvent.click(within(about).getByRole("button", { name: "Privacy" }));
+    fireEvent.click(within(about).getByRole("button", { name: "Terms" }));
+    expect(opened).toEqual(["privacy", "terms"]);
+    unmount();
+    render(<App engine={engine} host={host} storage={{ kind: "signIn" }} />);
+    await screen.findByRole("button", { name: "Sign in with Microsoft" });
+    expect(screen.queryByRole("navigation", { name: "About Lineage" })).toBeNull();
   });
 
   it("shows the engine's words when something can't be done", async () => {

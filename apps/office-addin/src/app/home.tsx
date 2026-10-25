@@ -7,6 +7,7 @@
 // that only exist here.
 
 import type { MasterPanel, Recognition, VersionPanel } from "@lineage/shell";
+import type { SitePage } from "../office/my-documents";
 import { Button, Header, LatestCheckpoint, LinkButton } from "./parts";
 import { ReturnedCallout } from "./returned";
 
@@ -310,7 +311,16 @@ export function Elsewhere({
   );
 }
 
-export function SignIn({ busy, onSignIn }: { busy: boolean; onSignIn: () => void }) {
+export function SignIn({
+  busy,
+  onSignIn,
+  onPage,
+}: {
+  busy: boolean;
+  onSignIn: () => void;
+  /** Opens Privacy or Terms in the browser; absent when this build doesn't know where they are. */
+  onPage?: ((page: SitePage) => void) | undefined;
+}) {
   return (
     <div className="stack">
       <h1>Lineage</h1>
@@ -322,6 +332,24 @@ export function SignIn({ busy, onSignIn }: { busy: boolean; onSignIn: () => void
       <Button primary wide disabled={busy} onClick={onSignIn}>
         Sign in with Microsoft
       </Button>
+      {onPage && (
+        <nav className="row" aria-label="About Lineage">
+          <LinkButton
+            onClick={() => {
+              onPage("privacy");
+            }}
+          >
+            Privacy
+          </LinkButton>
+          <LinkButton
+            onClick={() => {
+              onPage("terms");
+            }}
+          >
+            Terms
+          </LinkButton>
+        </nav>
+      )}
     </div>
   );
 }

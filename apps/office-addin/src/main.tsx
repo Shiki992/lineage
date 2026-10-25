@@ -16,7 +16,7 @@ import { App } from "./app/App";
 import { Stopped } from "./app/stopped";
 import { lastSavedWorkbook, signIn } from "./auth/sign-in";
 import { pageStart, timing } from "./metrics";
-import { myDocumentsOpener } from "./office/my-documents";
+import { myDocumentsOpener, sitePageOpener } from "./office/my-documents";
 import { ExcelHost, NEEDED as EXCEL_NEEDED } from "./office/excel-host";
 import { NEEDED, PowerPointHost } from "./office/powerpoint-host";
 import { WordHost } from "./office/word-host";
@@ -98,6 +98,7 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
             storage={storage}
             signIn={interactive}
             openMyDocuments={myDocumentsOpener()}
+            openPage={sitePageOpener()}
           />
         </Stopped>
       </StrictMode>,
