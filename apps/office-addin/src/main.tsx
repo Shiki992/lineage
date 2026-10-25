@@ -14,7 +14,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { Stopped } from "./app/stopped";
-import { signIn } from "./auth/sign-in";
+import { lastSavedWorkbook, signIn } from "./auth/sign-in";
 import { pageStart, timing } from "./metrics";
 import { myDocumentsOpener } from "./office/my-documents";
 import { ExcelHost, NEEDED as EXCEL_NEEDED } from "./office/excel-host";
@@ -57,18 +57,6 @@ async function boot(info: { host: Office.HostType | null }): Promise<void> {
     view.render(
       <p className="alert" role="alert">
         Lineage needs a newer PowerPoint. Update PowerPoint, then open the panel again.
-      </p>,
-    );
-    return;
-  }
-  // Excel on the web gives an add-in only a PDF of the open workbook, and
-  // reading the saved file instead needs a wider OneDrive permission than
-  // Lineage asks for: not built yet (decision 0020).
-  if (inExcel && Office.context.platform === Office.PlatformType.OfficeOnline) {
-    view.render(
-      <p className="panel">
-        Lineage can't read workbooks in Excel on the web yet. Open this workbook in Excel for
-        Windows or Mac to use Lineage with it.
       </p>,
     );
     return;
@@ -154,8 +142,13 @@ async function workerEngine(): Promise<{ engine: Engine | AsyncEngine; loadMs: n
 }
 
 /** The Excel host, keeping the person's edits as hints from the start (decision 0022). */
+/**
+ * Excel on the web gives an add-in only a PDF of the open workbook, so there
+ * the host reads it as last saved in OneDrive (decision 0033).
+ */
 async function excelHost(): Promise<ExcelHost> {
-  const host = new ExcelHost();
+  const onWeb = Office.context.platform === Office.PlatformType.OfficeOnline;
+  const host = new ExcelHost(onWeb ? lastSavedWorkbook(Office.context.document.url) : undefined);
   try {
     await host.watchEdits();
   } catch (error) {

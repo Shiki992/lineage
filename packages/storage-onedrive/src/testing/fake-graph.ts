@@ -138,6 +138,8 @@ export class FakeGraph {
       id: e.id,
       name,
       eTag: this.eTag(e),
+      // The content tag: changes when the bytes do, as cTag does.
+      cTag: `"c:{${e.id}},${String(e.version)}"`,
       webUrl:
         e.drive === "me"
           ? `${this.me.site}/${e.path.split("/").map(encodeURIComponent).join("/")}`

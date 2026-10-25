@@ -119,4 +119,9 @@ export interface DocumentHost {
    * A hint only: nothing is recorded. Optional: PowerPoint can't tell.
    */
   watchCoAuthors?(onEdit: () => void): Promise<void>;
+  /**
+   * True when the bytes are the file as last saved rather than as open: Excel
+   * on the web (decision 0033). The panel says so.
+   */
+  readonly readsLastSaved?: boolean;
 }

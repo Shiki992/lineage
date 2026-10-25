@@ -1252,11 +1252,19 @@ export class Lineage {
           : this.withBlobs(file.familyId, () => engine.wayBack(start, file.nodeId, original, done));
       let held = original;
       if (plan.steps.length > 0) {
+        let applied = false;
         try {
           await host.applyCellPlan(plan.steps);
+          applied = true;
           held = await host.readBytes();
         } catch (error) {
-          const done = error instanceof PlanStopped ? error.done : undefined;
+          // Every step ran when only reading the workbook back failed (Excel
+          // on the web saving too slowly, decision 0033): undo them all.
+          const done = applied
+            ? plan.steps.length
+            : error instanceof PlanStopped
+              ? error.done
+              : undefined;
           return this.putWorkbookBack(
             host,
             original,

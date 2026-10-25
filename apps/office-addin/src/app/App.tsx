@@ -876,6 +876,14 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
           {busy}…
         </p>
       )}
+      {host.readsLastSaved === true &&
+        (screen.kind === "home" || screen.kind === "saveCheckpoint") && (
+          <p className="small secondary" role="note">
+            In Excel on the web, Lineage reads this workbook as last saved in OneDrive, and Excel
+            saves as you go. The first time, Microsoft asks to let Lineage read your files; it reads
+            only the workbook that's open.
+          </p>
+        )}
       {coAuthored &&
         (opened?.kind === "master" || opened?.kind === "version") &&
         (screen.kind === "home" || screen.kind === "saveCheckpoint") && (

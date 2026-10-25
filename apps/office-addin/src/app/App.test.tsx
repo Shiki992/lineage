@@ -19,6 +19,20 @@ const fixture = (name: string) =>
   new Uint8Array(readFileSync(repo("fixtures/docx/synthetic", name)));
 
 describe("the task pane", () => {
+  it("says when it reads the file as last saved, as in Excel on the web", async () => {
+    const engine = loadEngine(wasm, new Uint8Array(32).fill(27));
+    const storage = new MemoryStorage();
+    const host = Object.assign(
+      new FakeHost(engine, fixture("resume-master.docx"), {
+        name: "Resume.docx",
+        url: "https://d.docs.live.net/0/Documents/Resume.docx",
+      }),
+      { readsLastSaved: true },
+    );
+    render(<App engine={engine} host={host} storage={{ kind: "ready", storage }} />);
+    expect(await screen.findByText(/reads this workbook as last saved in OneDrive/)).toBeTruthy();
+  });
+
   it("shares a sent copy as a link, sees their edits, and stops sharing", async () => {
     const engine = loadEngine(wasm, new Uint8Array(32).fill(25));
     const storage = new MemoryStorage();

@@ -181,6 +181,41 @@ describe("bringing changes into an open workbook", () => {
     expect(ledger()).toEqual(stored);
   });
 
+  it("takes every change back out when the workbook can't be read back", async () => {
+    const storage = new MemoryStorage();
+    const { host, pane, ledger, cards, original } = await openVersion(storage);
+    const stored = ledger();
+    // Excel on the web carried the plan out, but hadn't saved it in time.
+    host.holds.push(workbook("model-price-update.xlsx"), original);
+    const read = host.readBytes.bind(host);
+    let failOnce = true;
+    host.readBytes = () => {
+      if (host.applied.length === 1 && failOnce) {
+        failOnce = false;
+        return Promise.reject(
+          new LineageError(
+            "Excel hasn't saved the workbook yet. Wait a moment, then try again.",
+            "autosave didn't land in time",
+          ),
+        );
+      }
+      return read();
+    };
+
+    const error = await pane.bringInWorkbook(cards).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(LineageError);
+    expect(host.applied).toHaveLength(2);
+    expect(host.applied[1]).toEqual([
+      {
+        kind: "set",
+        sheet: "Assumptions",
+        address: "B4",
+        value: { kind: "number", text: "49" },
+      },
+    ]);
+    expect(ledger()).toEqual(stored);
+  });
+
   it("runs once more when another window wrote first", async () => {
     const storage = new ConflictingStorage();
     const { host, pane, cards } = await openVersion(storage);

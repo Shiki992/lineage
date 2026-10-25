@@ -23,7 +23,8 @@
 import type { FileKind } from "@lineage/shell";
 import { StorageError, folderFor } from "@lineage/shell";
 import type { Graph } from "./graph.js";
-import { encodePath, segment } from "./graph.js";
+import { segment } from "./graph.js";
+import { itemPath } from "./locate.js";
 
 export interface Layout {
   readonly kind: "appFolder" | "nextToMaster";
@@ -45,52 +46,20 @@ export const appFolder: Layout = {
   folder: folderFor,
 };
 
-/** Base64url without padding, as the shares API wants. */
-function base64url(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (const b of bytes) {
-    binary += String.fromCharCode(b);
-  }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 interface Parent {
   parentReference?: { driveId?: string; id?: string };
 }
 
 /**
- * The master's folder from the URL Word reports for it. Personal OneDrive
- * files open in Word desktop as https://d.docs.live.net/<cid>/<path>; others
- * go through the shares API.
+ * The master's folder, from the address Word reports for it (locate.ts).
  * https://learn.microsoft.com/graph/api/shares-get
  */
 async function parentFolder(graph: Graph, masterUrl: string): Promise<string> {
-  let url: URL;
-  try {
-    url = new URL(masterUrl);
-  } catch {
+  const path = itemPath(masterUrl);
+  if (!path) {
     throw notInOneDrive(masterUrl);
   }
-  let item: Parent;
-  if (url.hostname === "d.docs.live.net") {
-    const [, cid, ...rest] = url.pathname.split("/");
-    if (!cid || rest.length === 0) {
-      throw notInOneDrive(masterUrl);
-    }
-    const path = rest.map((p) => decodeURIComponent(p)).join("/");
-    item = await graph.json<Parent>(
-      "GET",
-      `/drives/${segment(cid)}/root:/${encodePath(path)}?$select=parentReference`,
-    );
-  } else if (url.protocol === "https:") {
-    item = await graph.json<Parent>(
-      "GET",
-      `/shares/u!${base64url(masterUrl)}/driveItem?$select=parentReference`,
-    );
-  } else {
-    throw notInOneDrive(masterUrl);
-  }
+  const item = await graph.json<Parent>("GET", `${path}?$select=parentReference`);
   const drive = item.parentReference?.driveId;
   const id = item.parentReference?.id;
   if (!drive || !id) {

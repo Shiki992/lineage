@@ -1,6 +1,6 @@
 # 0020: Where workbook bytes come from, and which Excel Lineage needs
 
-Date: 2026-10-18. Status: accepted for Excel for Windows and Mac. Excel on the web is open: it needs the maintainer's choice on a wider permission (below).
+Date: 2026-10-18. Status: accepted for Excel for Windows and Mac. Excel on the web: superseded by [decision 0033](0033-excel-on-the-web.md) (2026-10-25), which reads the workbook as last saved with `Files.Read`, asked for only then.
 
 ## Context
 
@@ -53,4 +53,4 @@ The engine runs in a Web Worker in the Excel pane (decision 0025), so a long com
 ## Consequences
 
 - Office 2021 users can see what changed but must update Excel to bring changes in.
-- Excel on the web is not supported until the maintainer chooses whether Lineage may ask for `Files.Read`.
+- Excel on the web was not supported until the maintainer chose to list Excel on Marketplace (2026-10-21); decision 0033 reads the saved workbook there with `Files.Read`.
