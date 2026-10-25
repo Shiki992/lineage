@@ -11,9 +11,19 @@
             "date": "15 Oct",
             "format": "Word",
             "id": "8b3fda26766265ccd1505e34fbf66ac1",
+            "link": {
+              "access": "edit",
+              "fileRef": "Sent copies/Resume - data roles (Northgate Analytics).docx",
+              "id": "perm-1",
+              "line": "Link stopped 15 Oct",
+              "live": false,
+              "url": "https://1drv.ms/w/c/a1b2c3d4e5f60718/shared",
+              "who": "Anyone with the link can open it"
+            },
             "purpose": "Data engineer",
             "recipient": "Northgate Analytics",
             "returned": "a2beee49a6c5af73f179373cdc04bdfe",
+            "shared": null,
             "version": "Resume – data roles · v3"
           }
         ]

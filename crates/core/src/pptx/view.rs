@@ -227,6 +227,7 @@ pub fn change_list(diff: &DeckDiff, before: &Deck, after: &Deck) -> ChangeList {
                 summary: (!summary.is_empty()).then_some(summary),
                 category: None,
                 provenance: None,
+                edited_by: None,
             }
         })
         .collect();

@@ -205,6 +205,34 @@ describe("a document's page", () => {
     expect(anchor.download).toBe("Resume – data roles v3 (Northgate Analytics).docx");
   });
 
+  it("shows each copy's link, and says when someone changed a shared copy", async () => {
+    const view = documentView();
+    const rows = view.page.sent.groups.flatMap((g) => g.rows);
+    const northgate = rows.find((r) => r.recipient === "Northgate Analytics");
+    const pellow = rows.find((r) => r.recipient === "Pellow Ventures");
+    if (!northgate?.link || !pellow) {
+      throw new Error("the golden page has a shared copy");
+    }
+    // Northgate's link was stopped; Pellow's copy is shared and was edited.
+    pellow.link = { ...northgate.link, line: "Shared as a link · Can edit", live: true };
+    pellow.shared = { fileRef: northgate.link.fileRef, known: [] };
+    const documents = fakeDocuments({
+      open: vi.fn(() => Promise.resolve({ view, ledger: new Uint8Array() })),
+      sharedEdits: vi.fn(() => Promise.resolve([pellow.id])),
+    });
+    render(<DocumentScreen documents={documents} family={FAMILY} tab="sent" />);
+    expect(await screen.findByText("Link stopped 15 Oct")).toBeTruthy();
+    const card = screen.getByText("Pellow Ventures").closest("li");
+    expect(card && within(card).getByText("Shared as a link · Can edit")).toBeTruthy();
+    expect(
+      card &&
+        (await within(card).findByText(
+          /Pellow Ventures changed the shared copy\. Review it from What I.ve sent/,
+        )),
+    ).toBeTruthy();
+    expect(documents.sharedEdits).toHaveBeenCalledWith(view.page);
+  });
+
   it("moves between tabs with the arrow keys", async () => {
     render(<DocumentScreen documents={fakeDocuments()} family={FAMILY} tab="versions" />);
     const versions = await screen.findByRole("tab", { name: "Versions" });

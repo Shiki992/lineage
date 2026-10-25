@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "value": {
+    "groups": [
+      {
+        "month": "October 2026",
+        "rows": [
+          {
+            "button": "Open",
+            "chip": null,
+            "date": "15 Oct",
+            "format": "Word",
+            "id": "8b3fda26766265ccd1505e34fbf66ac1",
+            "link": {
+              "access": "edit",
+              "fileRef": "Sent copies/Resume - data roles (Northgate Analytics).docx",
+              "id": "perm-1",
+              "line": "Shared as a link · Can edit",
+              "live": true,
+              "url": "https://1drv.ms/w/c/a1b2c3d4e5f60718/shared",
+              "who": "Anyone with the link can open it"
+            },
+            "purpose": "Data engineer",
+            "recipient": "Northgate Analytics",
+            "returned": null,
+            "shared": {
+              "fileRef": "Sent copies/Resume - data roles (Northgate Analytics).docx",
+              "known": [
+                "315a29fc7d7230cac74372b8b9d9909d0ccae3b8119afcb2fc94b5387e2b311f"
+              ]
+            },
+            "version": "Resume – data roles · v3"
+          }
+        ]
+      }
+    ],
+    "note": "Each copy is kept exactly as sent.",
+    "title": "What I've sent"
+  }
+}

@@ -19,7 +19,28 @@
       "confidence": 100,
       "category": "input",
       "provenance": "directEdit",
-      "summary": "Assumptions!B4 (Price per seat) changed from '$49' to '$55'"
+      "summary": "Assumptions!B4 (Price per seat) changed from '$49' to '$55'",
+      "editedBy": "you"
+    },
+    {
+      "id": "seats",
+      "kind": "modify",
+      "location": {
+        "format": "xlsx",
+        "part": "xl/worksheets/sheet1.xml",
+        "sheet": "Assumptions",
+        "sheetIndex": 0,
+        "address": "B3",
+        "target": "cell"
+      },
+      "before": "15",
+      "after": "12",
+      "formattingOnly": false,
+      "confidence": 100,
+      "category": "input",
+      "provenance": "directEdit",
+      "summary": "Assumptions!B3 (Seats) changed from '15' to '12'",
+      "editedBy": "coAuthor"
     },
     {
       "id": "mrr",

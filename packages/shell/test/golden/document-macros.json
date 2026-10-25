@@ -118,9 +118,11 @@
                 "date": "15 Oct",
                 "format": "Excel",
                 "id": "5dcf2964440e28a0072c30cd0a51a375",
+                "link": null,
                 "purpose": "Series A",
                 "recipient": "Harbor Lane Capital",
                 "returned": "45a8a12f6913d29f6d76633f67a64b0c",
+                "shared": null,
                 "version": "Startup model · v1"
               }
             ]

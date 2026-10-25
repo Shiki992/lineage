@@ -135,6 +135,12 @@ p {
   padding: 0 4px;
 }
 
+/* An action that takes something away, such as Stop sharing (decision 0032). */
+.button--destructive {
+  color: var(--destructive);
+  border-color: var(--destructive);
+}
+
 .button[aria-pressed="true"] {
   background: var(--accent-tint);
   border-color: var(--accent);

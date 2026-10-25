@@ -19,7 +19,14 @@ import {
 import type { Storage } from "@lineage/shell";
 import { LineageError } from "@lineage/shell";
 import type { Layout, TokenProvider } from "@lineage/storage-onedrive";
-import { Graph, OneDriveStorage, appFolder, nextToMaster } from "@lineage/storage-onedrive";
+import {
+  Graph,
+  OneDriveStorage,
+  appFolder,
+  nextToMaster,
+  savedFile,
+} from "@lineage/storage-onedrive";
+import type { LastSaved } from "../office/excel-host";
 
 const CLIENT_ID: unknown = import.meta.env["VITE_LINEAGE_CLIENT_ID"];
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -115,6 +122,45 @@ export async function signIn(options: {
   const first = await token(layout.scopes, options.interactive, false);
   const provider: TokenProvider = async ({ forceRefresh }) =>
     (await token(layout.scopes, true, forceRefresh)).accessToken;
-  const storage = new OneDriveStorage(new Graph({ token: provider }), layout);
+  // Files.ReadWrite, only if OneDrive won't share a copy with the app-folder
+  // permission alone; the share screen says so before Microsoft asks
+  // (decision 0032).
+  const wider = () =>
+    Promise.resolve(
+      new Graph({
+        token: async ({ forceRefresh }) =>
+          (await token(SHARING_SCOPES, true, forceRefresh)).accessToken,
+      }),
+    );
+  const storage = new OneDriveStorage(new Graph({ token: provider }), layout, { wider });
   return { storage, name: first.account?.name ?? null };
+}
+
+/** The wider permission sharing a link may need (decision 0032). */
+export const SHARING_SCOPES = ["Files.ReadWrite"] as const;
+
+/** What Excel on the web needs to read the open workbook (decision 0033). */
+export const READ_SCOPES = ["Files.Read"] as const;
+
+/**
+ * The workbook open in Excel on the web, as last saved in OneDrive. Microsoft
+ * asks for Files.Read the first time it's read; the pane says why beforehand.
+ */
+export function lastSavedWorkbook(address: string | null): LastSaved {
+  if (!address) {
+    const unsaved = () =>
+      Promise.reject(
+        new LineageError(
+          "Save this workbook to OneDrive, then open Lineage again.",
+          "the workbook has no address",
+        ),
+      );
+    return { read: unsaved, tag: unsaved };
+  }
+  return savedFile(
+    new Graph({
+      token: async ({ forceRefresh }) => (await token(READ_SCOPES, true, forceRefresh)).accessToken,
+    }),
+    address,
+  );
 }

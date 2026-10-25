@@ -18,6 +18,31 @@ const LIFT_SIZE_LIMIT =
   import.meta.env.DEV && import.meta.env["VITE_LINEAGE_LIFT_SIZE_LIMIT"] === "1";
 
 export class WordHost implements DocumentHost {
+  /**
+   * Calls `onEdit` when Word reports a paragraph added, changed or deleted by
+   * a co-author: the paragraph events' `source` is Remote (WordApi 1.6,
+   * checked here; older Word says nothing).
+   * https://learn.microsoft.com/javascript/api/word/word.paragraphchangedeventargs
+   */
+  async watchCoAuthors(onEdit: () => void): Promise<void> {
+    if (!Office.context.requirements.isSetSupported("WordApi", "1.6")) {
+      return;
+    }
+    const remote = (event: { source: Word.EventSource | "Local" | "Remote" }): Promise<void> => {
+      if (event.source === Word.EventSource.remote) {
+        onEdit();
+      }
+      return Promise.resolve();
+    };
+    await Word.run(async (context) => {
+      const document = context.document;
+      document.onParagraphAdded.add(remote);
+      document.onParagraphChanged.add(remote);
+      document.onParagraphDeleted.add(remote);
+      await context.sync();
+    });
+  }
+
   /** The whole document as a .docx, unsaved edits included. */
   readBytes(): Promise<Uint8Array> {
     return readWholeFile("Word");

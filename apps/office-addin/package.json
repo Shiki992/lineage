@@ -23,6 +23,7 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@lineage/hosting": "workspace:*",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",
     "@types/office-js": "1.0.611",

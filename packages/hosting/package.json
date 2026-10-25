@@ -1,0 +1,16 @@
+{
+  "name": "@lineage/hosting",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Build time only: each site's security policy and Azure Static Web Apps headers, the add-in manifests, and the checks a release build must pass.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "manifest": "node src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}

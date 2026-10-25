@@ -9,7 +9,7 @@
 use lineage::workbooks::WorkbookPlan;
 use lineage_core::code::{CodeLine, LineKind};
 use lineage_core::xlsx::apply::{Expect, Skipped, Step, Write};
-use lineage_core::xlsx::diff::{Category, CellSide, Hint};
+use lineage_core::xlsx::diff::{Category, CellSide, Editor, Hint};
 use lineage_core::xlsx::pivot::Fields;
 use lineage_core::xlsx::refs::{a1, parse_area};
 use lineage_core::xlsx::view::{
@@ -29,6 +29,18 @@ pub struct HintDto {
     pub sheet: String,
     /// "B4" or "B4:C9", without the sheet.
     pub address: String,
+    /// Whose edit it was: the event's `source`, Local or Remote (decision
+    /// 0032). Left out, the person's own.
+    #[serde(default)]
+    pub by: EditorDto,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EditorDto {
+    #[default]
+    You,
+    CoAuthor,
 }
 
 impl HintDto {
@@ -41,6 +53,10 @@ impl HintDto {
         Some(Hint {
             sheet: self.sheet.clone(),
             area: parse_area(&self.address)?,
+            by: match self.by {
+                EditorDto::You => Editor::You,
+                EditorDto::CoAuthor => Editor::CoAuthor,
+            },
         })
     }
 }

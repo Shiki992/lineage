@@ -216,7 +216,7 @@
         },
         {
           "archived": false,
-          "at": 1792057140000,
+          "at": 1792057260000,
           "detail": "1 change · reviewed",
           "id": "a2beee49a6c5af73f179373cdc04bdfe",
           "kind": "returned",
@@ -227,7 +227,7 @@
         },
         {
           "archived": false,
-          "at": 1792057200000,
+          "at": 1792057320000,
           "detail": "Kept 1 change from Northgate Analytics",
           "id": "de9a9acd8795204ac608d7f201aa9a9a",
           "kind": "checkpoint",
@@ -238,7 +238,7 @@
         },
         {
           "archived": false,
-          "at": 1792057260000,
+          "at": 1792057380000,
           "detail": "Word · v1 · no Lineage ID",
           "id": "3ac578c033aafdade2dfa31941c1e615",
           "kind": "sent",
@@ -249,7 +249,7 @@
         },
         {
           "archived": false,
-          "at": 1792057320000,
+          "at": 1792057440000,
           "detail": "Word · v1 · no Lineage ID",
           "id": "3019548e83ba906a5af5f4e53e8bda97",
           "kind": "sent",
@@ -260,7 +260,7 @@
         },
         {
           "archived": false,
-          "at": 1792057380000,
+          "at": 1792057500000,
           "detail": "1 change",
           "id": "eef61db95aaa4aed1270edcd3c49c126",
           "kind": "returned",
@@ -397,9 +397,11 @@
                 "date": "15 Oct",
                 "format": "Word",
                 "id": "3019548e83ba906a5af5f4e53e8bda97",
+                "link": null,
                 "purpose": null,
                 "recipient": "Pellow Ventures",
                 "returned": null,
+                "shared": null,
                 "version": "Resume – platform roles · v1"
               },
               {
@@ -408,9 +410,11 @@
                 "date": "15 Oct",
                 "format": "Word",
                 "id": "3ac578c033aafdade2dfa31941c1e615",
+                "link": null,
                 "purpose": null,
                 "recipient": "Harbour Bank",
                 "returned": null,
+                "shared": null,
                 "version": "Resume – platform roles · v1"
               },
               {
@@ -419,9 +423,19 @@
                 "date": "15 Oct",
                 "format": "Word",
                 "id": "8b3fda26766265ccd1505e34fbf66ac1",
+                "link": {
+                  "access": "edit",
+                  "fileRef": "Sent copies/Resume - data roles (Northgate Analytics).docx",
+                  "id": "perm-1",
+                  "line": "Link stopped 15 Oct",
+                  "live": false,
+                  "url": "https://1drv.ms/w/c/a1b2c3d4e5f60718/shared",
+                  "who": "Anyone with the link can open it"
+                },
                 "purpose": "Data engineer",
                 "recipient": "Northgate Analytics",
                 "returned": "eef61db95aaa4aed1270edcd3c49c126",
+                "shared": null,
                 "version": "Resume – data roles · v3"
               }
             ]

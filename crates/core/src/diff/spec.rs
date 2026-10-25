@@ -38,6 +38,9 @@ pub struct SpecChange {
     /// xlsx: directEdit, downstream, refresh, likelyDownstream or unknown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<String>,
+    /// xlsx, with directEdit only: you, coAuthor or both (decision 0032).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_by: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,6 +190,7 @@ pub fn change_list(changes: &[Change], summary: impl Fn(&Change) -> Option<Strin
                 summary: summary(change).filter(|s| !s.is_empty()),
                 category: None,
                 provenance: None,
+                edited_by: None,
             })
         })
         .collect();

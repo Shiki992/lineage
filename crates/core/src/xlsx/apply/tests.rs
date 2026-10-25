@@ -74,6 +74,7 @@ fn an_input_is_one_cell_set_with_its_lexeme() {
     let edited = |at: &str| crate::xlsx::diff::Hint {
         sheet: "Assumptions".to_owned(),
         area: crate::xlsx::refs::parse_area(at).expect("area"),
+        by: crate::xlsx::diff::Editor::You,
     };
     put_back_except(&ours, &typed_back, &[edited("B5")]).expect("only their typing differs");
     assert!(put_back_except(&ours, &typed_back, &[edited("B6:C9")]).is_err());

@@ -18,7 +18,15 @@
 //   asked for in $batch requests of up to 20, to check the index against.
 //   https://learn.microsoft.com/graph/json-batching
 
-import type { FileKind, FileLocation, LedgerVersion, Storage, StoredFile } from "@lineage/shell";
+import type {
+  FileKind,
+  FileLocation,
+  LedgerVersion,
+  MadeLink,
+  Sharing,
+  Storage,
+  StoredFile,
+} from "@lineage/shell";
 import {
   BadBlob,
   checkFamily,
@@ -33,8 +41,10 @@ import {
   StorageError,
 } from "@lineage/shell";
 import type { Graph } from "./graph.js";
-import { GRAPH, encodePath } from "./graph.js";
+import { GRAPH, encodePath, segment } from "./graph.js";
 import type { Layout } from "./layout.js";
+import type { OwnDrive } from "./owner.js";
+import { isOwn, ownerOf } from "./owner.js";
 
 interface DriveItem {
   id: string;
@@ -71,6 +81,20 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   return out;
 }
 
+export interface OneDriveOptions {
+  /**
+   * A Graph client with the wider Files.ReadWrite permission, for sharing a
+   * copy as a link when OneDrive refuses with the app-folder one alone
+   * (decision 0032). Asked for only then, so most people never see it.
+   */
+  readonly wider?: () => Promise<Graph>;
+}
+
+interface CreatedLink {
+  id?: string;
+  link?: { webUrl?: string; scope?: string };
+}
+
 export class OneDriveStorage implements Storage {
   readonly label = "OneDrive";
   private rootPath: Promise<string> | undefined;
@@ -78,11 +102,75 @@ export class OneDriveStorage implements Storage {
   private readonly ledgers = new Map<string, { eTag: string; bytes: Uint8Array }>();
   /** Per family: blob hash → download URL (undefined once uploaded here). */
   private readonly blobs = new Map<string, Promise<Map<string, string | undefined>>>();
+  /** The person's own drive, asked for once. */
+  private own: Promise<OwnDrive | undefined> | undefined;
 
   constructor(
     private readonly graph: Graph,
     readonly layout: Layout,
+    private readonly options: OneDriveOptions = {},
   ) {}
+
+  /**
+   * Sharing links on files in Lineage's folder (decision 0032). Graph lists
+   * Files.ReadWrite for these, not the app-folder permission, so each is tried
+   * with the narrower one first, and with `wider` only when OneDrive says 403.
+   * https://learn.microsoft.com/graph/api/driveitem-createlink
+   * https://learn.microsoft.com/graph/api/permission-delete
+   */
+  readonly sharing: Sharing = {
+    createLink: (ref, access) => this.createLink(ref, access),
+    stopLink: (ref, link) => this.stopLink(ref, link),
+  };
+
+  private async narrowThenWide(call: (graph: Graph) => Promise<Response>): Promise<Response> {
+    const first = await call(this.graph);
+    if (first.status !== 403 || !this.options.wider) {
+      return first;
+    }
+    return call(await this.options.wider());
+  }
+
+  private async createLink(ref: string, access: "view" | "edit"): Promise<MadeLink> {
+    // Personal OneDrive makes "anyone with the link" links; a work account
+    // gets its organisation's default kind, whatever that is.
+    const work = (await this.ownDrive())?.webUrl?.includes(".sharepoint.com") ?? false;
+    const path = await this.sub(ref, "createLink");
+    const body = JSON.stringify({ type: access, ...(work ? {} : { scope: "anonymous" }) });
+    const response = await this.narrowThenWide((graph) =>
+      graph.request("POST", path, {
+        headers: { "Content-Type": "application/json" },
+        body,
+        allow: [403],
+      }),
+    );
+    if (response.status === 403) {
+      throw new StorageError(
+        "OneDrive wouldn't make a link for this copy. Your account or organisation may not allow sharing links.",
+        "createLink: 403",
+      );
+    }
+    const made = (await response.json()) as CreatedLink;
+    const url = made.link?.webUrl;
+    if (!made.id || !url?.startsWith("https://")) {
+      throw new StorageError("OneDrive didn't make a link. Try again.", "createLink: no link");
+    }
+    return { id: made.id, url, scope: made.link?.scope ?? (work ? "organization" : "anonymous") };
+  }
+
+  private async stopLink(ref: string, link: string): Promise<void> {
+    const path = await this.sub(ref, `permissions/${segment(link)}`);
+    const response = await this.narrowThenWide((graph) =>
+      graph.request("DELETE", path, { allow: [403, 404] }),
+    );
+    // 404: already gone, which is what was wanted.
+    if (response.status === 403) {
+      throw new StorageError(
+        "OneDrive wouldn't remove that link. Remove it in OneDrive under Share › Manage access.",
+        "permission delete: 403",
+      );
+    }
+  }
 
   private root(): Promise<string> {
     return (this.rootPath ??= this.layout.root(this.graph));
@@ -302,6 +390,33 @@ export class OneDriveStorage implements Storage {
       throw new NotFound(ref);
     }
     return { webUrl: item.webUrl };
+  }
+
+  /**
+   * Whether a document's address is in this person's OneDrive, judged by its
+   * owner (owner.ts) against the app folder's drive and address, which the
+   * app-folder permission may read. Undefined when either can't be told.
+   */
+  async holds(url: string): Promise<boolean | undefined> {
+    const owner = ownerOf(url);
+    if (!owner) {
+      return undefined;
+    }
+    const own = await this.ownDrive();
+    return own ? isOwn(owner, own) : undefined;
+  }
+
+  /** The person's own drive, from the app folder, asked for once. */
+  private ownDrive(): Promise<OwnDrive | undefined> {
+    return (this.own ??= this.graph
+      .json<{ webUrl?: string; parentReference?: { driveId?: string } }>(
+        "GET",
+        "/me/drive/special/approot?$select=id,webUrl,parentReference",
+      )
+      .then(
+        (item) => ({ driveId: item.parentReference?.driveId, webUrl: item.webUrl }),
+        () => undefined,
+      ));
   }
 
   async readLedger(family: string): Promise<{ bytes: Uint8Array; version: LedgerVersion }> {

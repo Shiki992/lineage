@@ -97,6 +97,18 @@ test("opens a sent copy exactly as sent", async ({ page }) => {
   expect(sha(got)).toBe(sha(sent));
 });
 
+test("shows a copy shared as a link, and that they changed it", async ({ page }) => {
+  await page.goto(`${BASE}/#/`);
+  await page.getByRole("link", { name: /Resume/ }).click();
+  await page.getByRole("tab", { name: "Sent copies" }).click();
+  const harbour = page.getByRole("listitem").filter({ hasText: "Harbour Bank" });
+  await expect(harbour.getByText("Shared as a link · Can edit")).toBeVisible();
+  await expect(harbour.getByText(/Anyone with the link can open it/)).toBeVisible();
+  await expect(harbour.getByText(/Harbour Bank changed the shared copy/)).toBeVisible();
+  const pellow = page.getByRole("listitem").filter({ hasText: "Pellow Ventures" });
+  await expect(pellow.getByText(/Shared as a link/)).toHaveCount(0);
+});
+
 test("walks the family tree by keyboard", async ({ page }) => {
   await page.goto(BASE);
   await page.getByRole("link", { name: /Resume/ }).click();

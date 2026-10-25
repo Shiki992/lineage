@@ -1,0 +1,194 @@
+<!doctype html>
+<!--
+  Copyright 2026 Hrishikesh Vedantam
+  SPDX-License-Identifier: Apache-2.0
+
+  The privacy policy the Marketplace listing links to (decision 0031). The
+  maintainer reviews this wording before each release; it isn't legal advice.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Privacy · Lineage</title>
+    <link rel="icon" type="image/png" href="/icon-32.png" />
+    <script type="module" src="/src/pages.ts"></script>
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="brand" href="/">Lineage</a>
+    </header>
+    <main class="page">
+      <section>
+        <h1>Privacy</h1>
+        <p class="secondary">Last changed 21 October 2026.</p>
+        <p>
+          Lineage is free, open-source software for keeping track of your Word documents, PowerPoint
+          decks and Excel workbooks. It has no servers of its own, no Lineage accounts, no analytics
+          and no advertising. This page says what Lineage reads, where it keeps things, and who else
+          is involved.
+        </p>
+      </section>
+
+      <section>
+        <h2>What Lineage keeps, and where</h2>
+        <ul>
+          <li>
+            <strong>Your history:</strong> checkpoints of your files, your tailored versions, the
+            copies you send and who you sent them to. All of it is in your own OneDrive, in the
+            folder <strong>Apps › Lineage</strong>. The Lineage project can't see it.
+          </li>
+          <li>
+            <strong>Your name</strong>, from your Microsoft account, so the checkpoints you save say
+            who saved them. It is kept only in your history.
+          </li>
+          <li>
+            <strong>Sign-in:</strong> Microsoft's sign-in library keeps your sign-in in the browser
+            storage of Word, PowerPoint, Excel or this site, on your device. Signing out of My
+            documents clears it there.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>What Lineage reads</h2>
+        <ul>
+          <li>The document open in Word, PowerPoint or Excel, while Lineage's panel is open.</li>
+          <li>The files in Apps › Lineage.</li>
+          <li>In Excel on the web: the saved copy of the workbook you have open, from OneDrive.</li>
+          <li>
+            A file you choose to bring in, such as a copy someone sent back to you. Lineage never
+            runs macros or queries in any file; it reads their code as text.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>The permissions Lineage asks Microsoft for</h2>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Permission</th>
+                <th scope="col">When it's asked for</th>
+                <th scope="col">What Lineage does with it</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>Files.ReadWrite.AppFolder</code></td>
+                <td>When you first sign in</td>
+                <td>Reads and writes Apps › Lineage, and nothing else in your OneDrive.</td>
+              </tr>
+              <tr>
+                <td><code>Files.Read</code></td>
+                <td>The first time you use Lineage in Excel on the web</td>
+                <td>
+                  Reads the workbook you have open, as last saved. Microsoft's screen says this
+                  covers all your files; Lineage reads only the workbook that's open.
+                </td>
+              </tr>
+              <tr>
+                <td><code>Files.ReadWrite</code></td>
+                <td>
+                  The first time you share a copy as a link, and only if Microsoft won't let Lineage
+                  share from its own folder without it
+                </td>
+                <td>
+                  Makes and removes sharing links for the copies you choose. Microsoft's screen says
+                  this covers all your files; Lineage shares only copies in Apps › Lineage.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Microsoft also gives Lineage your name and account name when you sign in (the
+          <code>openid</code> and <code>profile</code> permissions). Without the last two
+          permissions, everything else in Lineage still works.
+        </p>
+      </section>
+
+      <section>
+        <h2>Copies you send or share</h2>
+        <ul>
+          <li>
+            A copy Lineage makes for you to send is clean: no history, comments, tracked changes or
+            hidden data. It carries only a Lineage ID (two random numbers) so Lineage can recognise
+            it if it comes back. You can turn even that off.
+          </li>
+          <li>
+            When you share a copy as a link, whoever has the link can open it, or people in your
+            organisation if that's how your organisation's OneDrive is set up. An edit link lets
+            them change that copy. <strong>Stop sharing</strong> removes the link.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Who else is involved</h2>
+        <ul>
+          <li>
+            <strong>Microsoft</strong> runs sign-in, OneDrive and Office. Their part is covered by
+            the
+            <a href="https://www.microsoft.com/privacy/privacystatement"
+              >Microsoft Privacy Statement</a
+            >.
+          </li>
+          <li>
+            <strong>Azure Static Web Apps</strong>, a Microsoft service, serves Lineage's program
+            files (these pages and Lineage's code). Like any web host, it handles the address your
+            browser connects from in order to send them. The Lineage project doesn't add analytics
+            or request logging to it.
+          </li>
+          <li>Nobody else. Lineage doesn't sell, share or rent anything about you.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Removing Lineage and everything it kept</h2>
+        <ol>
+          <li>
+            In OneDrive, open <strong>Apps › Lineage</strong>. Your tailored versions and sent
+            copies are in there, so move out anything you want to keep, then delete the folder.
+          </li>
+          <li>
+            Take away Lineage's access: for a personal account at
+            <a href="https://account.live.com/consent/Manage">account.live.com/consent/Manage</a>,
+            for a work or school account at
+            <a href="https://myapplications.microsoft.com">myapplications.microsoft.com</a>.
+          </li>
+          <li>
+            Remove the add-in: in Word, PowerPoint or Excel, go to <strong>Home › Add-ins</strong>,
+            then <strong>My Add-ins</strong>, and remove Lineage.
+          </li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Changes and questions</h2>
+        <p>
+          When this page changes, the date at the top changes too, and every earlier version is in
+          the
+          <a href="https://github.com/Shiki992/lineage/commits/main/apps/family-app/privacy.html"
+            >project's history</a
+          >. Ask a question on <a href="https://github.com/Shiki992/lineage/issues">GitHub</a>, or
+          report a security problem privately as
+          <a href="https://github.com/Shiki992/lineage/security/policy">the security policy</a>
+          describes.
+        </p>
+      </section>
+
+      <footer class="page-footer stack">
+        <nav class="page-nav" aria-label="Lineage pages">
+          <a href="/">My documents</a>
+          <a href="/support.html">Help</a>
+          <a href="/privacy.html" aria-current="page">Privacy</a>
+          <a href="/terms.html">Terms</a>
+        </nav>
+        <p class="small secondary">Lineage <span data-version>development</span></p>
+      </footer>
+    </main>
+  </body>
+</html>

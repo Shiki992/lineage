@@ -33,6 +33,26 @@ export interface StoredFile {
   readonly name: string;
 }
 
+/** A link a storage made for one of its files (decision 0032). */
+export interface MadeLink {
+  /** The storage's own id for it (OneDrive: the permission's id). */
+  readonly id: string;
+  readonly url: string;
+  /** Who can open it, as the storage reports: "anonymous", "organization" or "users". */
+  readonly scope: string;
+}
+
+/**
+ * Sharing a stored file as a link (decision 0032). A storage that can't share
+ * leaves it out, and the panel offers only to attach the file.
+ */
+export interface Sharing {
+  /** Makes a view or edit link to a stored file, or gives back the one it has of that kind. */
+  createLink(ref: string, access: "view" | "edit"): Promise<MadeLink>;
+  /** Removes a link. A link that is already gone is fine. */
+  stopLink(ref: string, link: string): Promise<void>;
+}
+
 /** How to open a stored file: a web address, or a local path (development only). */
 export type FileLocation = { readonly webUrl: string } | { readonly path: string };
 
@@ -75,6 +95,15 @@ export interface Storage {
   writeIndex(bytes: Uint8Array, expected: LedgerVersion | undefined): Promise<LedgerVersion>;
   /** Each family's ledger version now, as `readLedger` would report it. */
   ledgerVersions(families: readonly string[]): Promise<Map<string, LedgerVersion>>;
+  /**
+   * Whether a document at `url` (as Office reports it) is in this person's
+   * own drive: true, false, or undefined when it can't be told. A tracked
+   * file whose history isn't here, in someone else's drive, was shared with
+   * them (decision 0032). Optional: storages that can't tell leave it out.
+   */
+  holds?(url: string): Promise<boolean | undefined>;
+  /** Sharing stored files as links, when this storage can (decision 0032). */
+  readonly sharing?: Sharing;
 }
 
 /** A storage failure, with the words the panel shows. */
@@ -143,7 +172,7 @@ export class FileLocked extends StorageError {
 
   constructor(ref: string) {
     super(
-      "A version is open, so Lineage couldn't change it. Close it, then try again.",
+      "A version is open, here or by someone you shared it with, so Lineage couldn't change it. Try again once it's closed.",
       `${ref} is locked`,
     );
   }
@@ -240,6 +269,28 @@ export class MemoryStorage implements Storage {
   index: { bytes: Uint8Array; version: number } | undefined;
   /** Called before every append, so tests can sneak another device's append in. */
   beforeAppend: ((family: string) => Promise<void> | void) | undefined;
+  /** Links made to stored files, by id, as OneDrive keeps its permissions. */
+  readonly links = new Map<string, { ref: string; access: "view" | "edit" }>();
+
+  readonly sharing: Sharing = {
+    createLink: async (ref, access) => {
+      await Promise.resolve();
+      if (!this.files.has(ref)) {
+        throw new NotFound(ref);
+      }
+      // One link of each kind per file: the same kind again is the same link.
+      let id = [...this.links].find(([, l]) => l.ref === ref && l.access === access)?.[0];
+      if (id === undefined) {
+        id = `link-${String(this.links.size + 1)}`;
+        this.links.set(id, { ref, access });
+      }
+      return { id, url: `https://share.example/${id}`, scope: "anonymous" };
+    },
+    stopLink: async (_ref, link) => {
+      await Promise.resolve();
+      this.links.delete(link);
+    },
+  };
 
   refFor(kind: FileKind, name: string): string {
     return `${folderFor(kind)}/${checkFileName(name)}`;

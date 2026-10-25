@@ -522,6 +522,16 @@ impl Engine {
         )
     }
 
+    #[wasm_bindgen(js_name = recordLink)]
+    pub fn record_link(&mut self, ledger: &[u8], sent: &str, args: &str, now_ms: f64) -> Reply {
+        Reply(self.0.record_link(ledger, sent, args, now_ms))
+    }
+
+    #[wasm_bindgen(js_name = stopLink)]
+    pub fn stop_link(&mut self, ledger: &[u8], sent: &str, now_ms: f64) -> Reply {
+        Reply(self.0.stop_link(ledger, sent, now_ms))
+    }
+
     #[wasm_bindgen(js_name = markMilestone)]
     pub fn mark_milestone(
         &mut self,

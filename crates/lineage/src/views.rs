@@ -312,6 +312,62 @@ pub struct SentRow {
     pub returned: Option<Id>,
     /// "Review" while a returned file has changes to decide, else "Open".
     pub button: String,
+    /// Its sharing link, if it was ever shared as one (decision 0032).
+    pub link: Option<SentLink>,
+    /// While an edit link works: the shared file, to look for their edits.
+    pub shared: Option<SharedFile>,
+}
+
+/// A sent copy's sharing link, as "What I've sent" shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SentLink {
+    /// "Shared as a link · Can edit", or "Link stopped 21 Oct".
+    pub line: String,
+    /// "Anyone with the link can open it".
+    pub who: String,
+    pub url: String,
+    pub access: crate::event::LinkAccess,
+    pub live: bool,
+    /// The storage's id for the link, and the shared file, to stop it.
+    pub id: String,
+    pub file_ref: String,
+}
+
+/// The file behind a live edit link, and every version of it Lineage has
+/// seen (the copy that left, and each that came back from it), as SHA-256
+/// hashes: a shared file whose hash isn't among them was edited since.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SharedFile {
+    pub file_ref: String,
+    pub known: Vec<String>,
+}
+
+fn sent_link(copy: &crate::state::SentCopy) -> Option<SentLink> {
+    use crate::event::LinkAccess;
+    let link = copy.link.as_ref()?;
+    let can = match link.access {
+        LinkAccess::Edit => "Can edit",
+        LinkAccess::View => "View only",
+    };
+    let line = match link.stopped {
+        None => format!("Shared as a link · {can}"),
+        Some(at) => format!("Link stopped {}", at.day_label()),
+    };
+    let who = match link.scope.as_str() {
+        "anonymous" => "Anyone with the link can open it",
+        "organization" => "People in your organisation with the link can open it",
+        "users" => "Only the people it was shared with can open it",
+        _ => "Who can open it follows your OneDrive's settings",
+    };
+    Some(SentLink {
+        line,
+        who: who.to_owned(),
+        url: link.url.clone(),
+        access: link.access,
+        live: link.live(),
+        id: link.id.clone(),
+        file_ref: link.file_ref.clone(),
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -397,6 +453,23 @@ pub fn sent_list(state: &FamilyState, search: Option<&str>) -> SentList {
             chip,
             returned: returned.map(|r| r.id.clone()),
             button: if to_review { "Review" } else { "Open" }.to_owned(),
+            link: sent_link(copy),
+            shared: copy
+                .link
+                .as_ref()
+                .filter(|l| l.live() && l.access == crate::event::LinkAccess::Edit)
+                .map(|l| SharedFile {
+                    file_ref: l.file_ref.clone(),
+                    known: std::iter::once(copy.file.as_str().to_owned())
+                        .chain(
+                            state
+                                .returned
+                                .iter()
+                                .filter(|r| r.sent.as_ref() == Some(&copy.id))
+                                .map(|r| r.file.as_str().to_owned()),
+                        )
+                        .collect(),
+                }),
         };
         let month = copy.at.month_label();
         match groups.last_mut() {

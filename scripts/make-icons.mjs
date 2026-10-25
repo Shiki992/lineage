@@ -3,8 +3,9 @@
 
 // Draws the add-in's ribbon and catalogue icons: a rounded square in the
 // accent colour with a white "L" and a small branch, at each size the manifest
-// asks for. PNGs written by hand (zlib from Node), so no image tooling is needed.
-// Run: node scripts/make-icons.mjs
+// asks for, and the 300 px logo for the Marketplace listing (docs/release,
+// decision 0031). PNGs written by hand (zlib from Node), so no image tooling is
+// needed. Run: node scripts/make-icons.mjs
 
 import { Buffer } from "node:buffer";
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -13,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 
 const out = fileURLToPath(new URL("../apps/office-addin/public/assets/", import.meta.url));
+const listing = fileURLToPath(new URL("../docs/release/", import.meta.url));
 const ACCENT = [0x0e, 0x7c, 0x7b];
 const WHITE = [0xff, 0xff, 0xff];
 
@@ -76,4 +78,6 @@ mkdirSync(out, { recursive: true });
 for (const size of [16, 32, 64, 80, 128]) {
   writeFileSync(join(out, `icon-${size}.png`), icon(size));
 }
-console.log(`icons written to ${out}`);
+mkdirSync(listing, { recursive: true });
+writeFileSync(join(listing, "listing-logo-300.png"), icon(300));
+console.log(`icons written to ${out}, and the listing logo to ${listing}`);

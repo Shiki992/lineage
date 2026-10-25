@@ -26,7 +26,7 @@ use serde::Serialize;
 use crate::cache::{BlobCache, DEFAULT_LIMIT, Recording};
 use crate::dto::{
     CardDecision, CellArgs, CopyOfDto, DeckPanelDto, DocumentDto, DocumentPageDto, FamilyDto,
-    FamilyGraphDto, HintDto, IdsDto, LedgerDto, LibraryDto, MasterPanelDto, ObservedDto,
+    FamilyGraphDto, HintDto, IdsDto, LedgerDto, LibraryDto, LinkArgs, MasterPanelDto, ObservedDto,
     OpenDeckPlanDto, OpenFileDto, OutcomeDto, RecognitionDto, RecordArgs, RefreshedDto,
     ReturnReviewDto, SendArgs, SentListDto, SideBySideDto, SlideOpsDto, StepDto, UpdateRunDto,
     UpdatesDto, VersionChoice, VersionPanelDto, VersionRunDto, WhatChangedDto, WorkbookPlanDto,
@@ -1357,6 +1357,42 @@ impl Session {
                 source,
             )
         })
+    }
+
+    /// "Share a link": records the link the storage made for a sent copy
+    /// (decision 0032). `args` is a `LinkArgs`.
+    pub fn record_link(&mut self, ledger: &[u8], sent: &str, args: &str, now_ms: f64) -> Reply {
+        let prepared = fold(ledger).and_then(|s| {
+            let args: LinkArgs = json(args)?;
+            Ok((
+                s,
+                id(sent)?,
+                commands::NewLink {
+                    id: args.id,
+                    access: args.access.into(),
+                    url: args.url,
+                    file_ref: args.file_ref,
+                    scope: args.scope,
+                },
+            ))
+        });
+        let (state, sent, link) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.command(now_ms, |ctx, _| {
+            commands::record_link(ctx, &state, &sent, &link)
+        })
+    }
+
+    /// "Stop sharing": records that a sent copy's link was removed.
+    pub fn stop_link(&mut self, ledger: &[u8], sent: &str, now_ms: f64) -> Reply {
+        let prepared = fold(ledger).and_then(|s| Ok((s, id(sent)?)));
+        let (state, sent) = match prepared {
+            Ok(p) => p,
+            Err(e) => return Reply::failure(&e),
+        };
+        self.command(now_ms, |ctx, _| commands::stop_link(ctx, &state, &sent))
     }
 
     /// "Mark as milestone"; a null `label` takes the mark off.

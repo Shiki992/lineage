@@ -776,6 +776,25 @@ function Sent({ documents, view }: { documents: Documents; view: DocumentView })
   const { page } = view;
   const { sent } = page;
   const empty = sent.groups.every((g) => g.rows.length === 0);
+  // Copies changed through their edit links (decision 0032): only said here;
+  // they're reviewed in the panel, where the file is open.
+  const [edited, setEdited] = useState<readonly string[]>([]);
+  useEffect(() => {
+    let live = true;
+    documents.sharedEdits(page).then(
+      (ids) => {
+        if (live) {
+          setEdited(ids);
+        }
+      },
+      (e: unknown) => {
+        console.error(e);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [documents, page]);
   return (
     <div className="stack">
       <h2>Sent copies</h2>
@@ -797,6 +816,8 @@ function Sent({ documents, view }: { documents: Documents; view: DocumentView })
                   row={row}
                   format={copyFormat(page)}
                   canOpen={page.canChange}
+                  edited={edited.includes(row.id)}
+                  app={appFor(page.format)}
                 />
               ))}
             </ul>
@@ -813,12 +834,18 @@ function SentCard({
   row,
   format,
   canOpen,
+  edited,
+  app,
 }: {
   documents: Documents;
   familyId: string;
   row: SentRow;
   format: string;
   canOpen: boolean;
+  /** Changed through its edit link since Lineage last saw it. */
+  edited: boolean;
+  /** "Word", "PowerPoint" or "Excel". */
+  app: string;
 }) {
   const { busy, error, run } = useAction();
   return (
@@ -834,6 +861,18 @@ function SentCard({
         {row.chip && (
           <p>
             <Chip kind="accent">{row.chip}</Chip>
+          </p>
+        )}
+        {row.link && (
+          <p className="small">
+            {row.link.line}
+            {row.link.live && <span className="secondary"> · {row.link.who}</span>}
+          </p>
+        )}
+        {edited && (
+          <p className="small warning-text">
+            {row.recipient} changed the shared copy. Review it from What I&apos;ve sent in the
+            Lineage panel in {app}.
           </p>
         )}
         {error && <p role="alert">{error}</p>}

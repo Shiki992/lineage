@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "value": {
+    "blobs": [],
+    "created": "8b3fda26766265ccd1505e34fbf66ac1",
+    "familyId": null,
+    "hasFile": false,
+    "ids": null,
+    "ledgerLines": "{\"v\":1,\"seq\":25,\"at\":1792057200000,\"event\":{\"type\":\"LinkStopped\",\"sent_copy_id\":\"8b3fda26766265ccd1505e34fbf66ac1\",\"link_id\":\"perm-1\"}}\n",
+    "newFileName": null,
+    "nothingChanged": false,
+    "records": 1
+  }
+}

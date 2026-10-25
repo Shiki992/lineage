@@ -21,6 +21,10 @@
 //   through `values`.
 // https://learn.microsoft.com/javascript/api/excel/excel.range#excel-excel-range-valuesasjson-member
 // https://learn.microsoft.com/javascript/api/excel/excel.range#excel-excel-range-values-member
+//
+// Excel on the web gives an add-in only a PDF of the open workbook, so there
+// the bytes are the workbook as last saved in OneDrive (decision 0033).
+// https://learn.microsoft.com/javascript/api/office/office.document#office-office-document-getfileasync-member(1)
 
 import type {
   CellHost,
@@ -50,9 +54,50 @@ const CELLS_PER_SYNC = 1000;
 /** Most edit hints kept for a session; past this "What changed" goes without. */
 const MAX_HINTS = 10_000;
 
+/**
+ * The open workbook as last saved, with a content tag that changes when the
+ * saved content does (`savedFile` in @lineage/storage-onedrive).
+ */
+export interface LastSaved {
+  read(): Promise<{ bytes: Uint8Array; tag: string }>;
+  tag(): Promise<string>;
+}
+
+/** How long Lineage waits for Excel on the web to save. */
+export const AUTOSAVE_WAIT_MS = 30_000;
+/** Edits this recent may not be saved yet: wait for the saved file to settle. */
+export const SETTLE_MS = 3_000;
+/** How often the saved file's tag is asked for while waiting. */
+export const POLL_MS = 1_000;
+
 export class ExcelHost implements DocumentHost, CellHost, CellNavigator {
   private readonly hints = new Map<string, Hint>();
   private watching = false;
+  private onCoAuthor: (() => void) | undefined;
+  /** Excel on the web: the saved file's tag when it was last read. */
+  private lastTag: string | undefined;
+  /** Excel on the web: Lineage changed the workbook since it was last read. */
+  private wrote = false;
+  /** When anyone last edited the workbook, from change events. */
+  private lastEdit = Number.NEGATIVE_INFINITY;
+
+  /**
+   * `lastSaved`: in Excel on the web, where to read the workbook from. `wait`
+   * and `clock` are for tests.
+   */
+  constructor(
+    private readonly lastSaved?: LastSaved,
+    private readonly wait: (ms: number) => Promise<void> = (ms) =>
+      new Promise((resolve) => {
+        setTimeout(resolve, ms);
+      }),
+    private readonly clock: () => number = () => Date.now(),
+  ) {}
+
+  /** True in Excel on the web: what Lineage compares is the workbook as last saved. */
+  get readsLastSaved(): boolean {
+    return this.lastSaved !== undefined;
+  }
 
   /** True when this Excel can carry out every kind of cell step. */
   canApplyPlan(): boolean {
@@ -60,11 +105,15 @@ export class ExcelHost implements DocumentHost, CellHost, CellNavigator {
   }
 
   /**
-   * Starts keeping the ranges the person edits, from Excel's change events,
-   * leaving out Lineage's own writes. Hints only: "What changed" works from
-   * the bytes without them.
+   * Starts keeping the ranges edited in this session, from Excel's change
+   * events, leaving out Lineage's own writes. Each says whose edit it was:
+   * `source` is Remote for someone editing the same workbook (a share link,
+   * co-authoring), and their edits are never called the person's own
+   * (decision 0032). Hints only: "What changed" works from the bytes
+   * without them.
    * https://learn.microsoft.com/javascript/api/excel/excel.worksheetcollection#excel-excel-worksheetcollection-onchanged-member
    * https://learn.microsoft.com/javascript/api/excel/excel.worksheetchangedeventargs#excel-excel-worksheetchangedeventargs-triggersource-member
+   * https://learn.microsoft.com/javascript/api/excel/excel.worksheetchangedeventargs#excel-excel-worksheetchangedeventargs-source-member
    */
   async watchEdits(): Promise<void> {
     if (this.watching || !Office.context.requirements.isSetSupported("ExcelApi", "1.14")) {
@@ -76,24 +125,36 @@ export class ExcelHost implements DocumentHost, CellHost, CellNavigator {
         if (event.triggerSource === Excel.EventTriggerSource.thisLocalAddin) {
           return;
         }
+        const by = event.source === Excel.EventSource.remote ? "coAuthor" : "you";
+        this.lastEdit = this.clock();
+        if (by === "coAuthor") {
+          this.onCoAuthor?.();
+        }
         await Excel.run(async (inner) => {
           const sheet = inner.workbook.worksheets.getItem(event.worksheetId);
           sheet.load("name");
           await inner.sync();
-          this.addHint(sheet.name, event.address);
+          this.addHint(sheet.name, event.address, by);
         });
       });
       await context.sync();
     });
   }
 
-  private addHint(sheet: string, address: string): void {
+  /** Calls `onEdit` for each change event from a co-author (decision 0032). */
+  async watchCoAuthors(onEdit: () => void): Promise<void> {
+    this.onCoAuthor = onEdit;
+    await this.watchEdits();
+  }
+
+  /** One hint per range and editor, so a range both edited says so. */
+  addHint(sheet: string, address: string, by: "you" | "coAuthor"): void {
     // A whole row or column, or several areas, is too coarse to say anything.
     if (!/^[A-Z]{1,3}[1-9][0-9]*(:[A-Z]{1,3}[1-9][0-9]*)?$/.test(address)) {
       return;
     }
     if (this.hints.size < MAX_HINTS) {
-      this.hints.set(`${sheet}!${address}`, { sheet, address });
+      this.hints.set(`${by} ${sheet}!${address}`, { sheet, address, by });
     }
   }
 
@@ -108,6 +169,8 @@ export class ExcelHost implements DocumentHost, CellHost, CellNavigator {
    * cell back to what it held is harmless (the way back does that).
    */
   async applyCellPlan(steps: readonly CellStep[]): Promise<void> {
+    // Even a plan that stops partway has changed the workbook.
+    this.wrote = true;
     let done = 0;
     try {
       await Excel.run(async (context) => {
@@ -169,7 +232,42 @@ export class ExcelHost implements DocumentHost, CellHost, CellNavigator {
   }
 
   readBytes(): Promise<Uint8Array> {
-    return readWholeFile("Excel");
+    return this.lastSaved ? this.readLastSaved(this.lastSaved) : readWholeFile("Excel");
+  }
+
+  /**
+   * Excel on the web: the workbook as last saved (decision 0033). After
+   * Lineage's own writes, waits for Excel's autosave to carry them (the saved
+   * file's tag changes), and says so if it hasn't in time; after edits in the
+   * last few seconds, waits for the saved file to stop changing.
+   */
+  private async readLastSaved(saved: LastSaved): Promise<Uint8Array> {
+    const deadline = this.clock() + AUTOSAVE_WAIT_MS;
+    if (this.wrote && this.lastTag !== undefined) {
+      while ((await saved.tag()) === this.lastTag) {
+        if (this.clock() >= deadline) {
+          throw new LineageError(
+            "Excel hasn't saved the workbook yet. Wait a moment, then try again.",
+            "autosave didn't land in time",
+          );
+        }
+        await this.wait(POLL_MS);
+      }
+    } else if (this.clock() - this.lastEdit < SETTLE_MS) {
+      let tag = await saved.tag();
+      while (this.clock() < deadline) {
+        await this.wait(POLL_MS);
+        const next = await saved.tag();
+        if (next === tag && this.clock() - this.lastEdit >= SETTLE_MS) {
+          break;
+        }
+        tag = next;
+      }
+    }
+    const { bytes, tag } = await saved.read();
+    this.lastTag = tag;
+    this.wrote = false;
+    return bytes;
   }
 
   /**
@@ -193,6 +291,7 @@ export class ExcelHost implements DocumentHost, CellHost, CellNavigator {
   }
 
   async writeIds(ids: Ids | null): Promise<void> {
+    this.wrote = true;
     await Excel.run(async (context) => {
       const props = context.workbook.properties.custom;
       if (ids) {

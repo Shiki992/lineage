@@ -143,7 +143,23 @@ fn resume_family<S: Storage>(panel: &mut Panel<S>) -> Result<Id> {
     panel.mark_milestone(&family, &v2, Some("Sent to ten companies"))?;
     let mentor = panel.send_a_copy(MASTER, "Mentor", Some("Feedback"), true)?;
     let northgate = panel.send_a_copy(DATA, "Northgate Analytics", Some("Data engineer"), true)?;
-    panel.send_a_copy(PLATFORM, "Harbour Bank", None, false)?;
+    let harbour = panel.send_a_copy(PLATFORM, "Harbour Bank", None, false)?;
+    // Harbour Bank's copy also went out as an edit link, and they changed it
+    // there (decision 0032).
+    let harbour_id = panel
+        .what_ive_sent(Some("Harbour"))?
+        .groups
+        .first()
+        .and_then(|g| g.rows.first())
+        .map(|r| r.id.clone())
+        .ok_or_else(|| HarnessError::Panel("no copy for Harbour Bank".to_owned()))?;
+    panel.share_a_link(&harbour_id, event::LinkAccess::Edit, &harbour)?;
+    edit(
+        &mut panel.storage,
+        &harbour,
+        &harbour,
+        &light_edits(&resume::master_v2_lines()),
+    )?;
     edit(
         &mut panel.storage,
         MASTER,

@@ -543,8 +543,19 @@ pub fn record(
         });
     }
     let view = lineage_core::doc::what_changed(&base, &prepared.doc)?;
-    let formatting = view.formatting.len();
-    let content = view.changes.len();
+    // A copy that comes back again (an edit link edited further, or a second
+    // file) counts only what wasn't kept or skipped from it before (decision 0032).
+    let earlier = decided_before(state, None, sent);
+    let formatting = view
+        .formatting
+        .iter()
+        .filter(|c| !earlier.contains(&c.id))
+        .count();
+    let content = view
+        .changes
+        .iter()
+        .filter(|c| !earlier.contains(&c.id))
+        .count();
     let confidence = match how {
         MatchedBy::Ids => 100,
         MatchedBy::Content | MatchedBy::Person => content_match(&base, &prepared.doc).percent,
@@ -733,6 +744,25 @@ pub(crate) fn open_view(
     view
 }
 
+/// Every change kept or skipped from earlier files that came back from the
+/// same sent copy (all but `except`). A file not matched to a sent copy has
+/// no earlier ones.
+fn decided_before<'a>(
+    state: &'a FamilyState,
+    except: Option<&Id>,
+    sent: Option<&Id>,
+) -> BTreeSet<&'a String> {
+    let Some(sent) = sent else {
+        return BTreeSet::new();
+    };
+    state
+        .returned
+        .iter()
+        .filter(|r| r.sent.as_ref() == Some(sent) && Some(&r.id) != except)
+        .flat_map(crate::state::Returned::decided)
+        .collect()
+}
+
 /// "Review": the changes in a returned file still to decide, judged against
 /// the open file `bytes` (a file of `node`).
 ///
@@ -749,7 +779,8 @@ pub fn review(
         .returned_file(returned)
         .ok_or_else(|| Error::NotAllowed("unknown returned file".to_owned()))?;
     let who = who(state, returned);
-    let decided: BTreeSet<&String> = r.decided().collect();
+    let mut decided: BTreeSet<&String> = r.decided().collect();
+    decided.extend(decided_before(state, Some(&r.id), r.sent.as_ref()));
     let (view, formatting) = if state.format == "xlsx" {
         // A workbook's changes come in through the open workbook (decision 0023).
         let view = crate::workbooks::returned_view(state, returned, node, bytes, blobs)?;

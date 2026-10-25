@@ -306,10 +306,15 @@ export type SideBySide = v.InferOutput<typeof SideBySide>;
 export const PutBack = v.strictObject({ theirsKept: v.boolean() });
 export type PutBack = v.InferOutput<typeof PutBack>;
 
-/** A range Excel reported as edited in this session, not by Lineage. */
+/**
+ * A range Excel reported as edited in this session, not by Lineage, and
+ * whose edit it was: the event's `source` (decision 0032). Left out, the
+ * person's own.
+ */
 export const Hint = v.strictObject({
   sheet: SheetName,
   address: v.pipe(Text, v.regex(/^[A-Z]{1,3}[1-9][0-9]{0,6}(:[A-Z]{1,3}[1-9][0-9]{0,6})?$/)),
+  by: v.optional(v.picklist(["you", "coAuthor"])),
 });
 export type Hint = v.InferOutput<typeof Hint>;
 
@@ -399,6 +404,27 @@ export const Updates = v.strictObject({
 });
 export type Updates = v.InferOutput<typeof Updates>;
 
+/** What a sharing link lets its holder do (decision 0032). */
+export const LinkAccess = v.picklist(["view", "edit"]);
+export type LinkAccess = v.InferOutput<typeof LinkAccess>;
+
+const LinkUrl = v.pipe(Text, v.maxLength(2048), v.startsWith("https://"));
+
+/** A sent copy's sharing link, as "What I've sent" shows it. */
+export const SentLink = v.strictObject({
+  /** "Shared as a link · Can edit", or "Link stopped 21 Oct". */
+  line: Text,
+  /** "Anyone with the link can open it". */
+  who: Text,
+  url: LinkUrl,
+  access: LinkAccess,
+  live: v.boolean(),
+  /** The storage's id for the link, and the shared file, to stop it. */
+  id: v.pipe(Text, v.minLength(1), v.maxLength(2048)),
+  fileRef: v.pipe(Text, v.minLength(1), v.maxLength(2048)),
+});
+export type SentLink = v.InferOutput<typeof SentLink>;
+
 export const SentRow = v.strictObject({
   id: Id,
   recipient: Text,
@@ -410,6 +436,15 @@ export const SentRow = v.strictObject({
   /** The latest file that came back from this copy. */
   returned: v.nullable(Id),
   button: Text,
+  link: v.nullable(SentLink),
+  /**
+   * While an edit link works: the shared file, and the SHA-256 of every
+   * version of it Lineage has seen. Bytes there with another hash are the
+   * recipients' edits.
+   */
+  shared: v.nullable(
+    v.strictObject({ fileRef: v.pipe(Text, v.maxLength(2048)), known: v.array(BlobHash) }),
+  ),
 });
 export type SentRow = v.InferOutput<typeof SentRow>;
 
@@ -652,6 +687,16 @@ export const SendArgs = v.strictObject({
 });
 export type SendArgs = v.InferOutput<typeof SendArgs>;
 
+/** "Share a link": what the storage made. */
+export const LinkArgs = v.strictObject({
+  id: v.pipe(Text, v.minLength(1), v.maxLength(2048)),
+  access: LinkAccess,
+  url: LinkUrl,
+  fileRef: v.pipe(Text, v.minLength(1), v.maxLength(2048)),
+  scope: v.pipe(Text, v.minLength(1), v.maxLength(64)),
+});
+export type LinkArgs = v.InferOutput<typeof LinkArgs>;
+
 export const MatchedBy = v.picklist(["ids", "content", "person"]);
 export type MatchedBy = v.InferOutput<typeof MatchedBy>;
 
@@ -686,6 +731,9 @@ export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "what-changed": WhatChanged,
   updates: Updates,
   "sent-list": SentList,
+  "sent-list-shared": SentList,
+  "record-link": Outcome,
+  "stop-link": Outcome,
   "sent-list-empty": SentList,
   "check-written": Written,
   "check-written-failed": Written,
@@ -720,6 +768,7 @@ export const goldenValues: Readonly<Record<string, v.GenericSchema>> = {
   "goes-with-copy": v.array(Text),
   "send-copy-workbook": Outcome,
   "workbook-what-changed": WhatChanged,
+  "workbook-what-changed-co-author": WhatChanged,
   "cell-side-by-side": SideBySide,
   "updates-workbook": Updates,
   "prepare-workbook-offer": WorkbookPlan,

@@ -11,6 +11,7 @@ export type Documents = Pick<
   | "compare"
   | "sentCopy"
   | "missingFiles"
+  | "sharedEdits"
   | "unlinkedFiles"
   | "freeName"
   | "restoreAsNewVersion"

@@ -1,4 +1,4 @@
-# Set up sign-in for the Word add-in (development)
+# Set up sign-in for the add-in and My documents
 
 Lineage keeps history in your own OneDrive. To let the task pane ask Microsoft for access to it, you register an app with Microsoft Entra ID once, then put its client ID in a local file that is never committed. No client secret is used: the add-in is a single-page app that signs in through Word (nested app authentication).
 
@@ -32,15 +32,21 @@ Word on the web signs in through the browser, so it needs the task pane's own pa
 
 My documents (`apps/family-app`, Phase 3B) uses **the same registration**, so it sees the same **Apps › Lineage** folder: OneDrive ties the app folder to the app's id. It signs in with MSAL's standard flow in the browser and returns through a bridge page. Under **Single-page application**, **Add URI**: `http://localhost:3001/redirect.html`. (Signing out of My documents only clears this browser's cache, so there is no sign-out address.)
 
-When My documents is hosted somewhere for real, add that address's `/redirect.html` too. The bridge page must be served with `Cache-Control: no-store` and without a `Cross-Origin-Opener-Policy` header ([redirect bridge](https://github.com/AzureAD/microsoft-authentication-library-for-js/blob/dev/lib/msal-browser/docs/redirect-bridge.md)).
+When My documents is hosted somewhere for real, add that address's `/redirect.html` too. The bridge page must be served with `Cache-Control: no-store` and without a `Cross-Origin-Opener-Policy` header ([redirect bridge](https://github.com/AzureAD/microsoft-authentication-library-for-js/blob/dev/lib/msal-browser/docs/redirect-bridge.md)). The hosted sites do both ([hosting.md](hosting.md)), which also lists the hosted task pane's two addresses.
 
 ## 4. Permissions
 
-Under **API permissions**, add Microsoft Graph **delegated** permission **Files.ReadWrite.AppFolder**. This is the only permission Lineage uses: it reaches only its own folder in your OneDrive, not your other files.
+Under **API permissions**, add these Microsoft Graph **delegated** permissions:
 
-Only if you want to try the "next to the master" layout (BLUEPRINT open decision 1, decision 0009), add **Files.ReadWrite** as well. That one reaches every file in your OneDrive, which is why it is not the default.
+| Permission                  | When Lineage asks for it                                                                                                                                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Files.ReadWrite.AppFolder` | At sign-in. It reaches only Lineage's own folder in your OneDrive.                                                                                                                                                                          |
+| `Files.Read`                | The first time Lineage is used in Excel on the web, to read the open workbook as last saved (decision 0033).                                                                                                                                |
+| `Files.ReadWrite`           | The first time someone shares a copy as a link, and only if Microsoft refuses to make the link with the app-folder permission alone (decision 0032). Also needed for the "next to the master" layout (decision 0009), a development option. |
 
-No admin consent is needed for these. You consent the first time you sign in.
+The last two reach every file the person can open, which is why they are asked for only when a feature needs them, and the consent screen is explained first. Listing them here only lets Lineage ask; nobody is asked until then.
+
+No admin consent is needed for these. You consent the first time each is asked for.
 
 ## 5. Tell the add-in
 

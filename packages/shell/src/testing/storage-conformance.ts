@@ -23,6 +23,29 @@ const text = new TextEncoder();
 
 export function storageConformance(name: string, make: () => Promise<Storage> | Storage): void {
   describe(`${name} behaves like the harness storage`, () => {
+    it("shares a stored file as a link, gives the same link for the same kind, and stops it", async (ctx) => {
+      const storage = await make();
+      const sharing = storage.sharing;
+      if (!sharing) {
+        ctx.skip();
+        return;
+      }
+      const { ref } = await storage.writeFile("sent", "Resume (Mentor).docx", text.encode("copy"));
+      const view = await sharing.createLink(ref, "view");
+      expect(view.url).toMatch(/^https:\/\//);
+      expect(view.id).not.toBe("");
+      expect(view.scope).not.toBe("");
+      expect((await sharing.createLink(ref, "view")).id).toBe(view.id);
+      const edit = await sharing.createLink(ref, "edit");
+      expect(edit.id).not.toBe(view.id);
+      await sharing.stopLink(ref, edit.id);
+      // Stopping a link that's already gone is fine.
+      await sharing.stopLink(ref, edit.id);
+      await expect(
+        sharing.createLink(storage.refFor("sent", "Nobody.docx"), "view"),
+      ).rejects.toBeInstanceOf(NotFound);
+    });
+
     it("starts with an empty ledger, appends at the version it read, and refuses a stale one", async () => {
       const storage = await make();
       const empty = await storage.readLedger(FAMILY);

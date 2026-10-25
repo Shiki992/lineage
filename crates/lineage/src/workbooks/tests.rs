@@ -4,6 +4,7 @@
 use lineage_core::Package;
 use lineage_core::docx::props::{read_ids, write_ids};
 use lineage_core::merge::Decision;
+use lineage_core::xlsx::diff::Editor;
 use lineage_core::xlsx::write::apply_steps;
 use lineage_testkit::workbooks::{self, Assumptions};
 use lineage_testkit::xlsx::Workbook as Built;
@@ -314,6 +315,7 @@ fn what_changed_uses_excels_hints_and_shows_a_cell_side_by_side() {
     let hint = Hint {
         sheet: "Assumptions".to_owned(),
         area: lineage_core::xlsx::refs::parse_area("B4").expect("area"),
+        by: Editor::You,
     };
     let state = host.state().clone();
     let view = what_changed(&state, &master, &edited, &[hint], &host.blobs).expect("view");
@@ -330,6 +332,19 @@ fn what_changed_uses_excels_hints_and_shows_a_cell_side_by_side() {
             .as_deref(),
         Some("Edited in this session"),
         "no hint, no claim"
+    );
+    let theirs = Hint {
+        sheet: "Assumptions".to_owned(),
+        area: lineage_core::xlsx::refs::parse_area("B4").expect("area"),
+        by: Editor::CoAuthor,
+    };
+    let shared = what_changed(&state, &master, &edited, &[theirs], &host.blobs).expect("view");
+    assert_eq!(
+        shared.workbook.expect("view").groups[0].cards[0]
+            .why
+            .as_deref(),
+        Some("Edited by someone you share it with, in this session"),
+        "a co-author's edit is never called the person's own"
     );
 
     let sb =

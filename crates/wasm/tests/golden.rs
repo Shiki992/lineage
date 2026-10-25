@@ -296,6 +296,30 @@ fn golden_replies() {
         let ids = serde_json::from_str::<Value>(&host.session.read_ids(&copy).json).expect("json");
         id(&ids["value"]["checkpoint"])
     };
+    // Shared as an edit link, listed, then stopped (decision 0032).
+    let reply = host.session.record_link(
+        &host.ledger,
+        &sent_id,
+        r#"{"id":"perm-1","access":"edit","url":"https://1drv.ms/w/c/a1b2c3d4e5f60718/shared","fileRef":"Sent copies/Resume - data roles (Northgate Analytics).docx","scope":"anonymous"}"#,
+        host.now,
+    );
+    golden.keep("record-link", &reply);
+    host.take(reply);
+    let shared = golden.keep(
+        "sent-list-shared",
+        &host.session.sent_list(&host.ledger, None),
+    );
+    let row = &shared["value"]["groups"][0]["rows"][0];
+    assert_eq!(row["link"]["line"], "Shared as a link · Can edit");
+    assert_eq!(row["shared"]["known"].as_array().map(Vec::len), Some(1));
+    let reply = host.session.stop_link(&host.ledger, &sent_id, host.now);
+    golden.keep("stop-link", &reply);
+    host.take(reply);
+    golden.keep(
+        "error-link-not-shared",
+        &host.session.stop_link(&host.ledger, &sent_id, host.now),
+    );
+
     golden.keep(
         "open-file-copy",
         &host.session.open_file(&host.ledger, &sent_id),
@@ -814,6 +838,20 @@ fn workbook_replies(golden: &mut Golden) {
     assert_eq!(
         value["value"]["workbook"]["groups"][0]["cards"][0]["why"],
         "Edited in this session"
+    );
+    // The same edit, reported by Excel as a co-author's (decision 0032).
+    let value = golden.keep(
+        "workbook-what-changed-co-author",
+        &host.session.workbook_what_changed(
+            &host.ledger,
+            &master,
+            &edited,
+            r#"[{"sheet":"Assumptions","address":"B4","by":"coAuthor"}]"#,
+        ),
+    );
+    assert_eq!(
+        value["value"]["workbook"]["groups"][0]["cards"][0]["why"],
+        "Edited by someone you share it with, in this session"
     );
     golden.keep(
         "cell-side-by-side",

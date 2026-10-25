@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "value": {
+    "blobs": [],
+    "created": "8b3fda26766265ccd1505e34fbf66ac1",
+    "familyId": null,
+    "hasFile": false,
+    "ids": null,
+    "ledgerLines": "{\"v\":1,\"seq\":24,\"at\":1792057140000,\"event\":{\"type\":\"LinkShared\",\"sent_copy_id\":\"8b3fda26766265ccd1505e34fbf66ac1\",\"link_id\":\"perm-1\",\"access\":\"edit\",\"url\":\"https://1drv.ms/w/c/a1b2c3d4e5f60718/shared\",\"file_ref\":\"Sent copies/Resume - data roles (Northgate Analytics).docx\",\"scope\":\"anonymous\"}}\n",
+    "newFileName": null,
+    "nothingChanged": false,
+    "records": 1
+  }
+}

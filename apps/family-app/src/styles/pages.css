@@ -1,0 +1,71 @@
+/*
+ * Copyright 2026 Hrishikesh Vedantam
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The privacy, terms and help pages: one readable column, 16 px gutters at
+ * phone width, tables that scroll inside themselves rather than the page.
+ */
+
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.page section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.page ul,
+.page ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+
+.page table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 480px;
+}
+
+.page th,
+.page td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.page tr:last-child td {
+  border-bottom: none;
+}
+
+.page th {
+  font-weight: 600;
+}
+
+.page-footer {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}

@@ -1,0 +1,115 @@
+# Every action is pinned to a full commit SHA (supply chain). The comment after each
+# SHA names its release; update both together.
+#
+# Builds and deploys the two static sites to Azure Static Web Apps (decision 0031):
+# a push to main goes to the staging environment, a v1.2.3 tag to production. Run
+# by hand on a branch for staging, or on a tag for production. Nothing is
+# deployed unless the whole of CI passes first. docs/setup/hosting.md says how to
+# create the resources, the GitHub Environments and the values they hold.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time per branch or tag, and never cut short halfway.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # Must equal the wasm-bindgen version in Cargo.lock (ci.yml has the same).
+  WASM_BINDGEN_VERSION: 0.2.129
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy (${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging' }})
+    needs: ci
+    runs-on: ubuntu-latest
+    # Each environment holds its own variables and tokens; production should
+    # require a reviewer (docs/setup/hosting.md).
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging' }}
+    permissions:
+      # Only to attach manifest.xml to the GitHub release of a tag.
+      contents: write
+    env:
+      LINEAGE_RELEASE: "1"
+      LINEAGE_CHANNEL: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging' }}
+      LINEAGE_BUILD: ${{ github.run_number }}
+      LINEAGE_ADDIN_ORIGIN: ${{ vars.LINEAGE_ADDIN_ORIGIN }}
+      LINEAGE_APP_ORIGIN: ${{ vars.LINEAGE_APP_ORIGIN }}
+      VITE_LINEAGE_CLIENT_ID: ${{ vars.LINEAGE_CLIENT_ID }}
+      VITE_LINEAGE_APP_URL: ${{ vars.LINEAGE_APP_ORIGIN }}/
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The last tag names a staging build's version.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The version (the tag, or the last tag for staging)
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo v0.0.0)"
+            version="${version#v}"
+          fi
+          echo "VITE_LINEAGE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "Lineage $version, build $LINEAGE_BUILD, for $LINEAGE_CHANNEL"
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build wasm
+        run: pnpm build:wasm
+      # A release build stops here if a setting is missing, the manifest doesn't
+      # pass, or development code is in either build (@lineage/hosting).
+      - name: Build both sites for release
+        run: pnpm --filter @lineage/office-addin --filter @lineage/family-app build
+      - name: Budgets (decisions 0010 and 0015)
+        run: node scripts/check-budgets.mjs
+      - name: Deploy the task pane
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_TOKEN_ADDIN }}
+          action: upload
+          app_location: apps/office-addin/dist
+          skip_app_build: true
+          skip_api_build: true
+          deployment_environment: ${{ env.LINEAGE_CHANNEL == 'staging' && 'staging' || '' }}
+      - name: Deploy My documents
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_TOKEN_APP }}
+          action: upload
+          app_location: apps/family-app/dist
+          skip_app_build: true
+          skip_api_build: true
+          deployment_environment: ${{ env.LINEAGE_CHANNEL == 'staging' && 'staging' || '' }}
+      - name: Attach manifest.xml to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" apps/office-addin/dist/manifest.xml --repo "$GITHUB_REPOSITORY" --clobber

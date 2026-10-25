@@ -16,7 +16,9 @@ use lineage_core::{ENGINE_VERSION, Package};
 use crate::blob::{Blob, BlobHash, BlobSource, Layered, restore, snapshot};
 use crate::changes::{checkpoint_pair, detect, variant_status};
 use crate::error::{Error, Result};
-use crate::event::{ChangeState, CleanSummary, Event, How, RECORD_VERSION, Record, Role};
+use crate::event::{
+    ChangeState, CleanSummary, Event, How, LinkAccess, RECORD_VERSION, Record, Role,
+};
 use crate::identity::fingerprint;
 use crate::ids::{Id, IdSource, Timestamp};
 use crate::state::FamilyState;
@@ -1045,6 +1047,93 @@ pub fn mark_milestone(
         label: label.map(str::to_owned),
     })?;
     builder.out.created = Some(checkpoint.clone());
+    Ok(builder.finish())
+}
+
+/// What the storage made when a sent copy was shared as a link (decision 0032).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewLink {
+    /// The storage's id for the link (OneDrive: the permission's id).
+    pub id: String,
+    pub access: LinkAccess,
+    pub url: String,
+    /// Where the shared file is in Lineage's storage.
+    pub file_ref: String,
+    /// Who can open it, as the storage reported: "anonymous", "organization", "users".
+    pub scope: String,
+}
+
+/// "Share a link": records the link the storage made for a sent copy. The
+/// same link again does nothing (OneDrive gives back the existing link of a
+/// kind); a different one waits until the live one is stopped, so a copy has
+/// one link at a time.
+///
+/// # Errors
+/// [`Error::NotAllowed`] when the copy is unknown, already shared with
+/// another link, or the link isn't an https address with an id and a file.
+pub fn record_link(
+    ctx: &Context<'_>,
+    state: &FamilyState,
+    sent: &Id,
+    link: &NewLink,
+) -> Result<Outcome> {
+    let copy = state
+        .sent_copy(sent)
+        .ok_or_else(|| Error::NotAllowed("unknown sent copy".to_owned()))?;
+    if let Some(live) = copy.link.as_ref().filter(|l| l.live()) {
+        if live.id == link.id && live.access == link.access && live.url == link.url {
+            return Ok(Outcome {
+                nothing_changed: true,
+                ..Outcome::default()
+            });
+        }
+        return Err(Error::NotAllowed(
+            "this copy is already shared; stop sharing it first".to_owned(),
+        ));
+    }
+    let fields = [&link.id, &link.url, &link.file_ref, &link.scope];
+    if fields
+        .iter()
+        .any(|s| s.trim().is_empty() || s.len() > crate::event::LINK_MAX)
+        || !link.url.starts_with("https://")
+    {
+        return Err(Error::NotAllowed(
+            "a link needs an id, an https address and a file".to_owned(),
+        ));
+    }
+    let none = crate::blob::MemoryBlobs::default();
+    let mut builder = Builder::new(state, ctx.now, &none);
+    builder.push(Event::LinkShared {
+        sent_copy_id: sent.clone(),
+        link_id: link.id.clone(),
+        access: link.access,
+        url: link.url.clone(),
+        file_ref: link.file_ref.clone(),
+        scope: link.scope.clone(),
+    })?;
+    builder.out.created = Some(sent.clone());
+    Ok(builder.finish())
+}
+
+/// "Stop sharing": records that a sent copy's link was removed.
+///
+/// # Errors
+/// [`Error::NotAllowed`] when the copy is unknown or isn't shared.
+pub fn stop_link(ctx: &Context<'_>, state: &FamilyState, sent: &Id) -> Result<Outcome> {
+    let link = state
+        .sent_copy(sent)
+        .ok_or_else(|| Error::NotAllowed("unknown sent copy".to_owned()))?
+        .link
+        .as_ref()
+        .filter(|l| l.live())
+        .ok_or_else(|| Error::NotAllowed("this copy isn't shared".to_owned()))?;
+    let none = crate::blob::MemoryBlobs::default();
+    let mut builder = Builder::new(state, ctx.now, &none);
+    builder.push(Event::LinkStopped {
+        sent_copy_id: sent.clone(),
+        link_id: link.id.clone(),
+    })?;
+    builder.out.created = Some(sent.clone());
     Ok(builder.finish())
 }
 

@@ -747,3 +747,20 @@ table.code th {
   color: var(--added-text);
   font-weight: 600;
 }
+
+/* Help, privacy and terms (decision 0031). */
+.site-footer {
+  padding-top: 0;
+}
+
+.page-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.page-nav a {
+  min-height: var(--target);
+  display: inline-flex;
+  align-items: center;
+}

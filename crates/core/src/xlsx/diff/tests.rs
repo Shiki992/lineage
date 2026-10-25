@@ -91,11 +91,43 @@ fn an_event_from_this_session_confirms_an_edit() {
     let hint = Hint {
         sheet: "Assumptions".to_owned(),
         area: Area::cell(2, 4),
+        by: Editor::You,
     };
     let d = diff(&a, &b, &[hint]);
     assert_eq!(
         cells(&d, Category::Input)[0].provenance,
         Provenance::DirectEdit
+    );
+    assert_eq!(cells(&d, Category::Input)[0].edited_by, Some(Editor::You));
+}
+
+#[test]
+fn a_co_authors_event_is_a_direct_edit_by_them() {
+    let (a, b) = (
+        open(&workbooks::model_master()),
+        open(&workbooks::model_price_update()),
+    );
+    let hint = |by| Hint {
+        sheet: "Assumptions".to_owned(),
+        area: Area::cell(2, 4),
+        by,
+    };
+    let theirs = diff(&a, &b, &[hint(Editor::CoAuthor)]);
+    let input = &cells(&theirs, Category::Input)[0];
+    assert_eq!(input.provenance, Provenance::DirectEdit);
+    assert_eq!(input.edited_by, Some(Editor::CoAuthor));
+
+    let both = diff(&a, &b, &[hint(Editor::You), hint(Editor::CoAuthor)]);
+    assert_eq!(
+        cells(&both, Category::Input)[0].edited_by,
+        Some(Editor::Both)
+    );
+
+    let none = diff(&a, &b, &[]);
+    assert_eq!(cells(&none, Category::Input)[0].edited_by, None);
+    assert_eq!(
+        cells(&none, Category::Input)[0].provenance,
+        Provenance::Unknown
     );
 }
 
