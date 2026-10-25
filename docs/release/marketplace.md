@@ -7,6 +7,7 @@ The checklist for submitting Lineage, after a production deploy ([hosting.md](..
 - [ ] A Partner Center account enrolled in the Microsoft 365 and Copilot program, owned by the project.
 - [ ] Publisher verification on the app registration ([hosting.md](../setup/hosting.md), step 2).
 - [ ] The maintainer has read `privacy.html`, `terms.html` and `support.html` on the production site, and is happy to stand behind them. They are plain-language drafts, not legal advice.
+- [ ] The app registration's **Terms of service URL** and **Privacy statement URL** point to those production pages ([hosting.md](../setup/hosting.md), step 2).
 
 ## Each release
 

@@ -36,6 +36,15 @@ brk-multihub://<task pane origin's host>
 
 For example `brk-multihub://addin.example.org`, `https://addin.example.org/taskpane.html` and `https://app.example.org/redirect.html`. The `brk-multihub` address takes the host only, with no path.
 
+Under **Branding & properties**, set the two links Microsoft shows on the screen where people let Lineage reach their OneDrive:
+
+| Field                 | Value                                |
+| --------------------- | ------------------------------------ |
+| Terms of service URL  | `<My documents origin>/terms.html`   |
+| Privacy statement URL | `<My documents origin>/privacy.html` |
+
+Use production's origin: one registration serves staging and production, and production's pages are the ones you stand behind. When either link is missing, Microsoft shows a warning on that screen instead ([terms of service and privacy statement](https://learn.microsoft.com/entra/identity-platform/howto-add-terms-of-service-privacy-statement), checked 2026-10-25). That page's portal steps point to **Custom Branding**, which changes your tenant's own sign-in page, not the app's links. If **Branding & properties** doesn't show the two fields, they are in the `info` block on the registration's **Manifest** page. Set them once production is deployed and you've reviewed the pages ([marketplace.md](../release/marketplace.md)).
+
 For the Marketplace listing, verify the publisher (**Branding & properties → Publisher verification**, with the Partner Center account). Work and school accounts can't consent to an unverified multi-tenant app in many organisations.
 
 ## 3. Set up the GitHub Environments

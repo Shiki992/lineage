@@ -30,6 +30,7 @@ import { EngineError, Lineage, goesToCells, userMessage } from "@lineage/shell";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Diagnostics } from "../dev/Diagnostics";
 import { errorKind, pageStart, timing } from "../metrics";
+import type { SitePage } from "../office/my-documents";
 import type { StorageChoice } from "../storage/choose";
 import { UpdatesView } from "./changes";
 import { DeckHome, DeckVersionReview, UpdateReport } from "./deck";
@@ -89,9 +90,18 @@ export interface AppProps {
   signIn?: () => Promise<Storage>;
   /** Opens My documents in the browser (the footer link). */
   openMyDocuments?: (() => void) | undefined;
+  /** Opens Privacy or Terms in the browser (the sign-in screen's links). */
+  openPage?: ((page: SitePage) => void) | undefined;
 }
 
-export function App({ engine, host, storage: choice, signIn, openMyDocuments }: AppProps) {
+export function App({
+  engine,
+  host,
+  storage: choice,
+  signIn,
+  openMyDocuments,
+  openPage,
+}: AppProps) {
   const [storage, setStorage] = useState<Storage | null>(
     choice.kind === "ready" ? choice.storage : null,
   );
@@ -387,6 +397,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
               setBusy(null);
             });
         }}
+        onPage={openPage}
       />
     );
   } else if (import.meta.env.DEV && screen.kind === "diagnostics") {
