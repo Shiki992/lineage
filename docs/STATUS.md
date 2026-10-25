@@ -1,5 +1,97 @@
 # Status
 
+## Phase 5C: hosting, Marketplace, share links and Excel on the web (2026-10-25). Built and checked with tests, the harness, Playwright and trial release builds. Nothing is hosted yet: the Azure sites, the Entra redirect URIs and every run with a Microsoft account are the maintainer's.
+
+Branch `phase-5c-hosting-and-sharing`, in the worktree `.claude/worktrees/phase-5c`, from `origin/main` at `a4efc0f`. Not pushed.
+
+Decisions:
+
+- [0031 Hosting the two sites, and what a release build must pass](decisions/0031-hosting-and-release.md);
+- [0032 Share links: co-editing a tracked file, and sending a copy as a link](decisions/0032-share-links-and-co-editing.md);
+- [0033 Excel on the web reads the workbook as last saved](decisions/0033-excel-on-the-web.md);
+- [0020](decisions/0020-workbook-bytes-and-excel-requirements.md) now points to 0033.
+
+New package `@lineage/hosting` (build time only, no dependencies). No new crates or npm dependencies.
+
+Setup and release docs: [docs/setup/hosting.md](setup/hosting.md), [docs/release/marketplace.md](release/marketplace.md); [microsoft-app-registration.md](setup/microsoft-app-registration.md) updated.
+
+The maintainer chose (2026-10-21):
+
+- Azure Static Web Apps;
+- prepare for Microsoft Marketplace;
+- both share-link cases: others co-edit through a link, and send a copy as a link;
+- Word, PowerPoint and Excel in the first listing, so Excel on the web had to work.
+
+**Done**
+
+- **Hosting** (`@lineage/hosting`, decision 0031):
+  - one security policy per site, sent as the meta tag and as a header in `staticwebapp.config.json`, with caching (pages `no-cache`, hashed files immutable, ribbon icons cacheable), MSAL's bridge `no-store`, `.wasm` as `application/wasm`, a 404 page, HSTS, `nosniff`, `no-referrer`, and My documents never framed;
+  - the task pane may now fetch from `*.microsoftpersonalcontent.com`, as My documents already could;
+  - the manifests from one template: development (committed, with a drift test), staging ("Lineage (staging)") and production ("Lineage"), each with its own id, version from the tag and run number;
+  - release builds (`LINEAGE_RELEASE=1`) fail on a missing or malformed setting, a manifest naming a host the release doesn't serve, a missing icon or a development name;
+  - every build fails if development code ships. That found the dev-folder client and Diagnostics in the production task pane (the Diagnostics screen wasn't behind `import.meta.env.DEV`); fixed.
+- **Deploy** (`.github/workflows/deploy.yml`): the whole of CI first, then both sites to Azure Static Web Apps; `main` to the staging environment, a `v*.*.*` tag to production behind a reviewer, `manifest.xml` attached to the release.
+- **Failing safely:** both apps say "Lineage stopped working" with a reload, and details shown before they're copied. Nothing is sent.
+- **Marketplace pages** on My documents' site: Privacy, Terms, Help, linked from My documents' footer and the manifest, in plain language. They are drafts for the maintainer to review.
+- **The 300 px listing logo** (`docs/release/listing-logo-300.png`, from `scripts/make-icons.mjs`).
+- **Co-editing** (decision 0032):
+  - "Shared with you" for a tracked file in someone else's OneDrive (`Storage.holds`, `owner.ts`), "History not found" with both reasons otherwise; nothing there writes to the file;
+  - Excel: each edit hint says whose it was; a co-author's edit is "Edited by someone you share it with, in this session". Engine `Hint.by` and `CellChange.edited_by`; the open change format's additive `editedBy`;
+  - Word: a note when a co-author edited the file since the last checkpoint (WordApi 1.6 paragraph events);
+  - "Not updated: it's open, here or by someone you shared it with"; a co-author's autosave between read and write is never overwritten, and is kept as the version's own edit next time.
+- **Send a copy as a link** (decision 0032):
+  - ledger events `LinkShared` and `LinkStopped`, commands `record_link` and `stop_link`, one live link per copy;
+  - What I've sent and My documents show each link; a live edit link's file is checked by hash against every version Lineage has seen;
+  - edits through the link come back as a returned file, by the copy's own id; a copy that comes back again asks only about changes not already kept or skipped from it;
+  - OneDrive tries the app-folder permission, and asks for `Files.ReadWrite` only on 403; personal accounts get an anyone-link, work accounts their organisation's default; a link the history can't record is removed again;
+  - the pane: Share a link after Send a copy and from What I've sent (View only or Edit), Copy link, Stop sharing with a confirmation, "changed the shared copy · Review their changes". The dev folder makes stand-in links.
+- **Excel on the web** (decision 0033): reads the workbook as last saved in OneDrive (`itemPath`, `savedFile`) through `Files.Read`, asked for only then; waits for Excel's autosave after Lineage's own writes, and for the file to settle after recent edits; a bring-in whose read-back fails takes every step back out; the panel says so.
+- **Harness:** `share_a_link`, `stop_sharing`, `shared_edits`; the share-link journey in memory and on disk; the three-families test account has Harbour Bank's copy shared as an edit link and changed there.
+
+**Checked**
+
+- **Trial release builds** with invented origins: the staging manifest ("Lineage (staging)", `0.5.0.3`, only the invented hosts), both hosting files, and the build checks passing. A build with the dev code still in it failed as it should.
+- **Playwright** on Microsoft Edge, against the invented test accounts: 24 pass, 5 of them new:
+  - Help, Privacy and Terms load with their footer, with no sideways scroll at 375 px;
+  - My documents' footer links to them;
+  - the Sent copies tab shows Harbour Bank's shared link, and that it was changed there.
+- **Not checked in the built-in browser:** the preview tool runs from the main checkout, where someone else had uncommitted work in `crates/core/src/clean.rs` that didn't build. Playwright, run from the worktree, covered the pages instead.
+
+**Tests**
+
+- **Rust:** 581 pass, 4 ignored (575 on `main` before this phase): the co-author hints and their change list, link events, commands and views, repeated returns, golden replies, the harness journey.
+- **TypeScript:** 367 pass (was 307): hosting 16, shell 190, OneDrive 42, storage-local 10, design 15, add-in 61, My documents 33. Plus 24 Playwright runs.
+- **All checks pass:** fmt, clippy, cargo-deny, licence headers, fixtures, lint, typecheck, Prettier, budgets.
+
+**Budgets**
+
+- **wasm** 2,168,936 bytes raw and 721,320 gzipped (was 2,132,549 and 712,227), under 4 MB.
+- **JavaScript** gzipped: task pane 185,561 (was 181,396), My documents 163,745 (was 160,923).
+
+**Not done**
+
+- **Anything that needs a Microsoft account or Azure** (the maintainer's, `docs/setup/hosting.md` and `docs/release/marketplace.md`):
+  - create the two Static Web Apps and the GitHub Environments; add the staging and production redirect URIs and the optional `Files.Read` and `Files.ReadWrite`;
+  - the first staging deploy, then check the live headers (`hosting.md` step 5);
+  - Word, PowerPoint and Excel on the web, Mac and iPad, with OneDrive;
+  - review the Privacy, Terms and Help pages; Partner Center and publisher verification.
+- **Unknowns for that run:**
+  - whether app-folder items can be shared with the app-folder permission;
+  - the addresses Office reports for shared files and in Excel on the web, and how the shares API answers for them;
+  - how long Excel on the web takes to autosave;
+  - what Office on the web does with a version Lineage replaces while someone has it open;
+  - whether `getFileAsync` includes co-authors' changes not yet merged.
+- **The Office desktop run** of share links and co-editing (Word, PowerPoint and Excel for Windows through the DevTools port). Not done in this session: the main checkout was in use by other work, and the run drives the maintainer's Office.
+- **Microsoft's manifest validator** is a manual release step, since it reports usage to Microsoft unless turned off.
+
+**Known issues**
+
+- What I've sent downloads each live edit link's file when it opens, to compare hashes.
+- A workbook kept in a SharePoint team site can't be read in Excel on the web with `Files.Read`.
+- `frame-ancestors` is left out of the task pane's policy: Microsoft doesn't list the origins that frame Office on the web.
+- My documents' "350 points" timing test failed once while the machine was busy, and passed on the rerun.
+- The `Azure/static-web-apps-deploy` action is pinned by commit, but runs Microsoft's container image, which isn't pinned by digest.
+
 ## Phase 5B: macros, pivot tables and Power Query (2026-10-20). Built, and checked twice in Excel for Windows: invented workbooks re-saved by Excel (stop 1), and the pane on a scratch dev folder (stop 2). The master's own macro edit wasn't checked in Excel (see Not done).
 
 Branch `claude/modest-perlman-35f244`, from the Phase 5 branch `claude/amazing-lamport-081931` at `45fdf1b`. Not pushed.
@@ -948,7 +1040,7 @@ Task-pane budgets are set in Phase 2.
 
 ## Next
 
-1. The maintainer registers the app and runs `docs/testing/word-personal.md` on Word for Windows and Word on the web, with OneDrive, now including steps 12 to 20.
-2. Then Part B of `docs/testing/my-documents.md`: My documents with the same registration (one more redirect URI), and the Word footer link.
-3. Fix whatever those runs find.
-4. Phase 4 (PowerPoint deck variants), when the maintainer starts it.
+1. The maintainer sets up hosting (`docs/setup/hosting.md`): the two Free Static Web Apps, the GitHub Environments, and the staging and production redirect URIs on the app registration, with the optional `Files.Read` and `Files.ReadWrite`.
+2. Merge Phase 5C; the deploy goes to staging. Check the live headers (`hosting.md` step 5).
+3. The maintainer's runs with a Microsoft account: `docs/testing/word-personal.md`, `my-documents.md`, `powerpoint-founder.md` and `excel-pilots.md` on the web and on Windows and Mac, plus share links and co-editing with a second account, and the unknowns in decisions 0032 and 0033.
+4. Fix whatever those runs find; review the Privacy, Terms and Help pages; then tag a release and submit it in Partner Center (`docs/release/marketplace.md`).
