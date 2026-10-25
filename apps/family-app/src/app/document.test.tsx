@@ -4,7 +4,7 @@
 // A document's page: loading, normal, missing file, damaged, error, and each
 // action, drawn from the golden replies.
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NotFound } from "@lineage/shell";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DocumentScreen } from "./document";
@@ -86,6 +86,40 @@ describe("a document's page", () => {
     );
     await waitFor(() => {
       expect(documents.open).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("keeps the name the person typed when the free name arrives after it", async () => {
+    // Finding a free name lists the folder, which takes a while on OneDrive.
+    let found: (name: string) => void = () => undefined;
+    const documents = fakeDocuments({
+      freeName: vi.fn(
+        () =>
+          new Promise<string>((resolve) => {
+            found = resolve;
+          }),
+      ),
+    });
+    render(<DocumentScreen documents={documents} family={FAMILY} tab="versions" />);
+    await screen.findByRole("heading", { name: "Resume", level: 1 });
+    fireEvent.click(
+      within(master()).getByRole("button", { name: "Restore as a new version from Resume v1" }),
+    );
+    const name = await screen.findByLabelText<HTMLInputElement>("Name of the new version");
+    fireEvent.change(name, { target: { value: "First draft" } });
+    await act(async () => {
+      found("Resume (v1) (2).docx");
+      await Promise.resolve();
+    });
+    expect(name.value).toBe("First draft");
+    fireEvent.click(screen.getByRole("button", { name: "Save the new version" }));
+    await waitFor(() => {
+      expect(documents.restoreAsNewVersion).toHaveBeenCalledWith(
+        FAMILY,
+        documentView().page.files[0]?.entries[2]?.id,
+        "First draft",
+        "docx",
+      );
     });
   });
 
