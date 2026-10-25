@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Lineage, MemoryStorage, loadEngine } from "@lineage/shell";
 import { FakeHost } from "@lineage/shell/testing";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
 
@@ -19,6 +19,117 @@ const fixture = (name: string) =>
   new Uint8Array(readFileSync(repo("fixtures/docx/synthetic", name)));
 
 describe("the task pane", () => {
+  it("shares a sent copy as a link, sees their edits, and stops sharing", async () => {
+    const engine = loadEngine(wasm, new Uint8Array(32).fill(25));
+    const storage = new MemoryStorage();
+    const host = new FakeHost(engine, fixture("resume-master.docx"), {
+      name: "Resume.docx",
+      url: "https://d.docs.live.net/0/Documents/Resume.docx",
+    });
+    render(<App engine={engine} host={host} storage={{ kind: "ready", storage }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start tracking" }));
+    await screen.findByText("Lineage is tracking this file. This is v1.");
+    fireEvent.click(screen.getByRole("button", { name: "Send a copy" }));
+    fireEvent.change(await screen.findByLabelText("Who it's for"), { target: { value: "Mentor" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save copy and record it" }));
+    await screen.findByText(/Saved “Resume \(Mentor\)\.docx”/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Share a link" }));
+    expect(await screen.findByRole("heading", { name: "Share a link" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /^Edit/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Make the link" }));
+    expect(await screen.findByRole("heading", { name: "Link for Mentor" })).toBeTruthy();
+    expect(screen.getByLabelText<HTMLInputElement>("Link").value).toBe(
+      "https://share.example/link-1",
+    );
+    expect(screen.getByText("Anyone with the link can open it.")).toBeTruthy();
+
+    // Mentor edits the shared copy through the link.
+    const ref = "Sent copies/Resume (Mentor).docx";
+    const ids = engine.readIds(storage.files.get(ref) ?? new Uint8Array());
+    if (!ids) {
+      throw new Error("the copy has ids");
+    }
+    storage.files.set(ref, engine.writeIds(fixture("resume-master-new-job.docx"), ids));
+    fireEvent.click(screen.getByRole("button", { name: /Back/ }));
+    expect(await screen.findByText("Mentor changed the shared copy.")).toBeTruthy();
+    expect(screen.getByText("Shared as a link · Can edit")).toBeTruthy();
+
+    // Stop sharing asks first.
+    fireEvent.click(screen.getByRole("button", { name: "Stop sharing with Mentor" }));
+    expect(screen.getByText(/The link stops working for everyone who has it/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep sharing" }));
+    expect(storage.links.size).toBe(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review Mentor's changes to the shared copy" }),
+    );
+    expect(await screen.findByRole("heading", { name: "This came back from Mentor" })).toBeTruthy();
+
+    // Back goes back to What I've sent.
+    fireEvent.click(screen.getByRole("button", { name: /Back/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop sharing with Mentor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop sharing" }));
+    expect(await screen.findByText("Stopped. The link doesn't work any more.")).toBeTruthy();
+    expect(storage.links.size).toBe(0);
+    expect(await screen.findByText(/^Link stopped /)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Share a link with Mentor" })).toBeTruthy();
+  });
+
+  it("says when someone editing with them changed the file, until the next checkpoint", async () => {
+    const engine = loadEngine(wasm, new Uint8Array(32).fill(21));
+    const storage = new MemoryStorage();
+    let coAuthorEdit: (() => void) | undefined;
+    const host = Object.assign(
+      new FakeHost(engine, fixture("resume-master.docx"), {
+        name: "Resume.docx",
+        url: "https://d.docs.live.net/0/Documents/Resume.docx",
+      }),
+      {
+        watchCoAuthors: (onEdit: () => void) => {
+          coAuthorEdit = onEdit;
+          return Promise.resolve();
+        },
+      },
+    );
+    render(<App engine={engine} host={host} storage={{ kind: "ready", storage }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Start tracking" }));
+    await screen.findByText("Lineage is tracking this file. This is v1.");
+    const note = /Someone you share this file with edited it while it was open here/;
+    expect(screen.queryByText(note)).toBeNull();
+
+    host.edit(fixture("resume-master-new-job.docx"));
+    act(() => {
+      coAuthorEdit?.();
+    });
+    expect(await screen.findByText(note)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save checkpoint" }));
+    expect(await screen.findByText("2 changes since v1")).toBeTruthy();
+    expect(screen.getByText(note)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save checkpoint" }));
+    expect(await screen.findByText("Checkpoint saved.")).toBeTruthy();
+    expect(screen.queryByText(note)).toBeNull();
+  });
+
+  it("opens a file someone shared without offering to track it", async () => {
+    const engine = loadEngine(wasm, new Uint8Array(32).fill(23));
+    const url = "https://d.docs.live.net/0/Documents/Resume.docx";
+    const owners = new FakeHost(engine, fixture("resume-master.docx"), {
+      name: "Resume.docx",
+      url,
+    });
+    await new Lineage({ engine, storage: new MemoryStorage(), host: owners }).startTracking();
+
+    const theirs = Object.assign(new MemoryStorage(), {
+      holds: () => Promise.resolve(false),
+    });
+    const host = new FakeHost(engine, await owners.readBytes(), { name: "Resume.docx", url });
+    render(<App engine={engine} host={host} storage={{ kind: "ready", storage: theirs }} />);
+    expect(await screen.findByRole("heading", { name: "Shared with you" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Start tracking" })).toBeNull();
+    expect(theirs.ledgers.size).toBe(0);
+  });
+
   it("tracks a resume, makes a version, offers a change and sends a copy", async () => {
     const engine = loadEngine(wasm, new Uint8Array(32).fill(9));
     const storage = new MemoryStorage();

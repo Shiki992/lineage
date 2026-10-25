@@ -272,14 +272,40 @@ export function StartTracking({
   );
 }
 
-export function Elsewhere({ storage }: { storage: string }) {
+/**
+ * A tracked file whose history isn't in this person's storage. In someone
+ * else's drive, it was shared with them: they edit it as usual, and its owner
+ * sees their changes (decision 0032). Nothing here writes to the file.
+ */
+export function Elsewhere({
+  storage,
+  where,
+}: {
+  storage: string;
+  where: "sharedWithYou" | "unknown";
+}) {
+  if (where === "sharedWithYou") {
+    return (
+      <div className="stack">
+        <h1>Shared with you</h1>
+        <p>
+          The person who shared this file keeps its history in their OneDrive. Edit it as usual;
+          they&apos;ll see your changes in Lineage.
+        </p>
+        <p className="small secondary">
+          Lineage leaves this file as it is: it doesn&apos;t start tracking it, or change it.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="stack">
       <h1>History not found</h1>
-      <p>
-        This file is tracked by Lineage, but its history isn't in {storage}. Sign in with the
-        account you used when you started tracking it.
-      </p>
+      <p>This file is tracked by Lineage, but its history isn&apos;t in {storage}.</p>
+      <ul className="small">
+        <li>If you started tracking it, sign in with the account you used then.</li>
+        <li>If someone shared it with you, its history is in their OneDrive.</li>
+      </ul>
     </div>
   );
 }

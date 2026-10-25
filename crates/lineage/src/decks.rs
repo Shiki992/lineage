@@ -214,7 +214,7 @@ fn run_versions(
                 .node(node)
                 .map_or_else(String::new, |n| n.display_name.clone()),
             result: RunResult::NotUpdated,
-            text: "Not updated: it's open, so Lineage couldn't change it. Close it, then update it again."
+            text: "Not updated: it's open, here or by someone you shared it with. Update it again once it's closed."
                 .to_owned(),
             brought_in: 0,
             saved_edits: false,

@@ -10,7 +10,8 @@ use std::collections::BTreeMap;
 use crate::blob::BlobHash;
 use crate::error::{Error, Result};
 use crate::event::{
-    ChangeState, CleanSummary, Event, How, MILESTONE_MAX, MatchedBy, RECORD_VERSION, Record, Role,
+    ChangeState, CleanSummary, Event, How, LINK_MAX, LinkAccess, MILESTONE_MAX, MatchedBy,
+    RECORD_VERSION, Record, Role,
 };
 use crate::identity::Fingerprint;
 use crate::ids::{Id, Timestamp};
@@ -76,6 +77,28 @@ pub struct SentCopy {
     pub id_embedded: bool,
     pub at: Timestamp,
     pub cleaned: CleanSummary,
+    /// The latest link it was shared with, if any (decision 0032).
+    pub link: Option<SharedLink>,
+}
+
+/// A sent copy's sharing link.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SharedLink {
+    pub id: String,
+    pub access: LinkAccess,
+    pub url: String,
+    pub file_ref: String,
+    pub scope: String,
+    pub at: Timestamp,
+    /// When it was removed; `None` while it works.
+    pub stopped: Option<Timestamp>,
+}
+
+impl SharedLink {
+    #[must_use]
+    pub fn live(&self) -> bool {
+        self.stopped.is_none()
+    }
 }
 
 /// A file that came back.
@@ -378,7 +401,51 @@ impl FamilyState {
                     id_embedded: *id_embedded,
                     at,
                     cleaned: cleaned.clone(),
+                    link: None,
                 });
+            }
+            Event::LinkShared {
+                sent_copy_id,
+                link_id,
+                access,
+                url,
+                file_ref,
+                scope,
+            } => {
+                if [link_id, url, file_ref, scope]
+                    .iter()
+                    .any(|s| s.is_empty() || s.len() > LINK_MAX)
+                    || !url.starts_with("https://")
+                {
+                    return Err(bad("a link without an id, an https address or a file"));
+                }
+                let sent = self
+                    .sent
+                    .iter_mut()
+                    .find(|s| &s.id == sent_copy_id)
+                    .ok_or_else(|| bad("a link for an unknown sent copy"))?;
+                sent.link = Some(SharedLink {
+                    id: link_id.clone(),
+                    access: *access,
+                    url: url.clone(),
+                    file_ref: file_ref.clone(),
+                    scope: scope.clone(),
+                    at,
+                    stopped: None,
+                });
+            }
+            Event::LinkStopped {
+                sent_copy_id,
+                link_id,
+            } => {
+                let link = self
+                    .sent
+                    .iter_mut()
+                    .find(|s| &s.id == sent_copy_id)
+                    .and_then(|s| s.link.as_mut())
+                    .filter(|l| &l.id == link_id && l.live())
+                    .ok_or_else(|| bad("stopping a link that isn't shared"))?;
+                link.stopped = Some(at);
             }
             Event::FileReturned {
                 returned_id,

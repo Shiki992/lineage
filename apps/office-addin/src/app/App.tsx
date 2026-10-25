@@ -13,6 +13,7 @@ import type {
   DocumentHost,
   Engine,
   Family,
+  LinkAccess,
   MatchedBy,
   Opened,
   Returning,
@@ -38,6 +39,8 @@ import { Elsewhere, MasterHome, SignIn, StartTracking, VersionHome } from "./hom
 import { Button, ErrorBanner, LinkButton } from "./parts";
 import { CameBack, ChooseReturned, OpenToReview, ReviewReturned } from "./returned";
 import { WhatIveSent } from "./sent";
+import type { MadeLink } from "./share";
+import { ShareLink } from "./share";
 import type { CellActions } from "./workbook";
 import { WorkbookReview } from "./workbook";
 
@@ -49,9 +52,18 @@ type Screen =
   /** A tailored deck open in PowerPoint brings changes in itself (decision 0019). */
   | { kind: "deckUpdates"; updates: Updates }
   | { kind: "sendCopy"; family: Family; goesWith: string[] }
-  | { kind: "sent"; list: SentList }
+  | { kind: "sent"; list: SentList; edited?: readonly string[] }
+  | {
+      kind: "share";
+      sent: string;
+      recipient: string;
+      /** Where the copy was just saved, if it was. */
+      ref?: string;
+      made: (MadeLink & { access: LinkAccess }) | null;
+    }
   | { kind: "chooseReturned" }
-  | { kind: "cameBack"; returning: Returning }
+  /** `fromSent`: a shared copy they edited, opened from What I've sent. */
+  | { kind: "cameBack"; returning: Returning; fromSent?: boolean }
   | {
       kind: "openToReview";
       family: string;
@@ -87,12 +99,32 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
   const [screen, setScreen] = useState<Screen>({ kind: "home" });
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ text: string; open?: () => void } | null>(null);
+  const [notice, setNotice] = useState<{
+    text: string;
+    open?: () => void;
+    /** "Share a link" to the copy just made (decision 0032). */
+    share?: () => void;
+  } | null>(null);
   const [crashed, setCrashed] = useState(false);
   /** The pitch deck panel, for a master deck (decision 0018). */
   const [deckPanel, setDeckPanel] = useState<DeckPanel | null>(null);
   /** For an untracked document: whether it looks like a copy that came back. */
   const [untrackedReturning, setUntrackedReturning] = useState<Returning | null>(null);
+  /**
+   * Someone editing this file with the person changed it since the panel
+   * opened or the last checkpoint (decision 0032): what changed includes
+   * their edits, which Lineage can't tell apart in Word.
+   */
+  const [coAuthored, setCoAuthored] = useState(false);
+  useEffect(() => {
+    host
+      .watchCoAuthors?.(() => {
+        setCoAuthored(true);
+      })
+      .catch((e: unknown) => {
+        console.error(e);
+      });
+  }, [host]);
   const lineage = useMemo(
     () => (storage ? new Lineage({ engine, storage, host, onTiming: timing }) : null),
     [engine, host, storage],
@@ -122,6 +154,13 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
     },
     [lineage],
   );
+
+  /** "What I've sent", with any copies changed through their edit links. */
+  const showSent = useCallback(async (l: Lineage, search?: string) => {
+    const list = await l.sentList(search);
+    const edited = l.canShare ? await l.sharedEdits() : [];
+    setScreen({ kind: "sent", list, edited });
+  }, []);
 
   // Once storage is known: find out what the open document is.
   useEffect(() => {
@@ -371,6 +410,10 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         recognition={returning.recognition}
         busy={busy !== null}
         onBack={() => {
+          if (screen.fromSent) {
+            void run("Getting what you've sent", (l) => showSent(l));
+            return;
+          }
           setScreen(
             opened.kind === "cameBack" || opened.kind === "untracked"
               ? { kind: "home" }
@@ -418,7 +461,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
       />
     );
   } else if (opened.kind === "elsewhere") {
-    body = <Elsewhere storage={storageLabel} />;
+    body = <Elsewhere storage={storageLabel} where={opened.where} />;
   } else if (screen.kind === "chooseReturned") {
     body = (
       <ChooseReturned
@@ -483,6 +526,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         onSave={(note) =>
           void run("Saving a checkpoint", async (l) => {
             const saved = await l.saveCheckpoint(note);
+            setCoAuthored(false);
             await refresh(l);
             setNotice({
               text: saved ? "Checkpoint saved." : "Nothing has changed since the last checkpoint.",
@@ -636,6 +680,20 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
             setNotice({
               text: `Saved “${sent.name}” in ${storageLabel}, in Sent copies.`,
               open: () => void run("Opening", (l2) => l2.openStored(sent.ref)),
+              ...(l.canShare
+                ? {
+                    share: () => {
+                      setNotice(null);
+                      setScreen({
+                        kind: "share",
+                        sent: sent.sent,
+                        recipient: args.recipient,
+                        ref: sent.ref,
+                        made: null,
+                      });
+                    },
+                  }
+                : {}),
             });
           })
         }
@@ -649,12 +707,54 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         onBack={home}
         onSearch={(search) =>
           void run("Searching", async (l) => {
-            setScreen({ kind: "sent", list: await l.sentList(search) });
+            await showSent(l, search);
           })
         }
         onOpen={(sent) => void run("Opening the copy", (l) => l.openSentCopy(sent))}
         onReview={reviewReturned}
         onCameBack={cameBackLink}
+        edited={screen.edited ?? []}
+        {...(lineage?.canShare
+          ? {
+              onShare: (sent: string, recipient: string) => {
+                setScreen({ kind: "share", sent, recipient, made: null });
+              },
+              onStopSharing: (sent: string) =>
+                void run("Stopping the link", async (l) => {
+                  await l.stopSharing(sent);
+                  await showSent(l);
+                  setNotice({ text: "Stopped. The link doesn't work any more." });
+                }),
+              onReviewShared: (sent: string) =>
+                void run("Reading their copy", async (l) => {
+                  const { bytes, name } = await l.sharedFile(sent);
+                  setScreen({
+                    kind: "cameBack",
+                    returning: await l.recognise(bytes, name),
+                    fromSent: true,
+                  });
+                }),
+            }
+          : {})}
+      />
+    );
+  } else if (screen.kind === "share") {
+    const share = screen;
+    body = (
+      <ShareLink
+        recipient={share.recipient}
+        storage={storageLabel}
+        made={share.made}
+        busy={busy !== null}
+        onBack={() => {
+          void run("Getting what you've sent", (l) => showSent(l));
+        }}
+        onShare={(access) =>
+          void run("Making the link", async (l) => {
+            const made = await l.shareLink(share.sent, access, share.ref);
+            setScreen({ ...share, made: { url: made.url, who: made.who, access } });
+          })
+        }
       />
     );
   } else if (opened.kind === "master" && opened.file.format === "pptx") {
@@ -682,7 +782,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         onAction={onAction}
         onSent={() =>
           void run("Getting what you've sent", async (l) => {
-            setScreen({ kind: "sent", list: await l.sentList() });
+            await showSent(l);
           })
         }
         onMyDocuments={openMyDocuments}
@@ -708,7 +808,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         onOpen={(ref) => void run("Opening", (l) => l.openStored(ref))}
         onSent={() =>
           void run("Getting what you've sent", async (l) => {
-            setScreen({ kind: "sent", list: await l.sentList() });
+            await showSent(l);
           })
         }
         onCameBack={cameBackLink}
@@ -740,7 +840,7 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
         }
         onSent={() =>
           void run("Getting what you've sent", async (l) => {
-            setScreen({ kind: "sent", list: await l.sentList() });
+            await showSent(l);
           })
         }
         onCameBack={deck ? undefined : cameBackLink}
@@ -763,9 +863,10 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
       {notice && (
         <div className="callout stack" role="status" style={{ gap: 8 }}>
           <p>{notice.text}</p>
-          {notice.open && (
-            <div className="row">
-              <Button onClick={notice.open}>Open it</Button>
+          {(notice.open ?? notice.share) && (
+            <div className="row row--wrap">
+              {notice.open && <Button onClick={notice.open}>Open it</Button>}
+              {notice.share && <Button onClick={notice.share}>Share a link</Button>}
             </div>
           )}
         </div>
@@ -775,6 +876,14 @@ export function App({ engine, host, storage: choice, signIn, openMyDocuments }: 
           {busy}…
         </p>
       )}
+      {coAuthored &&
+        (opened?.kind === "master" || opened?.kind === "version") &&
+        (screen.kind === "home" || screen.kind === "saveCheckpoint") && (
+          <p className="small secondary" role="note">
+            Someone you share this file with edited it while it was open here. What changed includes
+            their edits.
+          </p>
+        )}
       {body}
       {import.meta.env.DEV && screen.kind !== "diagnostics" && storage && (
         <p className="small secondary">

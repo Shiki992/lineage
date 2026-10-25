@@ -307,7 +307,40 @@ describe("the personal scenario through wasm", () => {
       storage: new MemoryStorage(),
       host: new FakeHost(e, tracked, { name: "Resume.docx", url: MASTER_URL }),
     });
-    expect(expectKind(await elsewhere.open(), "elsewhere").ids.family).toBe(world.family);
+    const found = expectKind(await elsewhere.open(), "elsewhere");
+    expect(found.ids.family).toBe(world.family);
+    expect(found.where).toBe("unknown");
+  });
+
+  it("says a tracked file in someone else's drive was shared with you, and changes nothing", async () => {
+    const e = engine();
+    const tracked = await world.masterHost.readBytes();
+    const asked: string[] = [];
+    const theirs = Object.assign(new MemoryStorage(), {
+      holds: (url: string) => {
+        asked.push(url);
+        return Promise.resolve(false);
+      },
+    });
+    const host = new FakeHost(e, tracked, { name: "Resume.docx", url: MASTER_URL });
+    const shared = new Lineage({ engine: e, storage: theirs, host });
+    expect(expectKind(await shared.open(), "elsewhere").where).toBe("sharedWithYou");
+    expect(asked).toEqual([MASTER_URL]);
+    // Nothing was written: not the file's ids, not a ledger.
+    expect(await host.readIds()).toEqual(
+      await new FakeHost(e, tracked, { name: "Resume.docx", url: MASTER_URL }).readIds(),
+    );
+    expect(theirs.ledgers.size).toBe(0);
+    // The engine refuses to give a tracked file new ids.
+    await expect(shared.startTracking()).rejects.toThrow(/already tracked/);
+    expect(theirs.ledgers.size).toBe(0);
+
+    // A storage that can't tell, or fails to, says "unknown".
+    const failing = Object.assign(new MemoryStorage(), {
+      holds: () => Promise.reject(new Error("offline")),
+    });
+    const unknown = new Lineage({ engine: e, storage: failing, host });
+    expect(expectKind(await unknown.open(), "elsewhere").where).toBe("unknown");
   });
 
   it("reports the engine's own words for the wrong file", () => {

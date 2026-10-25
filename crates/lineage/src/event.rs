@@ -90,6 +90,14 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
+/// What a sharing link lets its holder do (decision 0032).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkAccess {
+    View,
+    Edit,
+}
+
 /// Every kind of event.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
@@ -212,7 +220,31 @@ pub enum Event {
         node_id: Id,
         storage_ref: String,
     },
+    /// A sent copy shared as a link instead of, or as well as, attached
+    /// (decision 0032). The file at `file_ref` is the clean copy that left;
+    /// with `edit` access its holders may change it, and what they change
+    /// comes back as a returned file. The recorded copy never changes.
+    LinkShared {
+        sent_copy_id: Id,
+        /// The storage's own id for the link (OneDrive: the permission's id).
+        link_id: String,
+        access: LinkAccess,
+        url: String,
+        /// Where the shared file is in Lineage's storage.
+        file_ref: String,
+        /// Who the storage says can open it: "anonymous", "organization" or
+        /// "users", as it reported.
+        scope: String,
+    },
+    /// The link was removed: nobody can open the shared file through it.
+    LinkStopped {
+        sent_copy_id: Id,
+        link_id: String,
+    },
 }
+
+/// The longest link or file reference a ledger keeps, in bytes.
+pub const LINK_MAX: usize = 2048;
 
 /// The longest milestone label, in characters.
 pub const MILESTONE_MAX: usize = 60;

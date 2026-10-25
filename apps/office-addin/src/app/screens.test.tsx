@@ -18,7 +18,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { UpdatesView, WhatChangedView } from "./changes";
 import { MakeVersion, SaveCheckpoint, SendCopy } from "./forms";
-import { MasterHome, StartTracking, VersionHome } from "./home";
+import { Elsewhere, MasterHome, StartTracking, VersionHome } from "./home";
 import { WhatIveSent } from "./sent";
 
 function golden(name: string): unknown {
@@ -290,5 +290,22 @@ describe("start tracking", () => {
     const button = screen.getByRole<HTMLButtonElement>("button", { name: "Start tracking" });
     expect(button.disabled).toBe(true);
     expect(button.getAttribute("aria-describedby")).toBe("save-first");
+  });
+});
+
+describe("a tracked file whose history isn't here", () => {
+  it("says a file in someone else's OneDrive was shared with you, and offers nothing to change", () => {
+    render(<Elsewhere storage="OneDrive" where="sharedWithYou" />);
+    expect(screen.getByRole("heading", { name: "Shared with you" })).toBeTruthy();
+    expect(screen.getByText(/keeps its history in their OneDrive/)).toBeTruthy();
+    expect(screen.queryAllByRole("button")).toEqual([]);
+  });
+
+  it("names both reasons when Lineage can't tell whose file it is", () => {
+    render(<Elsewhere storage="OneDrive" where="unknown" />);
+    expect(screen.getByRole("heading", { name: "History not found" })).toBeTruthy();
+    expect(screen.getByText(/sign in with the account you used then/)).toBeTruthy();
+    expect(screen.getByText(/If someone shared it with you/)).toBeTruthy();
+    expect(screen.queryAllByRole("button")).toEqual([]);
   });
 });

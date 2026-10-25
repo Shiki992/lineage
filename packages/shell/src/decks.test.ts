@@ -59,6 +59,25 @@ class LockingStorage extends MemoryStorage {
   }
 }
 
+/**
+ * A version shared by link: someone editing it autosaves between Lineage's
+ * read and its write, so the write is refused (OneDrive: 412), as a newer
+ * file always is.
+ */
+class CoAuthorStorage extends MemoryStorage {
+  autosave: { ref: string; bytes: Uint8Array } | undefined;
+
+  override async replaceFile(ref: string, bytes: Uint8Array, expected: string): Promise<string> {
+    const save = this.autosave;
+    if (save?.ref === ref) {
+      this.autosave = undefined;
+      const now = await this.readFileVersioned(ref);
+      await super.replaceFile(ref, save.bytes, now.version);
+    }
+    return super.replaceFile(ref, bytes, expected);
+  }
+}
+
 /** Counts each blob stored, by family and hash. */
 class CountingStorage extends MemoryStorage {
   readonly stored = new Map<string, number>();
@@ -165,6 +184,27 @@ describe("the pitch deck panel", () => {
     storage.locked = undefined;
     const again = await lineage.updateVersions([seedFund.nodeId]);
     expect(again.headline).toBe("Updated 1 version");
+  });
+
+  it("never overwrites a co-author's autosave, and keeps it as the version's own edit", async () => {
+    const storage = new CoAuthorStorage();
+    const { e, lineage, northgate } = await founder(storage);
+    await lineage.saveCheckpoint("New traction numbers");
+    const stored = storage.files.get(northgate.ref) ?? new Uint8Array();
+    const ids = e.readIds(stored);
+    expect(ids).not.toBeNull();
+    // Their own subtitle and slide, saved into the shared version.
+    const theirs = ids ? e.writeIds(deck("pitch-deck-northgate.pptx"), ids) : stored;
+    storage.autosave = { ref: northgate.ref, bytes: theirs };
+    await expect(lineage.updateVersions([northgate.nodeId])).rejects.toBeInstanceOf(FileChanged);
+    expect(storage.files.get(northgate.ref)).toEqual(theirs);
+
+    // The same press again: their edits are saved as the version's own first,
+    // then the master's changes come in beside them.
+    const run = await lineage.updateVersions([northgate.nodeId]);
+    expect(run.headline).toBe("Updated 1 version");
+    expect(run.versions[0]?.savedEdits).toBe(true);
+    expect(storage.files.get(northgate.ref)).not.toEqual(theirs);
   });
 
   it("puts every file back when one can't be replaced", async () => {

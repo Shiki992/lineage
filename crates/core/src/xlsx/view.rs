@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use super::Workbook;
 use super::diff::{
-    Calculated, Category, CellChange, CellSide, Provenance, StructureChange, StructureKind,
+    Calculated, Category, CellChange, CellSide, Editor, Provenance, StructureChange, StructureKind,
     WorkbookDiff,
 };
 use super::display::display;
@@ -155,6 +155,27 @@ pub fn why(category: Category, provenance: Provenance) -> Option<String> {
     )
 }
 
+/// A changed cell's reason, naming a co-author when the edit was theirs.
+fn cell_why(c: &CellChange) -> Option<String> {
+    match (c.provenance, c.edited_by) {
+        (Provenance::DirectEdit, Some(Editor::CoAuthor)) => {
+            Some("Edited by someone you share it with, in this session".to_owned())
+        }
+        (Provenance::DirectEdit, Some(Editor::Both)) => {
+            Some("Edited in this session, by you and by someone you share it with".to_owned())
+        }
+        _ => why(c.category, c.provenance),
+    }
+}
+
+fn spec_editor(e: Editor) -> &'static str {
+    match e {
+        Editor::You => "you",
+        Editor::CoAuthor => "coAuthor",
+        Editor::Both => "both",
+    }
+}
+
 fn plural(n: usize, one: &str, many: &str) -> String {
     if n == 1 {
         format!("1 {one}")
@@ -211,7 +232,7 @@ fn cell_card(c: &CellChange) -> Card {
         before: Some(c.before.clone()),
         after: Some(c.after.clone()),
         cells: 1,
-        why: why(c.category, c.provenance),
+        why: cell_why(c),
         ..Card::default()
     }
 }
@@ -337,6 +358,7 @@ fn calc_address(b: &Workbook, c: &Calculated) -> String {
         id: String::new(),
         category: c.category,
         provenance: c.provenance,
+        edited_by: None,
         sheet: name.to_owned(),
         sheet_a: 0,
         sheet_b: c.sheet_b,
@@ -1456,6 +1478,7 @@ pub fn change_list(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> ChangeList {
             summary: Some(format!("{}: {}", place(c), cell_card(c).summary)),
             category: Some(spec_category(c.category).to_owned()),
             provenance: Some(spec_provenance(c.provenance).to_owned()),
+            edited_by: c.edited_by.map(|e| spec_editor(e).to_owned()),
         });
     }
     for c in &d.calculated {
@@ -1495,6 +1518,7 @@ pub fn change_list(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> ChangeList {
             summary: None,
             category: Some(spec_category(c.category).to_owned()),
             provenance: Some(spec_provenance(c.provenance).to_owned()),
+            edited_by: None,
         });
     }
     for s in &d.structure {
@@ -1557,6 +1581,7 @@ pub fn change_list(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> ChangeList {
             summary: Some(summary),
             category: Some("structure".to_owned()),
             provenance: Some("unknown".to_owned()),
+            edited_by: None,
         });
     }
     changes.extend(object_changes(d, a, b));
@@ -1614,6 +1639,7 @@ fn object_changes(d: &WorkbookDiff, a: &Workbook, b: &Workbook) -> Vec<SpecChang
                 .to_owned(),
             ),
             provenance: Some(if o.refreshed { "refresh" } else { "unknown" }.to_owned()),
+            edited_by: None,
         }
     };
     let mut out = Vec::new();

@@ -24,7 +24,20 @@ function setup(layout = appFolder) {
     fetch: fake.fetch,
     sleep: () => Promise.resolve(),
   });
-  return { fake, tokens, storage: new OneDriveStorage(graph, layout) };
+  // Files.ReadWrite, for sharing links when the app folder isn't enough.
+  let widened = 0;
+  const wider = () => {
+    widened += 1;
+    return Promise.resolve(
+      new Graph({
+        token: () => Promise.resolve("wider"),
+        fetch: fake.fetch,
+        sleep: () => Promise.resolve(),
+      }),
+    );
+  };
+  const storage = new OneDriveStorage(graph, layout, { wider });
+  return { fake, tokens, storage, widened: () => widened, graph };
 }
 
 storageConformance("OneDriveStorage (app folder)", () => setup().storage);
@@ -137,7 +150,7 @@ describe("OneDriveStorage", () => {
     const error = await graphError(response, "Tailored versions/Deck.pptx");
     expect(error).toBeInstanceOf(FileLocked);
     expect(error.userMessage).toBe(
-      "A version is open, so Lineage couldn't change it. Close it, then try again.",
+      "A version is open, here or by someone you shared it with, so Lineage couldn't change it. Try again once it's closed.",
     );
   });
 
@@ -244,6 +257,64 @@ describe("OneDriveStorage", () => {
     await expect(failure).rejects.toBeInstanceOf(StorageError);
     await expect(failure).rejects.toMatchObject({
       userMessage: "Lineage can't reach OneDrive. Check your connection and try again.",
+    });
+  });
+});
+
+describe("sharing a copy as a link on OneDrive", () => {
+  it("tries the app folder first, and asks for more only when OneDrive refuses", async () => {
+    const { fake, storage, widened } = setup();
+    const { ref } = await storage.writeFile("sent", "Resume (Mentor).docx", text.encode("copy"));
+    const made = await storage.sharing.createLink(ref, "edit");
+    expect(made).toEqual({ id: made.id, url: `https://1drv.ms/w/${made.id}`, scope: "anonymous" });
+    expect(widened()).toBe(1);
+    const asked = fake.requests.filter((r) => r.url.endsWith("/createLink"));
+    expect(asked.map((r) => r.headers["authorization"])).toEqual(["Bearer token", "Bearer wider"]);
+
+    // Where the app folder may share, nothing more is asked for.
+    fake.appFolderShares = true;
+    const view = await storage.sharing.createLink(ref, "view");
+    expect(view.id).not.toBe(made.id);
+    expect(widened()).toBe(1);
+    await storage.sharing.stopLink(ref, view.id);
+    await storage.sharing.stopLink(ref, made.id);
+    expect(fake.links.size).toBe(0);
+  });
+
+  it("asks for a personal account's anyone-link, and leaves a work account's kind to its organisation", async () => {
+    const personal = setup();
+    personal.fake.appFolderShares = true;
+    const a = await personal.storage.writeFile("sent", "A.docx", text.encode("a"));
+    await personal.storage.sharing.createLink(a.ref, "view");
+    const sent = personal.fake.requests.find((r) => r.url.endsWith("/createLink"));
+    expect(sent).toBeDefined();
+
+    const work = setup();
+    work.fake.appFolderShares = true;
+    work.fake.me = {
+      driveId: "b!work",
+      site: "https://contoso-my.sharepoint.com/personal/pat_contoso_com/Documents",
+    };
+    const b = await work.storage.writeFile("sent", "B.docx", text.encode("b"));
+    const made = await work.storage.sharing.createLink(b.ref, "view");
+    expect(made.scope).toBe("organization");
+    const link = [...work.fake.links.values()][0];
+    expect(link?.scope).toBe("organization");
+    expect([...personal.fake.links.values()][0]?.scope).toBe("anonymous");
+  });
+
+  it("says plainly when OneDrive won't make a link", async () => {
+    const fake = new FakeGraph();
+    const graph = new Graph({
+      token: () => Promise.resolve("token"),
+      fetch: fake.fetch,
+      sleep: () => Promise.resolve(),
+    });
+    const storage = new OneDriveStorage(graph, appFolder);
+    const { ref } = await storage.writeFile("sent", "A.docx", text.encode("a"));
+    await expect(storage.sharing.createLink(ref, "view")).rejects.toMatchObject({
+      userMessage:
+        "OneDrive wouldn't make a link for this copy. Your account or organisation may not allow sharing links.",
     });
   });
 });

@@ -48,6 +48,8 @@ export type {
   KeepFormatting,
   Lane,
   LibraryEntry,
+  LinkAccess,
+  LinkArgs,
   MasterPanel,
   MatchedBy,
   Node,
@@ -58,6 +60,7 @@ export type {
   Recognition,
   ReturnReview,
   ReturnedRow,
+  SentLink,
   Segment,
   SendArgs,
   SentList,
@@ -95,4 +98,12 @@ export {
   folderFor,
   sha256Hex,
 } from "./storage.js";
-export type { FileKind, FileLocation, LedgerVersion, Storage, StoredFile } from "./storage.js";
+export type {
+  FileKind,
+  FileLocation,
+  LedgerVersion,
+  MadeLink,
+  Sharing,
+  Storage,
+  StoredFile,
+} from "./storage.js";

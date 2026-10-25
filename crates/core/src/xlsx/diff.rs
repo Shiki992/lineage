@@ -54,12 +54,32 @@ pub enum Provenance {
     Unknown,
 }
 
+/// Who an edit event came from: the person at this Excel, or someone
+/// editing the same workbook with them (Excel's `source`, Local or Remote,
+/// on `onChanged`; decision 0032).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Editor {
+    #[default]
+    You,
+    CoAuthor,
+    /// Both edited the cell in this session.
+    Both,
+}
+
+impl Editor {
+    #[must_use]
+    pub fn and(self, other: Editor) -> Editor {
+        if self == other { self } else { Editor::Both }
+    }
+}
+
 /// A range the open workbook reported as edited in this session (an
 /// `onChanged` event that wasn't Lineage's own write), in b's addresses.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hint {
     pub sheet: String,
     pub area: Area,
+    pub by: Editor,
 }
 
 /// One side of a changed cell, ready to show.
@@ -77,6 +97,8 @@ pub struct CellChange {
     pub id: String,
     pub category: Category,
     pub provenance: Provenance,
+    /// Who made a direct edit; `None` for any other provenance.
+    pub edited_by: Option<Editor>,
     /// The sheet's name in b.
     pub sheet: String,
     pub sheet_a: usize,
@@ -623,10 +645,13 @@ fn header_of(
     }
 }
 
-fn hinted(hints: &[Hint], sheet: &str, col: u32, row: u32) -> bool {
+/// Who the session's events say edited a cell, if anyone.
+fn hinted(hints: &[Hint], sheet: &str, col: u32, row: u32) -> Option<Editor> {
     hints
         .iter()
-        .any(|h| h.sheet.eq_ignore_ascii_case(sheet) && h.area.contains(col, row))
+        .filter(|h| h.sheet.eq_ignore_ascii_case(sheet) && h.area.contains(col, row))
+        .map(|h| h.by)
+        .reduce(Editor::and)
 }
 
 /// Groups numbers into runs of consecutive ones: [3, 4, 5, 9] → [[3, 4, 5], [9]].
@@ -839,9 +864,13 @@ impl Builder<'_> {
                 if category == Category::Refreshed {
                     self.refresh_seeds.push((j, cb, rb));
                 }
-                let provenance = match category {
-                    Category::Refreshed => Provenance::Refresh,
-                    _ if hinted(hints, &name, cb, rb) => Provenance::DirectEdit,
+                let edited_by = match category {
+                    Category::Refreshed => None,
+                    _ => hinted(hints, &name, cb, rb),
+                };
+                let provenance = match (category, edited_by) {
+                    (Category::Refreshed, _) => Provenance::Refresh,
+                    (_, Some(_)) => Provenance::DirectEdit,
                     _ => Provenance::Unknown,
                 };
                 let before = side_of(a, ta, x, fa.text(ra, ca));
@@ -873,6 +902,7 @@ impl Builder<'_> {
                     id,
                     category,
                     provenance,
+                    edited_by,
                     sheet: name.clone(),
                     sheet_a: i,
                     sheet_b: j,

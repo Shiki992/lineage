@@ -53,6 +53,7 @@ const MAX_HINTS = 10_000;
 export class ExcelHost implements DocumentHost, CellHost, CellNavigator {
   private readonly hints = new Map<string, Hint>();
   private watching = false;
+  private onCoAuthor: (() => void) | undefined;
 
   /** True when this Excel can carry out every kind of cell step. */
   canApplyPlan(): boolean {
@@ -60,11 +61,15 @@ export class ExcelHost implements DocumentHost, CellHost, CellNavigator {
   }
 
   /**
-   * Starts keeping the ranges the person edits, from Excel's change events,
-   * leaving out Lineage's own writes. Hints only: "What changed" works from
-   * the bytes without them.
+   * Starts keeping the ranges edited in this session, from Excel's change
+   * events, leaving out Lineage's own writes. Each says whose edit it was:
+   * `source` is Remote for someone editing the same workbook (a share link,
+   * co-authoring), and their edits are never called the person's own
+   * (decision 0032). Hints only: "What changed" works from the bytes
+   * without them.
    * https://learn.microsoft.com/javascript/api/excel/excel.worksheetcollection#excel-excel-worksheetcollection-onchanged-member
    * https://learn.microsoft.com/javascript/api/excel/excel.worksheetchangedeventargs#excel-excel-worksheetchangedeventargs-triggersource-member
+   * https://learn.microsoft.com/javascript/api/excel/excel.worksheetchangedeventargs#excel-excel-worksheetchangedeventargs-source-member
    */
   async watchEdits(): Promise<void> {
     if (this.watching || !Office.context.requirements.isSetSupported("ExcelApi", "1.14")) {
@@ -76,24 +81,35 @@ export class ExcelHost implements DocumentHost, CellHost, CellNavigator {
         if (event.triggerSource === Excel.EventTriggerSource.thisLocalAddin) {
           return;
         }
+        const by = event.source === Excel.EventSource.remote ? "coAuthor" : "you";
+        if (by === "coAuthor") {
+          this.onCoAuthor?.();
+        }
         await Excel.run(async (inner) => {
           const sheet = inner.workbook.worksheets.getItem(event.worksheetId);
           sheet.load("name");
           await inner.sync();
-          this.addHint(sheet.name, event.address);
+          this.addHint(sheet.name, event.address, by);
         });
       });
       await context.sync();
     });
   }
 
-  private addHint(sheet: string, address: string): void {
+  /** Calls `onEdit` for each change event from a co-author (decision 0032). */
+  async watchCoAuthors(onEdit: () => void): Promise<void> {
+    this.onCoAuthor = onEdit;
+    await this.watchEdits();
+  }
+
+  /** One hint per range and editor, so a range both edited says so. */
+  addHint(sheet: string, address: string, by: "you" | "coAuthor"): void {
     // A whole row or column, or several areas, is too coarse to say anything.
     if (!/^[A-Z]{1,3}[1-9][0-9]*(:[A-Z]{1,3}[1-9][0-9]*)?$/.test(address)) {
       return;
     }
     if (this.hints.size < MAX_HINTS) {
-      this.hints.set(`${sheet}!${address}`, { sheet, address });
+      this.hints.set(`${by} ${sheet}!${address}`, { sheet, address, by });
     }
   }
 

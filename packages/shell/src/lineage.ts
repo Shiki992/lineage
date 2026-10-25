@@ -20,7 +20,7 @@ import type { FileLocation } from "./storage.js";
 import { LineageError } from "./errors.js";
 import { FETCH_ROUNDS, History, concat } from "./history.js";
 import { numbered, withExtension } from "./names.js";
-import { FileExists, FileLocked, StorageConflict, checkFileName } from "./storage.js";
+import { FileExists, FileLocked, StorageConflict, checkFileName, sha256Hex } from "./storage.js";
 
 export { LineageError, userMessage } from "./errors.js";
 
@@ -35,7 +35,11 @@ export interface Returning {
 /** What the panel shows for the open document. */
 export type Opened =
   | { readonly kind: "untracked"; readonly name: string; readonly saved: boolean }
-  | { readonly kind: "elsewhere"; readonly ids: s.Ids }
+  /**
+   * Tracked, but its history isn't in this storage. `sharedWithYou` when the
+   * file is in someone else's drive (decision 0032), `unknown` otherwise.
+   */
+  | { readonly kind: "elsewhere"; readonly ids: s.Ids; readonly where: "sharedWithYou" | "unknown" }
   | { readonly kind: "master"; readonly file: s.OpenFile; readonly panel: s.MasterPanel }
   | { readonly kind: "version"; readonly file: s.OpenFile; readonly panel: s.VersionPanel }
   /**
@@ -211,7 +215,7 @@ export class Lineage {
       let ledger = await this.ledger(ids.family);
       if (ledger.length === 0) {
         this.openFile = undefined;
-        return { kind: "elsewhere", ids };
+        return { kind: "elsewhere", ids, where: await this.whose() };
       }
       await this.fetchBlobs(ids.family, await this.engine.referencedBlobs(ledger));
       let file = await this.engine.openFile(ledger, ids.checkpoint);
@@ -228,6 +232,19 @@ export class Lineage {
       this.openFile = file;
       return this.panelFor(file, ledger);
     });
+  }
+
+  /** Whether the open document is in someone else's drive, as far as storage can tell. */
+  private async whose(): Promise<"sharedWithYou" | "unknown"> {
+    const { url } = await this.host.describe();
+    if (!url || !this.storage.holds) {
+      return "unknown";
+    }
+    try {
+      return (await this.storage.holds(url)) === false ? "sharedWithYou" : "unknown";
+    } catch {
+      return "unknown";
+    }
   }
 
   /**
@@ -633,7 +650,7 @@ export class Lineage {
    * "Save copy and record it" for `node`: the open file, or a tailored version
    * read from storage. Saves a checkpoint first if the file has unsaved changes.
    */
-  sendCopy(node: string, args: s.SendArgs): Promise<{ name: string; ref: string }> {
+  sendCopy(node: string, args: s.SendArgs): Promise<{ name: string; ref: string; sent: string }> {
     return this.serial("sendCopy", async () => {
       const file = this.requireFile();
       const isOpen = node === file.nodeId;
@@ -678,7 +695,8 @@ export class Lineage {
       );
       const { newFile } = result;
       const suggested = result.outcome.newFileName;
-      if (!newFile || !suggested) {
+      const sent = result.outcome.created;
+      if (!newFile || !suggested || !sent) {
         throw new LineageError("Lineage couldn't make the copy.", "no copy came back");
       }
       const taken = new Set((await this.storage.fileNames("sent")).map((n) => n.toLowerCase()));
@@ -687,7 +705,170 @@ export class Lineage {
         name = numbered(checkFileName(suggested.replace(/["*:<>?/\\|]/g, " ")), n);
       }
       const saved = await this.storage.writeFile("sent", name, newFile);
-      return { name: saved.name, ref: saved.ref };
+      return { name: saved.name, ref: saved.ref, sent };
+    });
+  }
+
+  /** Whether this storage can share a sent copy as a link (decision 0032). */
+  get canShare(): boolean {
+    return this.storage.sharing !== undefined;
+  }
+
+  private async sentRow(family: string, sent: string): Promise<s.SentRow> {
+    const list = await this.engine.sentList(await this.ledger(family));
+    const row = list.groups.flatMap((g) => g.rows).find((r) => r.id === sent);
+    if (!row) {
+      throw new LineageError("That copy isn't in this file's history.", `no sent copy ${sent}`);
+    }
+    return row;
+  }
+
+  /**
+   * Where a sent copy's exact bytes are in Sent copies: `ref` when it was
+   * just made, else the file there with the same bytes, else written there
+   * again from history. Whatever is shared is exactly what left.
+   */
+  private async sentFile(family: string, sent: string, ref: string | undefined): Promise<string> {
+    const exact = await this.engine.openSentCopy(await this.ledger(family), sent);
+    const hash = await sha256Hex(exact);
+    const same = async (r: string) => {
+      try {
+        return (await sha256Hex(await this.storage.readFile(r))) === hash;
+      } catch {
+        return false;
+      }
+    };
+    if (ref !== undefined && (await same(ref))) {
+      return ref;
+    }
+    const names = await this.storage.fileNames("sent");
+    for (const name of names) {
+      const candidate = this.storage.refFor("sent", name);
+      if (await same(candidate)) {
+        return candidate;
+      }
+    }
+    const { name: open } = await this.host.describe();
+    const row = await this.sentRow(family, sent);
+    const dot = open.lastIndexOf(".");
+    const ext = dot > 0 ? open.slice(dot) : "";
+    const stem = row.version.split(" · ")[0] ?? "Copy";
+    const base = checkFileName(`${stem} (${row.recipient})${ext}`.replace(/["*:<>?/\\|]/g, " "));
+    const taken = new Set(names.map((n) => n.toLowerCase()));
+    let name = base;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) {
+      name = numbered(base, n);
+    }
+    return (await this.storage.writeFile("sent", name, exact)).ref;
+  }
+
+  /**
+   * "Share a link": shares the copy that left, exactly, and records the link
+   * (decision 0032). With "edit", whoever has the link may change that file;
+   * the recorded copy never changes, and their edits come back for review.
+   * `ref` is where the copy was just saved, if it was.
+   */
+  shareLink(
+    sent: string,
+    access: s.LinkAccess,
+    ref?: string,
+  ): Promise<{ url: string; who: string; line: string }> {
+    return this.serial("shareLink", async () => {
+      const sharing = this.storage.sharing;
+      if (!sharing) {
+        throw new LineageError(
+          `${this.storage.label} can't share files as links.`,
+          "the storage has no sharing",
+        );
+      }
+      const file = this.requireFile();
+      const row = await this.sentRow(file.familyId, sent);
+      if (row.link?.live) {
+        throw new LineageError(
+          "This copy is already shared. Stop sharing it first to make another link.",
+          "a live link",
+        );
+      }
+      const fileRef = await this.sentFile(file.familyId, sent, ref);
+      const made = await sharing.createLink(fileRef, access);
+      try {
+        await this.press(file.familyId, (ledger) =>
+          this.engine.recordLink(
+            ledger,
+            sent,
+            { id: made.id, access, url: made.url, fileRef, scope: made.scope },
+            this.now(),
+          ),
+        );
+      } catch (error) {
+        // Nothing recorded: take the link away again, so nothing is shared
+        // that the history doesn't show.
+        await sharing.stopLink(fileRef, made.id).catch(() => undefined);
+        throw error;
+      }
+      const shared = (await this.sentRow(file.familyId, sent)).link;
+      return { url: made.url, who: shared?.who ?? "", line: shared?.line ?? "" };
+    });
+  }
+
+  /** "Stop sharing": removes a sent copy's link, and records that. */
+  stopSharing(sent: string): Promise<void> {
+    return this.serial("stopSharing", async () => {
+      const file = this.requireFile();
+      const link = (await this.sentRow(file.familyId, sent)).link;
+      if (!link?.live) {
+        return;
+      }
+      const sharing = this.storage.sharing;
+      if (!sharing) {
+        throw new LineageError(
+          `${this.storage.label} can't stop sharing from here.`,
+          "the storage has no sharing",
+        );
+      }
+      await sharing.stopLink(link.fileRef, link.id);
+      await this.press(file.familyId, (ledger) => this.engine.stopLink(ledger, sent, this.now()));
+    });
+  }
+
+  /**
+   * The sent copies whose edit links were used to change them: the shared
+   * file's bytes are none Lineage has seen (decision 0032). A file that
+   * can't be read is left out, never reported as edited.
+   */
+  sharedEdits(): Promise<string[]> {
+    return this.serial("sharedEdits", async () => {
+      const file = this.requireFile();
+      const list = await this.engine.sentList(await this.ledger(file.familyId));
+      const edited: string[] = [];
+      for (const row of list.groups.flatMap((g) => g.rows)) {
+        if (!row.shared) {
+          continue;
+        }
+        try {
+          const hash = await sha256Hex(await this.storage.readFile(row.shared.fileRef));
+          if (!row.shared.known.includes(hash)) {
+            edited.push(row.id);
+          }
+        } catch {
+          // Moved, deleted or unreachable: nothing to say about it.
+        }
+      }
+      return edited;
+    });
+  }
+
+  /** The shared file as it is now, to review as a file that came back. */
+  sharedFile(sent: string): Promise<{ bytes: Uint8Array; name: string }> {
+    return this.serial("sharedFile", async () => {
+      const file = this.requireFile();
+      const row = await this.sentRow(file.familyId, sent);
+      const ref = row.shared?.fileRef ?? row.link?.fileRef;
+      if (!ref) {
+        throw new LineageError("That copy wasn't shared as a link.", `no link for ${sent}`);
+      }
+      const name = ref.split("/").pop() ?? ref;
+      return { bytes: await this.storage.readFile(ref), name };
     });
   }
 

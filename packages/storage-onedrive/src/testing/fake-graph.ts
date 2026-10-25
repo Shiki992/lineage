@@ -53,6 +53,19 @@ export class FakeGraph {
   private urlEpoch = 0;
   /** What /drives/{d}/root:/path and /shares resolve the master to. */
   readonly drive = "d1";
+  /**
+   * The person's own drive as Graph names it: a personal drive's id is its
+   * cid, and a work drive's addresses start with its owner's site.
+   */
+  me = { driveId: "a1b2c3d4e5f60718", site: "https://onedrive.fake/me" };
+  /** Sharing links by permission id (createLink). */
+  readonly links = new Map<string, { drive: string; path: string; type: string; scope: string }>();
+  /**
+   * Whether the app-folder permission may share. Graph's docs list only
+   * Files.ReadWrite for createLink, so by default it can't: only a request
+   * with the token "wider" (Files.ReadWrite) may.
+   */
+  appFolderShares = false;
 
   constructor() {
     this.folder("me", "");
@@ -125,7 +138,10 @@ export class FakeGraph {
       id: e.id,
       name,
       eTag: this.eTag(e),
-      webUrl: `https://onedrive.fake/${encodeURIComponent(e.drive)}/${e.path.split("/").map(encodeURIComponent).join("/")}`,
+      webUrl:
+        e.drive === "me"
+          ? `${this.me.site}/${e.path.split("/").map(encodeURIComponent).join("/")}`
+          : `https://onedrive.fake/${encodeURIComponent(e.drive)}/${e.path.split("/").map(encodeURIComponent).join("/")}`,
       ...(e.folder ? { folder: { childCount: 0 } } : { file: {} }),
       ...(e.folder
         ? {}
@@ -133,7 +149,7 @@ export class FakeGraph {
             "@microsoft.graph.downloadUrl": `${DOWNLOAD}${e.id}?v=${String(e.version)}&epoch=${String(this.urlEpoch)}`,
           }),
       parentReference: {
-        driveId: e.drive,
+        driveId: e.drive === "me" ? this.me.driveId : e.drive,
         id: this.entries.get(this.key(e.drive, e.path.split("/").slice(0, -1).join("/")))?.id,
       },
     };
@@ -299,6 +315,44 @@ export class FakeGraph {
     if (method === "PUT" && rest === "/content") {
       const e = this.file(target.drive, target.path, body);
       return json(e.version === 1 ? 201 : 200, this.view(e));
+    }
+    const mayShare = this.appFolderShares || headers["authorization"] === "Bearer wider";
+    if (method === "POST" && rest === "/createLink") {
+      if (!entry || entry.folder) {
+        return error(404, "itemNotFound");
+      }
+      if (!mayShare) {
+        return error(403, "accessDenied");
+      }
+      const request = JSON.parse(new TextDecoder().decode(body)) as {
+        type?: string;
+        scope?: string;
+      };
+      const type = request.type ?? "view";
+      const scope =
+        request.scope ?? (this.me.site.includes(".sharepoint.com") ? "organization" : "anonymous");
+      const existing = [...this.links].find(
+        ([, l]) => l.drive === entry.drive && l.path === entry.path && l.type === type,
+      );
+      const id = existing?.[0] ?? `perm${String(this.nextId++)}`;
+      if (!existing) {
+        this.links.set(id, { drive: entry.drive, path: entry.path, type, scope });
+      }
+      return json(existing ? 200 : 201, {
+        id,
+        roles: [type === "edit" ? "write" : "read"],
+        link: { type, scope, webUrl: `https://1drv.ms/w/${id}` },
+      });
+    }
+    if (method === "DELETE" && rest.startsWith("/permissions/")) {
+      if (!mayShare) {
+        return error(403, "accessDenied");
+      }
+      const id = decodeURIComponent(rest.slice("/permissions/".length));
+      if (!this.links.delete(id)) {
+        return error(404, "itemNotFound");
+      }
+      return new Response(null, { status: 204 });
     }
     if (method === "POST" && rest === "/createUploadSession") {
       const ifMatch = headers["if-match"];

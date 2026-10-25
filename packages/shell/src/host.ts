@@ -113,4 +113,10 @@ export interface DocumentHost {
   openFile(location: FileLocation): Promise<void>;
   /** Opens bytes as a new, unsaved document, such as "what they received". */
   openCopy(bytes: Uint8Array): Promise<void>;
+  /**
+   * Calls `onEdit` whenever the app reports an edit by someone editing the
+   * same file with this person (co-authoring, a share link; decision 0032).
+   * A hint only: nothing is recorded. Optional: PowerPoint can't tell.
+   */
+  watchCoAuthors?(onEdit: () => void): Promise<void>;
 }

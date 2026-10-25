@@ -1,0 +1,25 @@
+{
+  "specVersion": "0",
+  "format": "xlsx",
+  "changes": [
+    {
+      "id": "mrr",
+      "kind": "modify",
+      "location": {
+        "format": "xlsx",
+        "part": "xl/worksheets/sheet2.xml",
+        "sheet": "Revenue",
+        "sheetIndex": 1,
+        "address": "C2",
+        "target": "cell"
+      },
+      "before": "5762.4",
+      "after": "6468",
+      "formattingOnly": false,
+      "confidence": 100,
+      "category": "knockOn",
+      "provenance": "downstream",
+      "editedBy": "coAuthor"
+    }
+  ]
+}

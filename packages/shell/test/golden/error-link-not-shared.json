@@ -1,0 +1,8 @@
+{
+  "error": {
+    "detail": "not allowed: this copy isn't shared",
+    "kind": "notAllowed",
+    "userMessage": "That can't be done for this file."
+  },
+  "ok": false
+}

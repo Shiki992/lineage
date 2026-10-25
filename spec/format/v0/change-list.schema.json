@@ -70,6 +70,10 @@
         "provenance": {
           "description": "xlsx only, and required there: why the change happened, as far as the evidence goes. directEdit: a change event from the editing session matches it. downstream: the dependency graph links it to an input or formula change in the same list, and nothing else upstream changed. refresh: a data refresh, another workbook or a volatile function. likelyDownstream: the graph suggests it, but other explanations remain. unknown: anything else.",
           "enum": ["directEdit", "downstream", "refresh", "likelyDownstream", "unknown"]
+        },
+        "editedBy": {
+          "description": "xlsx, and only with provenance directEdit: whose edit the session's change event reported. you: the person comparing. coAuthor: someone editing the same workbook with them. both: each edited it. Left out, the event didn't say. Added in v0 without a version change: readers that don't know it can ignore it.",
+          "enum": ["you", "coAuthor", "both"]
         }
       },
       "allOf": [
@@ -106,6 +110,10 @@
           "else": {
             "not": { "anyOf": [{ "required": ["category"] }, { "required": ["provenance"] }] }
           }
+        },
+        {
+          "if": { "required": ["editedBy"] },
+          "then": { "properties": { "provenance": { "const": "directEdit" } } }
         }
       ]
     },

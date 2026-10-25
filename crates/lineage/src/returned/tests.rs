@@ -724,3 +724,159 @@ fn a_libreoffice_save_is_reviewed_words_only() {
         "{xml}"
     );
 }
+
+impl Host {
+    pub(crate) fn link(&mut self, sent: &Id, access: event::LinkAccess) -> Outcome {
+        let state = self.state().clone();
+        let ctx = Context {
+            now: self.now,
+            ids: &mut self.ids,
+            author: None,
+        };
+        let link = commands::NewLink {
+            id: format!("perm-{}", sent.as_str()),
+            access,
+            url: format!("https://1drv.ms/w/{}", sent.as_str()),
+            file_ref: "Sent copies/Resume (Mentor).docx".to_owned(),
+            scope: "anonymous".to_owned(),
+        };
+        let outcome = commands::record_link(&ctx, &state, sent, &link).expect("records the link");
+        self.take(outcome)
+    }
+
+    pub(crate) fn stop_link(&mut self, sent: &Id) -> Outcome {
+        let state = self.state().clone();
+        let ctx = Context {
+            now: self.now,
+            ids: &mut self.ids,
+            author: None,
+        };
+        let outcome = commands::stop_link(&ctx, &state, sent).expect("stops the link");
+        self.take(outcome)
+    }
+}
+
+#[test]
+fn a_shared_copy_edited_again_asks_only_about_what_is_new() {
+    let mut host = Host::new();
+    let v1 = resume::package("t", &resume::master_v1_lines()).to_bytes();
+    let file = host.start(&v1);
+    let master = host.master();
+    let (sent, copy) = host.send(&master, &file, "Mentor", true);
+    host.link(&sent, event::LinkAccess::Edit);
+    let row = views::sent_list(host.state(), None).groups[0].rows[0].clone();
+    let link = row.link.expect("a link");
+    assert_eq!(link.line, "Shared as a link · Can edit");
+    assert_eq!(link.who, "Anyone with the link can open it");
+    assert!(link.live);
+    let shared = row.shared.expect("an edit link's file to watch");
+    assert_eq!(shared.file_ref, "Sent copies/Resume (Mentor).docx");
+    assert_eq!(shared.known, [BlobHash::of(&copy).as_str().to_owned()]);
+
+    // They edit the shared copy: it comes back by its ids, with three changes.
+    let mut edits = light_edits(&resume::master_v1_lines());
+    let first = mentor(&copy, &edits);
+    let found = host.recognise(&first);
+    assert!(found.by_ids);
+    let one = host.record(&first, &found, MatchedBy::Ids);
+    let ours = review(host.state(), &one, &master, &file, &host.blobs).expect("reviews");
+    let ids: Vec<String> = ours.view.changes.iter().map(|c| c.id.clone()).collect();
+    assert_eq!(ids.len(), 3);
+    let kept = host.keep(
+        &one,
+        &master,
+        &file,
+        &[
+            (ids[0].clone(), Decision::BringIn),
+            (ids[1].clone(), Decision::BringIn),
+            (ids[2].clone(), Decision::Decline),
+        ],
+    );
+    let file = kept.file.expect("written");
+    let known = views::sent_list(host.state(), None).groups[0].rows[0]
+        .shared
+        .clone()
+        .expect("still shared")
+        .known;
+    assert!(known.contains(&BlobHash::of(&first).as_str().to_owned()));
+
+    // They edit it again, adding a line: only that is asked about.
+    edits.push(Line::Plain("Speaks Portuguese and Spanish.".to_owned()));
+    let second = mentor(&copy, &edits);
+    let found = host.recognise(&second);
+    let two = host.record(&second, &found, MatchedBy::Ids);
+    assert_ne!(two, one);
+    let r = host.state().returned_file(&two).expect("recorded").clone();
+    assert_eq!(
+        (r.change_count, r.formatting_count),
+        (1, 0),
+        "only what wasn't kept or skipped before"
+    );
+    let again = review(host.state(), &two, &master, &file, &host.blobs).expect("reviews");
+    assert_eq!(again.headline, "1 change from Mentor");
+    assert!(again.view.changes.iter().all(|c| !ids.contains(&c.id)));
+
+    // Stopped: kept as stopped, with nothing left to watch.
+    host.stop_link(&sent);
+    let row = views::sent_list(host.state(), None).groups[0].rows[0].clone();
+    let link = row.link.expect("still listed");
+    assert!(!link.live);
+    assert_eq!(link.line, "Link stopped 15 Oct");
+    assert!(row.shared.is_none());
+}
+
+#[test]
+fn a_link_is_recorded_once_and_stopped_before_another() {
+    let mut host = Host::new();
+    let file = host.start(&resume::package("t", &resume::master_v1_lines()).to_bytes());
+    let master = host.master();
+    let (sent, _) = host.send(&master, &file, "Mentor", true);
+    let first = host.link(&sent, event::LinkAccess::View);
+    assert!(!first.nothing_changed);
+    // OneDrive gives back the same link for the same kind: nothing to record.
+    assert!(host.link(&sent, event::LinkAccess::View).nothing_changed);
+    let row = views::sent_list(host.state(), None).groups[0].rows[0].clone();
+    assert_eq!(
+        row.link.expect("a link").line,
+        "Shared as a link · View only"
+    );
+    assert!(row.shared.is_none(), "a view link can't be edited");
+
+    let state = host.state().clone();
+    let ctx = Context {
+        now: host.now,
+        ids: &mut host.ids,
+        author: None,
+    };
+    let other = commands::NewLink {
+        id: "another".to_owned(),
+        access: event::LinkAccess::Edit,
+        url: "https://1drv.ms/w/another".to_owned(),
+        file_ref: "Sent copies/Resume (Mentor).docx".to_owned(),
+        scope: "anonymous".to_owned(),
+    };
+    assert!(matches!(
+        commands::record_link(&ctx, &state, &sent, &other),
+        Err(Error::NotAllowed(m)) if m.contains("stop sharing it first")
+    ));
+    let plain = commands::NewLink {
+        url: "http://1drv.ms/w/another".to_owned(),
+        ..other.clone()
+    };
+    assert!(commands::record_link(&ctx, &state, &master, &other).is_err());
+    host.stop_link(&sent);
+    let state = host.state().clone();
+    let ctx = Context {
+        now: host.now,
+        ids: &mut host.ids,
+        author: None,
+    };
+    assert!(commands::record_link(&ctx, &state, &sent, &plain).is_err());
+    assert!(commands::stop_link(&ctx, &state, &sent).is_err());
+    host.link(&sent, event::LinkAccess::Edit);
+    let row = views::sent_list(host.state(), None).groups[0].rows[0].clone();
+    assert_eq!(
+        row.link.expect("a link").line,
+        "Shared as a link · Can edit"
+    );
+}

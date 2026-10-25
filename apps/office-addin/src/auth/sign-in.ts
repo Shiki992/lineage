@@ -115,6 +115,19 @@ export async function signIn(options: {
   const first = await token(layout.scopes, options.interactive, false);
   const provider: TokenProvider = async ({ forceRefresh }) =>
     (await token(layout.scopes, true, forceRefresh)).accessToken;
-  const storage = new OneDriveStorage(new Graph({ token: provider }), layout);
+  // Files.ReadWrite, only if OneDrive won't share a copy with the app-folder
+  // permission alone; the share screen says so before Microsoft asks
+  // (decision 0032).
+  const wider = () =>
+    Promise.resolve(
+      new Graph({
+        token: async ({ forceRefresh }) =>
+          (await token(SHARING_SCOPES, true, forceRefresh)).accessToken,
+      }),
+    );
+  const storage = new OneDriveStorage(new Graph({ token: provider }), layout, { wider });
   return { storage, name: first.account?.name ?? null };
 }
+
+/** The wider permission sharing a link may need (decision 0032). */
+export const SHARING_SCOPES = ["Files.ReadWrite"] as const;

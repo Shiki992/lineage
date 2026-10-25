@@ -147,3 +147,36 @@ fn workbook_change_lists_from_the_engine_are_valid() {
         }
     }
 }
+
+#[test]
+fn a_co_authors_edit_is_named_in_the_change_list() {
+    use lineage_core::Workbook;
+    use lineage_core::xlsx::diff::{Editor, Hint, diff};
+    use lineage_core::xlsx::refs::parse_area;
+    use lineage_core::xlsx::view::change_list;
+    use lineage_testkit::workbooks;
+
+    let (schemas, index) = compile_schema();
+    let a = Workbook::open(&workbooks::model_master().to_bytes()).expect("opens");
+    let b = Workbook::open(&workbooks::model_price_update().to_bytes()).expect("opens");
+    let hint = Hint {
+        sheet: "Assumptions".to_owned(),
+        area: parse_area("B4").expect("area"),
+        by: Editor::CoAuthor,
+    };
+    let list = change_list(&diff(&a, &b, &[hint]), &a, &b);
+    let edited: Vec<_> = list
+        .changes
+        .iter()
+        .filter(|c| c.edited_by.is_some())
+        .collect();
+    assert_eq!(edited.len(), 1, "{}", list.to_json());
+    assert_eq!(edited[0].edited_by.as_deref(), Some("coAuthor"));
+    assert_eq!(edited[0].provenance.as_deref(), Some("directEdit"));
+    let instance: Value = serde_json::from_str(&list.to_json()).expect("json");
+    assert!(
+        schemas.validate(&instance, index).is_ok(),
+        "{}",
+        list.to_json()
+    );
+}

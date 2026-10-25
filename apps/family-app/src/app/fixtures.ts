@@ -74,6 +74,7 @@ export function fakeDocuments(overrides: Partial<Documents> = {}): Documents {
     compare: vi.fn(() => Promise.resolve(compared())),
     sentCopy: vi.fn(() => Promise.resolve(new Uint8Array([80, 75, 3, 4]))),
     missingFiles: vi.fn(() => Promise.resolve([])),
+    sharedEdits: vi.fn(() => Promise.resolve([])),
     unlinkedFiles: vi.fn(() => Promise.resolve([])),
     freeName: vi.fn((name: string) => Promise.resolve(`${name}.docx`)),
     restoreAsNewVersion: vi.fn((_f: string, _c: string, name: string) =>

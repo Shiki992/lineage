@@ -237,6 +237,10 @@ export interface Engine {
     nowMs: number,
   ): CommandResult;
   sentList(ledger: Uint8Array, search?: string): s.SentList;
+  /** "Share a link": records the link the storage made (decision 0032). */
+  recordLink(ledger: Uint8Array, sent: string, link: s.LinkArgs, nowMs: number): CommandResult;
+  /** "Stop sharing". */
+  stopLink(ledger: Uint8Array, sent: string, nowMs: number): CommandResult;
   openSentCopy(ledger: Uint8Array, sent: string): Uint8Array;
   /** A checkpoint's file as saved: "Open the master's version" (Phase 5B). */
   openCheckpoint(ledger: Uint8Array, checkpoint: string): Uint8Array;
@@ -685,6 +689,11 @@ function wrap(seed: Uint8Array): Engine {
       ),
     sentList: (ledger, search) =>
       view("sentList", s.SentList, (e) => e.sentList(ledger, search ?? null)),
+    recordLink: (ledger, sent, link, nowMs) =>
+      command("recordLink", (e) =>
+        e.recordLink(ledger, sent, json(checked(s.LinkArgs, link, "recordLink")), nowMs),
+      ),
+    stopLink: (ledger, sent, nowMs) => command("stopLink", (e) => e.stopLink(ledger, sent, nowMs)),
     openSentCopy: (ledger, sent) => bytes("openSentCopy", (e) => e.openSentCopy(ledger, sent)),
     openCheckpoint: (ledger, checkpoint) =>
       bytes("openCheckpoint", (e) => e.openCheckpoint(ledger, checkpoint)),

@@ -13,7 +13,7 @@ import { LineageError } from "./errors.js";
 import { History, concat } from "./history.js";
 import type * as s from "./schemas.js";
 import type { Storage } from "./storage.js";
-import { FileExists, NotFound, StorageConflict, checkFileName } from "./storage.js";
+import { FileExists, NotFound, StorageConflict, checkFileName, sha256Hex } from "./storage.js";
 import { numbered, withExtension } from "./names.js";
 
 export interface LibraryOptions {
@@ -156,6 +156,31 @@ export class Library {
         }
       }
       return missing;
+    });
+  }
+
+  /**
+   * Sent copies whose edit links were used to change them: the shared file's
+   * bytes are none Lineage has seen (decision 0032). One that can't be read
+   * is left out, never reported as changed.
+   */
+  sharedEdits(page: s.DocumentPage): Promise<string[]> {
+    return this.timed("sharedEdits", async () => {
+      const edited: string[] = [];
+      for (const row of page.sent.groups.flatMap((g) => g.rows)) {
+        if (!row.shared) {
+          continue;
+        }
+        try {
+          const hash = await sha256Hex(await this.storage.readFile(row.shared.fileRef));
+          if (!row.shared.known.includes(hash)) {
+            edited.push(row.id);
+          }
+        } catch {
+          // Moved, deleted or unreachable: nothing to say about it.
+        }
+      }
+      return edited;
     });
   }
 

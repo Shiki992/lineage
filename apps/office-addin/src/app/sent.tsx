@@ -2,11 +2,77 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // "What I've sent": every copy that left, newest first, by month, each opened
-// exactly as it was sent.
+// exactly as it was sent, and shared as a link if the person chooses
+// (decision 0032).
 
-import type { SentList } from "@lineage/shell";
+import type { SentList, SentRow } from "@lineage/shell";
 import { useId, useState } from "react";
-import { Back, Button, Chip } from "./parts";
+import { Back, Button, Chip, LinkButton } from "./parts";
+
+/** A live link's actions: copy it, or stop it after saying what that does. */
+function LinkActions({ row, busy, onStop }: { row: SentRow; busy: boolean; onStop: () => void }) {
+  const [state, setState] = useState<"idle" | "copied" | "manual" | "confirm">("idle");
+  const url = row.link?.url ?? "";
+  if (state === "confirm") {
+    return (
+      <div className="callout stack" style={{ gap: 6 }} role="group" aria-label="Stop sharing">
+        <p>Stop sharing with {row.recipient}? The link stops working for everyone who has it.</p>
+        <div className="row row--wrap">
+          <Button className="button--destructive" disabled={busy} onClick={onStop}>
+            Stop sharing
+          </Button>
+          <Button
+            onClick={() => {
+              setState("idle");
+            }}
+          >
+            Keep sharing
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="stack" style={{ gap: 4 }}>
+      <div className="row row--wrap">
+        <Button
+          aria-label={`Copy the link for ${row.recipient}`}
+          onClick={() => {
+            navigator.clipboard.writeText(url).then(
+              () => {
+                setState("copied");
+              },
+              () => {
+                setState("manual");
+              },
+            );
+          }}
+        >
+          Copy link
+        </Button>
+        <LinkButton
+          aria-label={`Stop sharing with ${row.recipient}`}
+          disabled={busy}
+          onClick={() => {
+            setState("confirm");
+          }}
+        >
+          Stop sharing
+        </LinkButton>
+      </div>
+      {state === "copied" && (
+        <p className="small secondary" role="status">
+          Copied.
+        </p>
+      )}
+      {state === "manual" && (
+        <p className="small secondary mono" role="status">
+          {url}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export function WhatIveSent({
   list,
@@ -16,6 +82,10 @@ export function WhatIveSent({
   onReview,
   onCameBack,
   onBack,
+  edited = [],
+  onShare,
+  onStopSharing,
+  onReviewShared,
 }: {
   list: SentList;
   busy: boolean;
@@ -25,6 +95,13 @@ export function WhatIveSent({
   onReview?: (returned: string) => void;
   onCameBack?: () => void;
   onBack: () => void;
+  /** Sent copies whose edit links were used to change them. */
+  edited?: readonly string[];
+  /** "Share a link"; absent when the storage can't share. */
+  onShare?: (sent: string, recipient: string) => void;
+  onStopSharing?: (sent: string) => void;
+  /** "Review their changes" on a shared copy they edited. */
+  onReviewShared?: (sent: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const id = useId();
@@ -90,6 +167,52 @@ export function WhatIveSent({
                 </div>
                 <p className="small">{row.version}</p>
                 {row.purpose && <p className="secondary small">{row.purpose}</p>}
+                {row.link && (
+                  <p className="small">
+                    {row.link.line}
+                    {row.link.live && <span className="secondary"> · {row.link.who}</span>}
+                  </p>
+                )}
+                {edited.includes(row.id) && onReviewShared && (
+                  <div className="callout stack" style={{ gap: 6 }}>
+                    <p>{row.recipient} changed the shared copy.</p>
+                    <div>
+                      <Button
+                        primary
+                        aria-label={`Review ${row.recipient}'s changes to the shared copy`}
+                        disabled={busy}
+                        onClick={() => {
+                          onReviewShared(row.id);
+                        }}
+                      >
+                        Review their changes
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {row.link?.live && onStopSharing ? (
+                  <LinkActions
+                    row={row}
+                    busy={busy}
+                    onStop={() => {
+                      onStopSharing(row.id);
+                    }}
+                  />
+                ) : (
+                  onShare && (
+                    <div>
+                      <LinkButton
+                        aria-label={`Share a link with ${row.recipient}`}
+                        disabled={busy}
+                        onClick={() => {
+                          onShare(row.id, row.recipient);
+                        }}
+                      >
+                        Share a link
+                      </LinkButton>
+                    </div>
+                  )
+                )}
                 <div className="row row--spread">
                   <p className="secondary small">
                     {row.format} · {row.date}

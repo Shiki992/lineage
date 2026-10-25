@@ -235,6 +235,12 @@ describe("what changed in an open workbook", () => {
     const card = view.workbook?.groups[0]?.cards[0];
     expect(card?.summary).toBe("'$49' changed to '$55'");
     expect(card?.why).toBe("Edited in this session");
+    // The same edit by someone editing the workbook with them (decision 0032).
+    host.hints = [{ sheet: "Assumptions", address: "B4", by: "coAuthor" }];
+    const shared = await pane.whatChanged();
+    expect(shared.workbook?.groups[0]?.cards[0]?.why).toBe(
+      "Edited by someone you share it with, in this session",
+    );
     const side = await pane.cellSideBySide("Assumptions", "B4");
     expect([side.before?.shown, side.after?.shown]).toEqual(["$49", "$55"]);
   });

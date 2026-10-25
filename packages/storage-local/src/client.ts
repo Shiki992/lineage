@@ -5,7 +5,14 @@
 // folder (plugin.ts). Versions are the ledger's length, as in the harness's
 // LocalFolderStorage, and the index's version is the start of its hash.
 
-import type { FileKind, FileLocation, LedgerVersion, Storage, StoredFile } from "@lineage/shell";
+import type {
+  FileKind,
+  FileLocation,
+  LedgerVersion,
+  Sharing,
+  Storage,
+  StoredFile,
+} from "@lineage/shell";
 import {
   BadBlob,
   FileChanged,
@@ -38,6 +45,22 @@ export class LocalFolderStorage implements Storage {
 
   /** `base`: where the dev server answers; an absolute URL in Node tests. */
   constructor(private readonly base = ROUTE) {}
+
+  /**
+   * Development only: links that look like OneDrive's but lead nowhere, so
+   * sharing a copy can be clicked through without a Microsoft account
+   * (decision 0032). The same kind of link to the same file has the same id,
+   * as on OneDrive. Edit the shared file in the dev folder to stand in for
+   * the recipient.
+   */
+  readonly sharing: Sharing = {
+    createLink: async (ref, access) => {
+      await this.readFile(ref);
+      const id = `dev-${access}-${(await sha256Hex(new TextEncoder().encode(ref))).slice(0, 12)}`;
+      return { id, url: `https://dev-folder.invalid/${id}`, scope: "anonymous" };
+    },
+    stopLink: () => Promise.resolve(),
+  };
 
   private async call(path: string, init?: RequestInit): Promise<Response> {
     try {

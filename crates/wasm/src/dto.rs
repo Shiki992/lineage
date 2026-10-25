@@ -91,6 +91,42 @@ pub struct SendArgs {
     pub embed_id: bool,
 }
 
+/// "Share a link": what the storage made (decision 0032).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct LinkArgs {
+    pub id: String,
+    pub access: LinkAccessDto,
+    pub url: String,
+    pub file_ref: String,
+    pub scope: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LinkAccessDto {
+    View,
+    Edit,
+}
+
+impl From<LinkAccessDto> for lineage::event::LinkAccess {
+    fn from(a: LinkAccessDto) -> Self {
+        match a {
+            LinkAccessDto::View => Self::View,
+            LinkAccessDto::Edit => Self::Edit,
+        }
+    }
+}
+
+impl From<lineage::event::LinkAccess> for LinkAccessDto {
+    fn from(a: lineage::event::LinkAccess) -> Self {
+        match a {
+            lineage::event::LinkAccess::View => Self::View,
+            lineage::event::LinkAccess::Edit => Self::Edit,
+        }
+    }
+}
+
 /// One family's ledger, for recognising a file across families.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -609,6 +645,30 @@ pub struct SentRowDto {
     /// The latest file that came back from this copy.
     pub returned: Option<Id>,
     pub button: String,
+    /// Its sharing link, if it was ever shared (decision 0032).
+    pub link: Option<SentLinkDto>,
+    /// While an edit link works: the shared file, and the SHA-256 of every
+    /// version of it Lineage has seen.
+    pub shared: Option<SharedFileDto>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SentLinkDto {
+    pub line: String,
+    pub who: String,
+    pub url: String,
+    pub access: LinkAccessDto,
+    pub live: bool,
+    pub id: String,
+    pub file_ref: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedFileDto {
+    pub file_ref: String,
+    pub known: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -648,6 +708,19 @@ impl From<&SentList> for SentListDto {
                             chip: r.chip.clone(),
                             returned: r.returned.clone(),
                             button: r.button.clone(),
+                            link: r.link.as_ref().map(|l| SentLinkDto {
+                                line: l.line.clone(),
+                                who: l.who.clone(),
+                                url: l.url.clone(),
+                                access: l.access.into(),
+                                live: l.live,
+                                id: l.id.clone(),
+                                file_ref: l.file_ref.clone(),
+                            }),
+                            shared: r.shared.as_ref().map(|s| SharedFileDto {
+                                file_ref: s.file_ref.clone(),
+                                known: s.known.clone(),
+                            }),
                         })
                         .collect(),
                 })
