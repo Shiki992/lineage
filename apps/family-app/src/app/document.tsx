@@ -581,8 +581,9 @@ function RestoreForm({
     let live = true;
     void documents.freeName(suggested, format).then(
       (free) => {
+        // Listing the folder can take a while: never replace what the person typed.
         if (live) {
-          setName(stem(free));
+          setName((current) => (current === suggested ? stem(free) : current));
         }
       },
       () => undefined,
