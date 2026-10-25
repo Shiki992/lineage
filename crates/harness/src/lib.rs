@@ -524,6 +524,58 @@ impl<S: Storage> Panel<S> {
         Ok(copy.name)
     }
 
+    /// "Share a link" to a sent copy saved as `file` (decision 0032). This
+    /// storage can't make links, so the link is a stand-in, as the dev folder's
+    /// is; what is recorded is the same.
+    ///
+    /// # Errors
+    /// When the copy is unknown or already shared.
+    pub fn share_a_link(&mut self, sent: &Id, access: event::LinkAccess, file: &str) -> Result<()> {
+        let link = commands::NewLink {
+            id: format!("harness-{}", sent.as_str()),
+            access,
+            url: format!("https://dev-folder.invalid/{}", sent.as_str()),
+            file_ref: file.to_owned(),
+            scope: "anonymous".to_owned(),
+        };
+        self.press(|ctx, state, _| commands::record_link(ctx, state, sent, &link))?;
+        Ok(())
+    }
+
+    /// "Stop sharing".
+    ///
+    /// # Errors
+    /// When the copy isn't shared.
+    pub fn stop_sharing(&mut self, sent: &Id) -> Result<()> {
+        self.press(|ctx, state, _| commands::stop_link(ctx, state, sent))?;
+        Ok(())
+    }
+
+    /// The copies whose edit links were used to change them: the shared file's
+    /// bytes are none Lineage has seen, as the pane checks.
+    ///
+    /// # Errors
+    /// When the history cannot be read.
+    pub fn shared_edits(&self) -> Result<Vec<Id>> {
+        let mut edited = Vec::new();
+        for row in self
+            .what_ive_sent(None)?
+            .groups
+            .into_iter()
+            .flat_map(|g| g.rows)
+        {
+            if let Some(shared) = &row.shared
+                && let Ok(bytes) = self.storage.read_file(&shared.file_ref)
+                && !shared
+                    .known
+                    .contains(&BlobHash::of(&bytes).as_str().to_owned())
+            {
+                edited.push(row.id.clone());
+            }
+        }
+        Ok(edited)
+    }
+
     /// "What I've sent".
     ///
     /// # Errors
