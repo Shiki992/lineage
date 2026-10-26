@@ -52,11 +52,17 @@ function common(policy: Policy): Record<string, string> {
 
 const MIME = { ".wasm": "application/wasm", ".xml": "application/xml" };
 
-/** The task pane: the page, its manifest, the ribbon icons and the build. */
+/**
+ * The task pane: the page, its manifest, the ribbon icons and the build. Its
+ * index.html only says where Lineage runs; Static Web Apps won't deploy a site
+ * without one.
+ */
 export function taskPaneSite(policy: Policy): SiteConfig {
   return {
     routes: [
       { route: "/taskpane.html", headers: PAGE },
+      // Matches "/" too: index.html is the folder's default file.
+      { route: "/index.html", headers: PAGE },
       { route: "/manifest.xml", headers: PAGE },
       // Before /assets/*: the icons keep their names across releases.
       { route: "/assets/icon-*", headers: ICON },

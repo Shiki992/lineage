@@ -77,6 +77,11 @@ describe("the Static Web Apps configuration", () => {
     expect(icon?.headers["Cache-Control"]).not.toMatch(/no-cache|no-store/);
   });
 
+  it("asks for the task pane's index page again each time, like its other pages", () => {
+    const index = taskPaneSite(taskPanePolicy(false)).routes.find((r) => r.route === "/index.html");
+    expect(index?.headers["Cache-Control"]).toBe("no-cache");
+  });
+
   it("never caches the sign-in bridge, and matches it before the other pages", () => {
     const routes = myDocumentsSite(myDocumentsPolicy()).routes;
     expect(routes[0]).toEqual({
@@ -221,10 +226,11 @@ describe("the checks on a finished build", () => {
     ]);
   });
 
-  it("need the hosting file, and for the task pane a manifest that passes", () => {
+  it("need the hosting file, an index page, and for the task pane a manifest that passes", () => {
     const release = build({ "404.html": "" });
     expect(distProblems(release, "taskPane", RELEASE)).toEqual([
       `there is no ${CONFIG_FILE}`,
+      "there is no index.html, which Static Web Apps needs before it deploys a site",
       "there is no manifest.xml",
     ]);
     const xml = renderManifest(template, releaseValues(RELEASE));
@@ -233,6 +239,7 @@ describe("the checks on a finished build", () => {
     );
     const good = build({
       "404.html": "",
+      "index.html": "",
       [CONFIG_FILE]: "{}",
       "manifest.xml": xml,
       "taskpane.html": "",
