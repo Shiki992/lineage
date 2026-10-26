@@ -51,6 +51,10 @@ export function distProblems(dir: string, site: Site, release: Release | undefin
     if (!all.includes(CONFIG_FILE)) {
       problems.push(`there is no ${CONFIG_FILE}`);
     }
+    // Static Web Apps' upload refuses a folder without one.
+    if (!all.includes("index.html")) {
+      problems.push("there is no index.html, which Static Web Apps needs before it deploys a site");
+    }
     if (site === "taskPane") {
       const manifest = path.join(dir, "manifest.xml");
       if (fs.existsSync(manifest)) {
